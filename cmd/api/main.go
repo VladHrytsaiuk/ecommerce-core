@@ -54,6 +54,10 @@ func main() {
 
 	// 2. Завантажуємо конфігурацію
 	cfg := config.Load()
+	storeConfig, err := app.NewStoreConfig(cfg)
+	if err != nil {
+		logger.Log.Fatalw("❌ Invalid store configuration", "error", err)
+	}
 
 	// 3. Підключення до бази даних
 	database := db.Connect(cfg.DBURL)
@@ -66,7 +70,7 @@ func main() {
 	}
 
 	// 5. Composition Root збирає залежності, HTTP пакет лише реєструє маршрути.
-	application, err := app.Bootstrap(cfg, database, tokenMaker)
+	application, err := app.Bootstrap(cfg, storeConfig, database, tokenMaker)
 	if err != nil {
 		logger.Log.Fatalw("❌ Invalid application configuration", "error", err)
 	}

@@ -26,7 +26,7 @@ func TestCleanupWorker_RunCleanup(t *testing.T) {
 	verifyCodeRepo.AssertExpectations(t)
 }
 
-func TestCleanupWorker_Start_Background(t *testing.T) {
+func TestCleanupWorker_RunUntilCancelled(t *testing.T) {
 	sessionRepo := &MockSessionRepository{}
 	verifyCodeRepo := &MockVerifyCodeRepository{}
 	l := &noopLogger{}
@@ -39,13 +39,18 @@ func TestCleanupWorker_Start_Background(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Запускаємо на дуже короткий інтервал (10мс)
+	// Application owns goroutine creation; the worker itself runs synchronously.
 	interval := 10 * time.Millisecond
-	worker.Start(ctx, interval)
+	done := make(chan struct{})
+	go func() {
+		worker.Run(ctx, interval)
+		close(done)
+	}()
 
 	// Даємо попрацювати трохи (50мс) — цього достатньо для декількох ітерацій
 	time.Sleep(50 * time.Millisecond)
 	cancel() // Останавливаем воркер
+	<-done
 
 	// Перевіряємо, чи були виклики
 	sessionRepo.AssertCalled(t, "DeleteExpired", mock.Anything)

@@ -25,11 +25,6 @@ func NewCartCleanupWorker(repo domain.CartRepository, l logger.Logger) *CartClea
 	}
 }
 
-// Start запускає цикл очищення у фоновій горутині.
-func (w *CartCleanupWorker) Start(ctx context.Context, interval time.Duration) {
-	go w.Run(ctx, interval)
-}
-
 // Run executes the cleanup loop until ctx is cancelled.
 func (w *CartCleanupWorker) Run(ctx context.Context, interval time.Duration) {
 	w.logger.Info("Starting Cart Cleanup Worker", zap.Duration("interval", interval), zap.Duration("max_age", w.maxAge))

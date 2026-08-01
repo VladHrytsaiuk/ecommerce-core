@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCartService_UpdateQuantity(t *testing.T) {
@@ -142,9 +142,14 @@ func TestCartCleanupWorker(t *testing.T) {
 		},
 	}
 	worker := NewCartCleanupWorker(repo, &mockLogger{})
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	worker.Start(ctx, 1*time.Millisecond)
+	done := make(chan struct{})
+	go func() {
+		worker.Run(ctx, time.Millisecond)
+		close(done)
+	}()
 	time.Sleep(5 * time.Millisecond) // Let it run
 	cancel()
+	<-done
 }

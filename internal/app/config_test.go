@@ -90,7 +90,7 @@ func TestBootstrapFailsBeforeBuildingDependenciesForInvalidConfig(t *testing.T) 
 	cfg := validConfig()
 	cfg.PaymentDefault = "stripe"
 
-	application, err := Bootstrap(cfg, nil, nil)
+	application, err := Bootstrap(cfg, StoreConfig{}, nil, nil)
 	if err == nil || application != nil {
 		t.Fatalf("Bootstrap() = (%v, %v), want (nil, validation error)", application, err)
 	}

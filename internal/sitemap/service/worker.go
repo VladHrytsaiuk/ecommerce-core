@@ -45,10 +45,6 @@ func (w *sitemapWorker) GetCategories() []byte { return w.cache.Load().(*cacheSt
 func (w *sitemapWorker) GetBrands() []byte     { return w.cache.Load().(*cacheStore).brands }
 func (w *sitemapWorker) GetDocuments() []byte  { return w.cache.Load().(*cacheStore).documents }
 
-func (w *sitemapWorker) Start(ctx context.Context, interval time.Duration) {
-	go w.Run(ctx, interval)
-}
-
 // Run executes sitemap regeneration until ctx is cancelled.
 func (w *sitemapWorker) Run(ctx context.Context, interval time.Duration) {
 	w.logger.Info("Starting Sitemap Worker", zap.Duration("interval", interval))

@@ -99,9 +99,13 @@ implementations. `internal/http/router.go` becomes an HTTP composition layer;
    - then payment/order/shipment services and workers.
    Keep `InitRouter` temporarily, but change its signature to accept the
    constructed `Application` or a small `HTTPDependencies` struct.
-3. Change `cmd/api/main.go` to call `app.Bootstrap(ctx, cfg, database,
-   tokenMaker)` and then `http.NewRouter(app)`. Keep a thin temporary wrapper
-   named `InitRouter` if that avoids a large route diff.
+3. Change `cmd/api/main.go` to validate `storeConfig :=
+   app.NewStoreConfig(cfg)` before opening the database, then call
+   `app.Bootstrap(cfg, storeConfig, database, tokenMaker)` and
+   `http.InitRouter(app)`. `Application.Start` owns worker startup; call
+   `StopContext` only after `http.Server.Shutdown` drains in-flight requests.
+   Keep a thin temporary wrapper named `InitRouter` if that avoids a large
+   route diff.
 4. Split `internal/platform/config/config.go` into typed nested configuration
    while retaining a compatibility `Config` during the transition:
 

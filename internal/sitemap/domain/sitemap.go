@@ -63,7 +63,6 @@ type SitemapCache interface {
 // SitemapWorkerService об'єднує генерацію та кешування
 type SitemapWorkerService interface {
 	SitemapCache
-	Start(ctx context.Context, interval time.Duration)
 	Run(ctx context.Context, interval time.Duration)
 	GenerateAll(ctx context.Context) error
 }

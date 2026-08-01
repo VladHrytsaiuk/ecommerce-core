@@ -29,12 +29,6 @@ func NewCleanupWorker(
 	}
 }
 
-// Start запускає цикл очищення у фоновій горутині.
-// Очищення відбувається раз на заданий інтервал.
-func (w *CleanupWorker) Start(ctx context.Context, interval time.Duration) {
-	go w.Run(ctx, interval)
-}
-
 // Run executes the cleanup loop until ctx is cancelled.
 func (w *CleanupWorker) Run(ctx context.Context, interval time.Duration) {
 	w.logger.Info("Starting Cleanup Worker", zap.Duration("interval", interval))
