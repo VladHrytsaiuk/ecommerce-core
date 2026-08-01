@@ -1,14 +1,7 @@
 package http
 
 import (
-	"strings"
-	"time"
-
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
-	"golang.org/x/time/rate"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
 	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
@@ -16,7 +9,6 @@ import (
 	discountHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/delivery/http"
 	documentHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/document/delivery/http"
 	feedbackHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/feedback/delivery/http"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	orderHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/order/delivery/http"
 	paymentHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payment/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
@@ -37,58 +29,27 @@ func InitRouter(application *app.Application) *gin.Engine {
 		logger.Log.Warnw("failed to set trusted proxies", "error", err)
 	}
 
-	r.Use(gin.Recovery())
-	r.Use(middleware.TimeoutMiddleware(cfg.RequestTimeout))
-	r.Use(func(c *gin.Context) {
-		logger.Log.Infow("Inbound Request", "method", c.Request.Method, "path", c.Request.URL.Path, "ip", c.ClientIP())
-		c.Next()
-	})
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     cfg.CORSAllowOrigins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Session-ID", "Accept-Language"},
-		ExposeHeaders:    []string{"Content-Length", "X-Session-ID"},
-		AllowCredentials: true,
-	}))
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
-	authHandler := userHTTP.NewAuthHandler(application.AuthService, application.WSHub, cfg, logger.Log)
-	userHandler := userHTTP.NewUserHandler(application.UserService, logger.Log)
-	authMiddleware := middleware.AuthMiddleware(application.TokenMaker)
-	optionalAuthMiddleware := middleware.OptionalAuthMiddleware(application.TokenMaker)
-	sessionMiddleware := middleware.SessionMiddleware(strings.HasPrefix(cfg.FrontendURL, "https://"))
-	otpSendRateLimitMiddleware := middleware.NewOTPSendRateLimiter(cfg.OTPSendRateLimit, cfg.OTPSendRateInterval).Middleware()
-	customerRateLimitMiddleware := middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(rate.Limit(5), 10))
-	adminRateLimitMiddleware := middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(rate.Limit(0.2), 3))
-	feedbackRateLimitMiddleware := middleware.RateLimitMiddleware(
-		middleware.NewIPRateLimiter(rate.Every(cfg.EmailRateInterval/time.Duration(cfg.EmailRateLimit)), 3),
-	)
+	r.Use(application.HTTP.Recovery, application.HTTP.Timeout, application.HTTP.RequestLogging, application.HTTP.CORS)
+	r.GET("/swagger/*any", application.HTTP.Swagger)
 
 	api := r.Group("/api")
-	api.GET("/ping", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "pong", "status": "API is ready!"})
-	})
+	api.GET("/ping", application.HTTP.Health)
 
 	adminAPIGroup := api.Group("/admin")
-	sitemapHandler := sitemapHTTP.NewSitemapHandler(application.SitemapWorker, cfg, logger.Log)
-	sitemapHTTP.RegisterSitemapRoutes(api, sitemapHandler)
-	userHTTP.RegisterRoutes(api, adminAPIGroup, authHandler, userHandler, authMiddleware, optionalAuthMiddleware, otpSendRateLimitMiddleware, customerRateLimitMiddleware, adminRateLimitMiddleware)
+	sitemapHTTP.RegisterSitemapRoutes(api, application.HTTP.SitemapHandler)
+	userHTTP.RegisterRoutes(api, adminAPIGroup, application.HTTP.AuthHandler, application.HTTP.UserHandler, application.HTTP.AuthMiddleware, application.HTTP.OptionalAuthMiddleware, application.HTTP.OTPSendRateLimit, application.HTTP.CustomerRateLimit, application.HTTP.AdminRateLimit)
 
 	authGroup := api.Group("")
-	authGroup.Use(authMiddleware)
+	authGroup.Use(application.HTTP.AuthMiddleware)
 	adminGroup := api.Group("/admin")
-	adminGroup.Use(authMiddleware, middleware.AdminMiddleware(), middleware.AuditMiddleware(application.AuditService))
+	adminGroup.Use(application.HTTP.AuthMiddleware, application.HTTP.AdminMiddleware, application.HTTP.AuditMiddleware)
 
 	shipmentHTTP.RegisterShipmentRoutes(api, adminGroup, application.ShipmentService, logger.Log)
 	discountHTTP.RegisterPromoRoutes(adminGroup, application.PromoService, logger.Log)
-	feedbackHTTP.RegisterFeedbackRoutes(api, adminGroup, feedbackRateLimitMiddleware, application.FeedbackService, logger.Log)
+	feedbackHTTP.RegisterFeedbackRoutes(api, adminGroup, application.HTTP.FeedbackRateLimit, application.FeedbackService, logger.Log)
 
 	localeGroup := api.Group("/:lang")
-	localeGroup.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{
-		DefaultLocale:    application.StoreConfig.DefaultLocale,
-		FallbackLocale:   application.StoreConfig.FallbackLocale,
-		SupportedLocales: application.StoreConfig.SupportedLocales,
-	}))
+	localeGroup.Use(application.HTTP.LocaleMiddleware)
 	{
 		categoryHTTP.RegisterCategoryRoutes(localeGroup, adminGroup, application.CategoryService, application.RedirectService, logger.Log)
 		productHTTP.RegisterBrandRoutes(localeGroup, adminGroup, application.BrandService, logger.Log)
@@ -96,9 +57,9 @@ func InitRouter(application *app.Application) *gin.Engine {
 		productHTTP.RegisterBadgeRoutes(adminGroup, application.BadgeService, logger.Log)
 
 		authLocaleGroup := localeGroup.Group("")
-		authLocaleGroup.Use(authMiddleware)
+		authLocaleGroup.Use(application.HTTP.AuthMiddleware)
 		optionalAuthLocaleGroup := localeGroup.Group("")
-		optionalAuthLocaleGroup.Use(optionalAuthMiddleware, sessionMiddleware)
+		optionalAuthLocaleGroup.Use(application.HTTP.OptionalAuthMiddleware, application.HTTP.SessionMiddleware)
 
 		productHTTP.RegisterProductRoutes(localeGroup, authLocaleGroup, adminGroup, api, authGroup, application.ProductService, application.CategoryService, application.RedirectService, logger.Log)
 		wishlistHTTP.RegisterWishlistRoutes(optionalAuthLocaleGroup, authLocaleGroup, application.WishlistService, logger.Log)

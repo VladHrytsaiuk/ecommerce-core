@@ -41,6 +41,24 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want: "locale",
 		},
 		{
+			name:   "duplicate locale",
+			mutate: func(cfg *config.Config) { cfg.SupportedLocales = []string{"uk", "uk"} },
+			want:   "duplicates",
+		},
+		{
+			name: "missing payment credentials",
+			mutate: func(cfg *config.Config) {
+				cfg.LiqPayPublicKey = ""
+				cfg.LiqPayPrivateKey = ""
+			},
+			want: "LIQPAY_PUBLIC_KEY",
+		},
+		{
+			name:   "missing delivery credentials",
+			mutate: func(cfg *config.Config) { cfg.NovaPoshtaAPIKey = "" },
+			want:   "NOVA_POSHTA_API_KEY",
+		},
+		{
 			name:   "external inventory before sync exists",
 			mutate: func(cfg *config.Config) { cfg.InventoryMode = "external_1c" },
 			want:   "INVENTORY_MODE",
@@ -85,6 +103,7 @@ func validConfig() *config.Config {
 		Currency: "UAH", PriceScale: 2, TaxMode: "none", VATRate: 0,
 		PaymentProviders: []string{"liqpay"}, PaymentDefault: "liqpay",
 		ShippingProviders: []string{"novaposhta"}, ShippingDefault: "novaposhta",
-		InventoryMode: "internal",
+		InventoryMode:   "internal",
+		LiqPayPublicKey: "public", LiqPayPrivateKey: "private", NovaPoshtaAPIKey: "key",
 	}
 }

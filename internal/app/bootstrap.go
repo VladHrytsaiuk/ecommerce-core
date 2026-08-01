@@ -4,9 +4,16 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 
 	auditDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/audit/domain"
@@ -27,6 +34,7 @@ import (
 	feedbackDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/feedback/domain"
 	feedbackPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/feedback/repository/postgres"
 	feedbackSvc "github.com/VladHrytsaiuk/ecommerce-core/internal/feedback/service"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/integration/novaposhta"
 	integrationSMS "github.com/VladHrytsaiuk/ecommerce-core/internal/integration/sms"
 	orderDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
@@ -53,9 +61,11 @@ import (
 	shipmentPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/shipment/repository/postgres"
 	shipmentSvc "github.com/VladHrytsaiuk/ecommerce-core/internal/shipment/service"
 	shippingSvc "github.com/VladHrytsaiuk/ecommerce-core/internal/shipping/service"
+	sitemapHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/sitemap/delivery/http"
 	sitemapDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/sitemap/domain"
 	sitemapPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/sitemap/repository/postgres"
 	sitemapSvc "github.com/VladHrytsaiuk/ecommerce-core/internal/sitemap/service"
+	userHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/user/delivery/http"
 	userDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/user/domain"
 	userPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/user/repository/postgres"
 	userSvc "github.com/VladHrytsaiuk/ecommerce-core/internal/user/service"
@@ -103,11 +113,37 @@ type Application struct {
 	workersWG      sync.WaitGroup
 	workersStarted bool
 	stopWorkers    context.CancelFunc
+
+	HTTP HTTPDependencies
 }
 
-// Bootstrap constructs the current dependency graph and starts its background
-// workers. It preserves the legacy implementations while moving composition out
-// of the HTTP router.
+// HTTPDependencies are constructed in the Composition Root and attached by
+// the router without further dependency creation.
+type HTTPDependencies struct {
+	Recovery               gin.HandlerFunc
+	Timeout                gin.HandlerFunc
+	RequestLogging         gin.HandlerFunc
+	CORS                   gin.HandlerFunc
+	Swagger                gin.HandlerFunc
+	Health                 gin.HandlerFunc
+	AuthHandler            *userHTTP.AuthHandler
+	UserHandler            *userHTTP.UserHandler
+	SitemapHandler         *sitemapHTTP.SitemapHandler
+	AuthMiddleware         gin.HandlerFunc
+	OptionalAuthMiddleware gin.HandlerFunc
+	SessionMiddleware      gin.HandlerFunc
+	OTPSendRateLimit       gin.HandlerFunc
+	CustomerRateLimit      gin.HandlerFunc
+	AdminRateLimit         gin.HandlerFunc
+	FeedbackRateLimit      gin.HandlerFunc
+	AdminMiddleware        gin.HandlerFunc
+	AuditMiddleware        gin.HandlerFunc
+	LocaleMiddleware       gin.HandlerFunc
+}
+
+// Bootstrap constructs the current dependency graph. Workers are created here
+// but started explicitly by Application.Start. It preserves the legacy
+// implementations while moving composition out of the HTTP router.
 func Bootstrap(cfg *config.Config, db *gorm.DB, tokenMaker token.Maker) (*Application, error) {
 	storeConfig, err := NewStoreConfig(cfg)
 	if err != nil {
@@ -198,6 +234,37 @@ func Bootstrap(cfg *config.Config, db *gorm.DB, tokenMaker token.Maker) (*Applic
 	trackingInterval := time.Duration(cfg.NPTrackingIntervalMinutes) * time.Minute
 	trackingWorker := orderSvc.NewTrackingWorker(orderRepo, carrierService, logger.Log, trackingInterval)
 
+	httpDependencies := HTTPDependencies{
+		Recovery: gin.Recovery(),
+		Timeout:  middleware.TimeoutMiddleware(cfg.RequestTimeout),
+		RequestLogging: func(c *gin.Context) {
+			logger.Log.Infow("Inbound Request", "method", c.Request.Method, "path", c.Request.URL.Path, "ip", c.ClientIP())
+			c.Next()
+		},
+		CORS: cors.New(cors.Config{
+			AllowOrigins: cfg.CORSAllowOrigins, AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Session-ID", "Accept-Language"},
+			ExposeHeaders: []string{"Content-Length", "X-Session-ID"}, AllowCredentials: true,
+		}),
+		Swagger:                ginSwagger.WrapHandler(swaggerFiles.Handler),
+		Health:                 func(c *gin.Context) { c.JSON(200, gin.H{"message": "pong", "status": "API is ready!"}) },
+		AuthHandler:            userHTTP.NewAuthHandler(authService, wsHub, cfg, logger.Log),
+		UserHandler:            userHTTP.NewUserHandler(userService, logger.Log),
+		SitemapHandler:         sitemapHTTP.NewSitemapHandler(sitemapWorker, cfg, logger.Log),
+		AuthMiddleware:         middleware.AuthMiddleware(tokenMaker),
+		OptionalAuthMiddleware: middleware.OptionalAuthMiddleware(tokenMaker),
+		SessionMiddleware:      middleware.SessionMiddleware(strings.HasPrefix(cfg.FrontendURL, "https://")),
+		OTPSendRateLimit:       middleware.NewOTPSendRateLimiter(cfg.OTPSendRateLimit, cfg.OTPSendRateInterval).Middleware(),
+		CustomerRateLimit:      middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(rate.Limit(5), 10)),
+		AdminRateLimit:         middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(rate.Limit(0.2), 3)),
+		FeedbackRateLimit:      middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(rate.Every(cfg.EmailRateInterval/time.Duration(cfg.EmailRateLimit)), 3)),
+		AdminMiddleware:        middleware.AdminMiddleware(),
+		AuditMiddleware:        middleware.AuditMiddleware(auditService),
+		LocaleMiddleware: middleware.NewLocaleMiddleware(middleware.LocaleOptions{
+			DefaultLocale: storeConfig.DefaultLocale, FallbackLocale: storeConfig.FallbackLocale, SupportedLocales: storeConfig.SupportedLocales,
+		}),
+	}
+
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker, WSHub: wsHub,
 		AuthService: authService, UserService: userService,
@@ -213,6 +280,7 @@ func Bootstrap(cfg *config.Config, db *gorm.DB, tokenMaker token.Maker) (*Applic
 		cleanupWorker: cleanupWorker, wishlistCleanupWorker: wishlistCleanupWorker,
 		cartCleanupWorker: cartCleanupWorker, paymentWorker: paymentWorker,
 		trackingWorker: trackingWorker,
+		HTTP:           httpDependencies,
 	}, nil
 }
 
@@ -238,17 +306,36 @@ func (a *Application) Start(ctx context.Context) {
 	a.startWorker(func() { a.trackingWorker.Run(workerCtx) })
 }
 
-// Stop requests cancellation of all background workers. Existing worker
-// operations receive the cancellation context and can roll back safely. Stop
-// waits until every worker loop has returned before completing shutdown.
+// Stop requests worker cancellation and waits without a deadline. Prefer
+// StopContext from server shutdown code so a stuck external dependency cannot
+// block process termination indefinitely.
 func (a *Application) Stop() {
+	_ = a.StopContext(context.Background())
+}
+
+// StopContext requests worker cancellation and waits until all worker loops
+// return or the supplied deadline expires.
+func (a *Application) StopContext(ctx context.Context) error {
 	a.workersMu.Lock()
 	cancel := a.stopWorkers
 	a.workersMu.Unlock()
 
-	if cancel != nil {
-		cancel()
+	if cancel == nil {
+		return nil
+	}
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
 		a.workersWG.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for application workers: %w", ctx.Err())
 	}
 }
 

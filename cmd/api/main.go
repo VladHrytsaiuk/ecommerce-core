@@ -70,7 +70,10 @@ func main() {
 	if err != nil {
 		logger.Log.Fatalw("❌ Invalid application configuration", "error", err)
 	}
-	application.Start(ctx)
+	// Worker lifecycle is stopped after HTTP requests drain, not immediately on
+	// SIGTERM. This prevents a shutdown signal from cancelling work needed by an
+	// in-flight checkout request.
+	application.Start(context.Background())
 	r := apphttp.InitRouter(application)
 
 	// Налаштування Swagger
@@ -108,14 +111,19 @@ func main() {
 	<-ctx.Done()
 
 	logger.Log.Info("🛑 Shutting down server...")
-	application.Stop()
-
 	// Даємо серверу 5 секунд на завершення поточних запитів
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Log.Fatalw("❌ Server forced to shutdown", "error", err)
+		// Continue with worker cancellation even when a handler exceeded the HTTP
+		// deadline. Fatalw would call os.Exit and skip that controlled cleanup.
+		logger.Log.Errorw("❌ Server forced to shutdown", "error", err)
+	}
+	workersShutdownCtx, stopWorkers := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopWorkers()
+	if err := application.StopContext(workersShutdownCtx); err != nil {
+		logger.Log.Errorw("⚠️ Background workers did not stop before deadline", "error", err)
 	}
 
 	logger.Log.Info("👋 Server exited properly")

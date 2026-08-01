@@ -31,13 +31,16 @@ type StoreConfig struct {
 	EnabledModules       []string
 	CheckoutAllowGuest   bool
 	CheckoutRequirePhone bool
+
+	liqPayConfigured     bool
+	novaPoshtaConfigured bool
 }
 
 // NewStoreConfig maps environment-loaded configuration into the typed
 // application configuration and validates only capabilities implemented today.
 func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 	storeConfig := StoreConfig{
-		Code: cfg.StoreCode, Name: cfg.StoreName,
+		Code: normalize(cfg.StoreCode), Name: strings.TrimSpace(cfg.StoreName),
 		DefaultLocale:    normalize(cfg.DefaultLocale),
 		SupportedLocales: normalizeAll(cfg.SupportedLocales),
 		FallbackLocale:   normalize(cfg.FallbackLocale),
@@ -51,6 +54,8 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		EnabledModules:       normalizeAll(cfg.EnabledModules),
 		CheckoutAllowGuest:   cfg.CheckoutAllowGuest,
 		CheckoutRequirePhone: cfg.CheckoutRequirePhone,
+		liqPayConfigured:     cfg.LiqPayPublicKey != "" && cfg.LiqPayPrivateKey != "",
+		novaPoshtaConfigured: cfg.NovaPoshtaAPIKey != "",
 	}
 	return storeConfig, storeConfig.Validate()
 }
@@ -67,6 +72,9 @@ func (c StoreConfig) Validate() error {
 	}
 	if len(c.SupportedLocales) == 0 {
 		return fmt.Errorf("SUPPORTED_LOCALES must contain at least one locale")
+	}
+	if hasDuplicates(c.SupportedLocales) {
+		return fmt.Errorf("SUPPORTED_LOCALES must not contain duplicates")
 	}
 	if !contains(c.SupportedLocales, c.DefaultLocale) {
 		return fmt.Errorf("DEFAULT_LOCALE %q is not in SUPPORTED_LOCALES", c.DefaultLocale)
@@ -100,11 +108,20 @@ func (c StoreConfig) Validate() error {
 	if !allEqual(c.PaymentProviders, "liqpay") {
 		return fmt.Errorf("only the liqpay payment adapter is implemented")
 	}
+	if !c.liqPayConfigured {
+		return fmt.Errorf("LIQPAY_PUBLIC_KEY and LIQPAY_PRIVATE_KEY are required when liqpay is enabled")
+	}
 	if !allEqual(c.ShippingProviders, "novaposhta") {
 		return fmt.Errorf("only the novaposhta delivery adapter is implemented")
 	}
+	if !c.novaPoshtaConfigured {
+		return fmt.Errorf("NOVA_POSHTA_API_KEY is required when novaposhta is enabled")
+	}
 	if c.InventoryMode != "internal" {
 		return fmt.Errorf("INVENTORY_MODE %q is not implemented yet", c.InventoryMode)
+	}
+	if len(c.EnabledModules) > 0 {
+		return fmt.Errorf("ENABLED_MODULES contains modules that are not implemented yet")
 	}
 	return nil
 }
@@ -141,6 +158,17 @@ func allEqual(values []string, expected string) bool {
 		}
 		return true
 	}()
+}
+
+func hasDuplicates(values []string) bool {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if _, exists := seen[value]; exists {
+			return true
+		}
+		seen[value] = struct{}{}
+	}
+	return false
 }
 
 func isSupportedLocale(locale string) bool {
