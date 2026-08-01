@@ -1,0 +1,5 @@
+ALTER TABLE user_address ADD COLUMN area_ref VARCHAR(100);
+ALTER TABLE user_address ADD COLUMN area_name VARCHAR(100);
+
+ALTER TABLE delivery ADD COLUMN area_ref VARCHAR(100);
+ALTER TABLE delivery ADD COLUMN area_name VARCHAR(100);

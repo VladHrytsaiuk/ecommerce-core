@@ -1,0 +1,314 @@
+stages:
+  - test
+  - package
+  - deploy
+
+workflow:
+  rules:
+    # Pipeline для Merge Request.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+    # Не створювати одночасно MR pipeline і branch pipeline
+    # для гілки з відкритим MR.
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+
+    # Pipeline після merge/push у develop.
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+
+    # Production pipeline після merge/push у main.
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+    - when: never
+
+variables:
+  GOPATH: '$CI_PROJECT_DIR/.go'
+  GOCACHE: '$CI_PROJECT_DIR/.go/build-cache'
+  GOMODCACHE: '$CI_PROJECT_DIR/.go/pkg/mod'
+
+# Unit та integration tests.
+# Docker-in-Docker потрібний для testcontainers-go/PostgreSQL.
+test:
+  stage: test
+  image: golang:1.25.4-alpine
+  interruptible: true
+  tags:
+    - local-docker
+  services:
+    - name: docker:27.5.1-dind
+      alias: docker
+      command:
+        - '--tls=false'
+
+  variables:
+    DOCKER_HOST: 'tcp://docker:2375'
+    DOCKER_TLS_CERTDIR: ''
+
+  cache:
+    key:
+      files:
+        - go.sum
+    paths:
+      - .go/build-cache/
+      - .go/pkg/mod/
+    policy: pull-push
+
+  before_script:
+    - apk add --no-cache gcc musl-dev docker-cli
+
+    - |
+      until docker info >/dev/null 2>&1; do
+        echo "Waiting for Docker daemon..."
+        sleep 1
+      done
+
+  script:
+    - go test -v ./...
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# Працює тільки в main після успішних тестів.
+#
+# Створює:
+# - registry.gitlab.com/.../aquawheel-store:<commit-sha>
+# - registry.gitlab.com/.../aquawheel-store:production
+#
+# Збирається лише linux/arm64 для поточного AWS aarch64.
+package_backend_image:
+  stage: package
+  image: docker:27.5.1-cli
+  interruptible: true
+  tags:
+    - local-docker
+  services:
+    - name: docker:27.5.1-dind
+      alias: docker
+      command:
+        - '--tls=false'
+
+  variables:
+    DOCKER_HOST: 'tcp://docker:2375'
+    DOCKER_TLS_CERTDIR: ''
+
+  needs:
+    - job: test
+
+  resource_group: aquawheel-backend-production-image
+
+  before_script:
+    - docker info
+    - docker buildx version
+
+    - >
+      echo "$CI_REGISTRY_PASSWORD" |
+      docker login "$CI_REGISTRY"
+      --username "$CI_REGISTRY_USER"
+      --password-stdin
+
+    - >
+      docker buildx create
+      --name aquawheel-backend-builder
+      --driver docker-container
+      --use
+
+    - docker buildx inspect --bootstrap
+
+  script:
+    - export IMAGE_SHA="${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
+    - export IMAGE_PRODUCTION="${CI_REGISTRY_IMAGE}:production"
+
+    - echo "Commit image:$IMAGE_SHA"
+    - echo "Production image:$IMAGE_PRODUCTION"
+
+    - >
+      docker buildx build
+      --platform linux/arm64
+      --pull
+      --tag "$IMAGE_SHA"
+      --tag "$IMAGE_PRODUCTION"
+      --push
+      .
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# Автоматичний production deploy після успішного package_backend_image.
+#
+# Перезапускає лише backend:
+# - Caddy не перезапускається;
+# - frontend не перезапускається;
+# - база даних не перезапускається.
+#
+# Перед оновленням зберігає локальний rollback image.
+# При невдалому health check автоматично повертає попередню версію.
+deploy_production:
+  stage: deploy
+  image: alpine:3.22
+  interruptible: false
+  tags:
+    - local-docker
+  needs:
+    - job: package_backend_image
+
+  resource_group: aquawheel-production-backend
+
+  environment:
+    name: production
+    url: https://18.192.203.70.nip.io
+
+  before_script:
+    - apk add --no-cache openssh-client
+
+    - eval "$(ssh-agent -s)"
+    - chmod 400 "$PROD_SSH_PRIVATE_KEY"
+    - ssh-add "$PROD_SSH_PRIVATE_KEY"
+
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+
+    - cp "$PROD_SSH_KNOWN_HOSTS" ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+
+  script:
+    - |
+      ssh \
+        -o BatchMode=yes \
+        -o StrictHostKeyChecking=yes \
+        -o ConnectTimeout=15 \
+        "$PROD_SERVER_USER@$PROD_SERVER_HOST" \
+        "DEPLOY_TAG='$CI_COMMIT_SHA' bash -s" <<'REMOTE'
+      set -Eeuo pipefail
+
+      cd /opt/aquawheel-infra
+
+      ROLLBACK_ENV=".env.backend.rollback"
+
+      BACKEND_IMAGE="$(
+        grep '^BACKEND_IMAGE=' .env |
+        cut -d= -f2-
+      )"
+
+      DOMAIN="$(
+        grep '^DOMAIN=' .env |
+        cut -d= -f2-
+      )"
+
+      test -n "$BACKEND_IMAGE"
+      test -n "$DOMAIN"
+      test -n "$DEPLOY_TAG"
+
+      echo "Backend image: $BACKEND_IMAGE"
+      echo "Deploy tag: $DEPLOY_TAG"
+      echo "Health-check domain: $DOMAIN"
+
+      CURRENT_CONTAINER_ID="$(docker compose ps -q backend)"
+      test -n "$CURRENT_CONTAINER_ID"
+
+      CURRENT_IMAGE_ID="$(
+        docker inspect \
+          --format '{{.Image}}' \
+          "$CURRENT_CONTAINER_ID"
+      )"
+
+      test -n "$CURRENT_IMAGE_ID"
+
+      echo "Saving current backend image as local rollback tag..."
+
+      docker image tag \
+        "$CURRENT_IMAGE_ID" \
+        "${BACKEND_IMAGE}:rollback"
+
+      cp .env "$ROLLBACK_ENV"
+
+      rollback() {
+        exit_code=$?
+
+        trap - ERR INT TERM
+
+        echo "Backend deployment failed."
+        echo "Restoring previous backend image..."
+
+        if [ -f "$ROLLBACK_ENV" ]; then
+          cp "$ROLLBACK_ENV" .env
+
+          if grep -q '^BACKEND_TAG=' .env; then
+            sed -i \
+              's/^BACKEND_TAG=.*/BACKEND_TAG=rollback/' \
+              .env
+          else
+            printf '\nBACKEND_TAG=rollback\n' >> .env
+          fi
+
+          docker compose up -d --no-deps backend || true
+
+          sleep 5
+
+          docker compose ps backend || true
+          docker compose logs --tail=100 backend || true
+        fi
+
+        exit "$exit_code"
+      }
+
+      trap rollback ERR INT TERM
+
+      echo "Selecting backend image tag $DEPLOY_TAG..."
+
+      if grep -q '^BACKEND_TAG=' .env; then
+        sed -i \
+          "s/^BACKEND_TAG=.*/BACKEND_TAG=${DEPLOY_TAG}/" \
+          .env
+      else
+        printf '\nBACKEND_TAG=%s\n' "$DEPLOY_TAG" >> .env
+      fi
+
+      docker compose config --quiet
+
+      echo "Pulling new backend image..."
+      docker compose pull backend
+
+      echo "Starting new backend container..."
+      docker compose up -d --no-deps backend
+
+      echo "Waiting for backend health check..."
+
+      for attempt in $(seq 1 30); do
+        if curl \
+          --fail \
+          --silent \
+          --show-error \
+          --max-time 5 \
+          "https://${DOMAIN}/api/shipment/config" \
+          >/dev/null; then
+
+          echo "Backend deployment succeeded."
+
+          rm -f "$ROLLBACK_ENV"
+          trap - ERR INT TERM
+
+          docker compose ps backend
+
+          DEPLOYED_CONTAINER_ID="$(docker compose ps -q backend)"
+
+          docker inspect \
+            --format 'Running image: {{.Config.Image}}' \
+            "$DEPLOYED_CONTAINER_ID"
+
+          exit 0
+        fi
+
+        echo "Health check attempt ${attempt}/30 failed..."
+        sleep 2
+      done
+
+      echo "Backend health check failed after 60 seconds."
+      docker compose logs --tail=100 backend || true
+
+      false
+      REMOTE
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'

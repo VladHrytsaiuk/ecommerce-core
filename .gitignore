@@ -1,0 +1,17 @@
+# Binaries
+/bin/
+*.exe
+
+# Environment variables
+.env
+
+# Go workspace
+go.work
+go.work.sum
+vendor/
+
+# OS specific
+.DS_Store
+
+# IDE
+.idea/

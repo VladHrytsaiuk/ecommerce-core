@@ -1,0 +1,5 @@
+ALTER TABLE brand DROP COLUMN IF EXISTS created_at;
+ALTER TABLE brand DROP COLUMN IF EXISTS updated_at;
+
+ALTER TABLE attribute DROP COLUMN IF EXISTS created_at;
+ALTER TABLE attribute DROP COLUMN IF EXISTS updated_at;

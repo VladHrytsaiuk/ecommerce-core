@@ -1,0 +1,5 @@
+DROP INDEX IF EXISTS idx_brand_slug;
+ALTER TABLE brand DROP COLUMN IF EXISTS slug;
+
+DROP INDEX IF EXISTS idx_category_slug;
+ALTER TABLE category DROP COLUMN IF EXISTS slug;

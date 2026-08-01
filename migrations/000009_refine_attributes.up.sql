@@ -1,0 +1,2 @@
+ALTER TABLE attribute ADD COLUMN code VARCHAR(50) UNIQUE;
+ALTER TABLE attribute ADD COLUMN unit_id INT REFERENCES unit(id);

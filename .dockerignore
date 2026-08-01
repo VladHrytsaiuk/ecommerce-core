@@ -1,0 +1,14 @@
+.git
+.gitignore
+.gitlab-ci.yml
+
+.env
+.env.*
+!.env.example
+
+main
+*.log
+coverage.out
+.go
+
+.DS_Store

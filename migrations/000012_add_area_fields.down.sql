@@ -1,0 +1,5 @@
+ALTER TABLE user_address DROP COLUMN IF EXISTS area_ref;
+ALTER TABLE user_address DROP COLUMN IF EXISTS area_name;
+
+ALTER TABLE delivery DROP COLUMN IF EXISTS area_ref;
+ALTER TABLE delivery DROP COLUMN IF EXISTS area_name;
