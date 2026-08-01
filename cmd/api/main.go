@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
 	apphttp "github.com/VladHrytsaiuk/ecommerce-core/internal/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
@@ -64,8 +65,13 @@ func main() {
 		logger.Log.Fatalw("❌ Cannot create token maker", "error", err)
 	}
 
-	// 5. Ініціалізація головного роутера (збирає всі модулі)
-	r := apphttp.InitRouter(ctx, cfg, database, tokenMaker)
+	// 5. Composition Root збирає залежності, HTTP пакет лише реєструє маршрути.
+	application, err := app.Bootstrap(cfg, database, tokenMaker)
+	if err != nil {
+		logger.Log.Fatalw("❌ Invalid application configuration", "error", err)
+	}
+	application.Start(ctx)
+	r := apphttp.InitRouter(application)
 
 	// Налаштування Swagger
 	// Якщо APIHost порожній, очищуємо його, щоб Swagger UI використовував відносні шляхи (автовизначення хоста)
@@ -102,6 +108,7 @@ func main() {
 	<-ctx.Done()
 
 	logger.Log.Info("🛑 Shutting down server...")
+	application.Stop()
 
 	// Даємо серверу 5 секунд на завершення поточних запитів
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

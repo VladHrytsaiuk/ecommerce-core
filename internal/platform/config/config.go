@@ -66,9 +66,9 @@ type Config struct {
 	BadgeBestSellerThreshold int
 
 	// Order / Payment
-	AdminNotificationEmail   string
-	LiqPayPublicKey          string
-	LiqPayPrivateKey         string
+	AdminNotificationEmail string
+	LiqPayPublicKey        string
+	LiqPayPrivateKey       string
 
 	// Nova Poshta Sender (for TTN creation)
 	NPSenderRef               string
@@ -92,6 +92,26 @@ type Config struct {
 	OBMStatusCheck     bool
 	PhoneCodeTTL       time.Duration
 	CORSAllowOrigins   []string
+
+	// Store configuration. These fields are consumed by internal/app during the
+	// Strangler Fig migration; legacy services continue to use the fields above.
+	StoreCode            string
+	StoreName            string
+	DefaultLocale        string
+	SupportedLocales     []string
+	FallbackLocale       string
+	Currency             string
+	PriceScale           int
+	TaxMode              string
+	VATRate              int
+	PaymentProviders     []string
+	PaymentDefault       string
+	ShippingProviders    []string
+	ShippingDefault      string
+	InventoryMode        string
+	EnabledModules       []string
+	CheckoutAllowGuest   bool
+	CheckoutRequirePhone bool
 }
 
 // Load читає файл .env (якщо він існує) та повертає готову структуру Config.
@@ -343,56 +363,91 @@ func Load() *Config {
 		}
 	}
 
+	storeCode := getEnvString("STORE_CODE", "default-store")
+	storeName := getEnvString("STORE_NAME", "ecommerce-core store")
+	defaultLocale := getEnvString("DEFAULT_LOCALE", "uk")
+	supportedLocales := getEnvList("SUPPORTED_LOCALES", []string{"uk", "en"})
+	fallbackLocale := getEnvString("FALLBACK_LOCALE", defaultLocale)
+	currency := getEnvString("CURRENCY", "UAH")
+	priceScale := getEnvInt("PRICE_SCALE", 2)
+	taxMode := getEnvString("TAX_MODE", "none")
+	vatRate := getEnvInt("VAT_RATE", 0)
+	paymentProviders := getEnvList("PAYMENT_PROVIDERS", []string{"liqpay"})
+	paymentDefault := getEnvString("PAYMENT_DEFAULT", "liqpay")
+	shippingProviders := getEnvList("SHIPPING_PROVIDERS", []string{"novaposhta"})
+	shippingDefault := getEnvString("SHIPPING_DEFAULT", "novaposhta")
+	inventoryMode := getEnvString("INVENTORY_MODE", "internal")
+	enabledModules := getEnvList("ENABLED_MODULES", nil)
+	checkoutAllowGuest := getEnvBool("CHECKOUT_ALLOW_GUEST", true)
+	checkoutRequirePhone := getEnvBool("CHECKOUT_REQUIRE_PHONE", true)
+
 	return &Config{
-		Port:                     port,
-		DBURL:                    dbURL,
-		JWTSecret:                jwtSecret,
-		AccessTokenDuration:      accessTokenDuration,
-		RefreshTokenDuration:     refreshTokenDuration,
-		FrontendURL:              frontendURL,
-		GoogleClientID:           googleClientID,
-		MaxSessions:              maxSessions,
-		Env:                      appEnv,
-		RequestTimeout:           requestTimeout,
-		SMTPHost:                 smtpHost,
-		SMTPPort:                 smtpPort,
-		SMTPUser:                 smtpUser,
-		SMTPPassword:             smtpPassword,
-		SMTPFrom:                 smtpFrom,
-		SendGridAPIKey:           sendGridAPIKey,
-		EmailFrom:                emailFrom,
-		NovaPoshtaAPIKey:         novaPoshtaAPIKey,
-		NovaPoshtaURL:            novaPoshtaURL,
-		CloudinaryURL:            cloudinaryURL,
-		StoreLogoURL:             storeLogoURL,
-		APIHost:                  apiHost,
-		OTPSendRateLimit:         otpSendRateLimit,
-		OTPSendRateInterval:      otpSendRateInterval,
-		EmailRateLimit:           emailRateLimit,
-		EmailRateInterval:        emailRateInterval,
-		TrustedProxies:           trustedProxies,
-		BadgeNewDays:             badgeNewDays,
-		BadgeBestSellerThreshold: badgeBestSellerThreshold,
-		AdminNotificationEmail:   adminNotificationEmail,
-		LiqPayPublicKey:          liqPayPublicKey,
-		LiqPayPrivateKey:         liqPayPrivateKey,
-		NPSenderRef:              npSenderRef,
-		NPSenderAddressRef:       npSenderAddressRef,
-		NPContactSenderRef:       npContactSenderRef,
-		NPSenderPhone:            npSenderPhone,
+		Port:                      port,
+		DBURL:                     dbURL,
+		JWTSecret:                 jwtSecret,
+		AccessTokenDuration:       accessTokenDuration,
+		RefreshTokenDuration:      refreshTokenDuration,
+		FrontendURL:               frontendURL,
+		GoogleClientID:            googleClientID,
+		MaxSessions:               maxSessions,
+		Env:                       appEnv,
+		RequestTimeout:            requestTimeout,
+		SMTPHost:                  smtpHost,
+		SMTPPort:                  smtpPort,
+		SMTPUser:                  smtpUser,
+		SMTPPassword:              smtpPassword,
+		SMTPFrom:                  smtpFrom,
+		SendGridAPIKey:            sendGridAPIKey,
+		EmailFrom:                 emailFrom,
+		NovaPoshtaAPIKey:          novaPoshtaAPIKey,
+		NovaPoshtaURL:             novaPoshtaURL,
+		CloudinaryURL:             cloudinaryURL,
+		StoreLogoURL:              storeLogoURL,
+		APIHost:                   apiHost,
+		OTPSendRateLimit:          otpSendRateLimit,
+		OTPSendRateInterval:       otpSendRateInterval,
+		EmailRateLimit:            emailRateLimit,
+		EmailRateInterval:         emailRateInterval,
+		TrustedProxies:            trustedProxies,
+		BadgeNewDays:              badgeNewDays,
+		BadgeBestSellerThreshold:  badgeBestSellerThreshold,
+		AdminNotificationEmail:    adminNotificationEmail,
+		LiqPayPublicKey:           liqPayPublicKey,
+		LiqPayPrivateKey:          liqPayPrivateKey,
+		NPSenderRef:               npSenderRef,
+		NPSenderAddressRef:        npSenderAddressRef,
+		NPContactSenderRef:        npContactSenderRef,
+		NPSenderPhone:             npSenderPhone,
 		NPTrackingIntervalMinutes: npTrackingIntervalMinutes,
-		ManagerBaseURL:           managerBaseURL,
-		OBMBaseURL:               obmBaseURL,
-		OBMTokenPath:             obmTokenPath,
-		OBMBasicAuthHeader:       obmBasicAuthHeader,
-		OBMUsername:              obmUsername,
-		OBMPassword:              obmPassword,
-		OBMSenderID:              obmSenderID,
-		OBMDistributionID:        obmDistributionID,
-		OBMValidityMinutes:       obmValidityMinutes,
-		OBMStatusCheck:           obmStatusCheck,
-		PhoneCodeTTL:             phoneCodeTTL,
-		CORSAllowOrigins:         corsAllowOrigins,
+		ManagerBaseURL:            managerBaseURL,
+		OBMBaseURL:                obmBaseURL,
+		OBMTokenPath:              obmTokenPath,
+		OBMBasicAuthHeader:        obmBasicAuthHeader,
+		OBMUsername:               obmUsername,
+		OBMPassword:               obmPassword,
+		OBMSenderID:               obmSenderID,
+		OBMDistributionID:         obmDistributionID,
+		OBMValidityMinutes:        obmValidityMinutes,
+		OBMStatusCheck:            obmStatusCheck,
+		PhoneCodeTTL:              phoneCodeTTL,
+		CORSAllowOrigins:          corsAllowOrigins,
+		StoreCode:                 storeCode,
+		StoreName:                 storeName,
+		DefaultLocale:             defaultLocale,
+		SupportedLocales:          supportedLocales,
+		FallbackLocale:            fallbackLocale,
+		Currency:                  currency,
+		PriceScale:                priceScale,
+		TaxMode:                   taxMode,
+		VATRate:                   vatRate,
+		PaymentProviders:          paymentProviders,
+		PaymentDefault:            paymentDefault,
+		ShippingProviders:         shippingProviders,
+		ShippingDefault:           shippingDefault,
+		InventoryMode:             inventoryMode,
+		EnabledModules:            enabledModules,
+		CheckoutAllowGuest:        checkoutAllowGuest,
+		CheckoutRequirePhone:      checkoutRequirePhone,
 	}
 }
 
@@ -406,4 +461,41 @@ func getEnvInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	return val
+}
+
+func getEnvString(key, defaultValue string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvList(key string, defaultValue []string) []string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue
+	}
+
+	items := strings.Split(value, ",")
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		log.Printf("Warning: Invalid %s: %v. Using default: %t", key, err, defaultValue)
+		return defaultValue
+	}
+	return parsed
 }
