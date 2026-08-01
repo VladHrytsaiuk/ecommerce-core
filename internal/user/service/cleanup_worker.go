@@ -29,28 +29,25 @@ func NewCleanupWorker(
 	}
 }
 
-// Start запускає цикл очищення у фоновій горутині.
-// Очищення відбувається раз на заданий інтервал.
-func (w *CleanupWorker) Start(ctx context.Context, interval time.Duration) {
+// Run executes the cleanup loop until ctx is cancelled.
+func (w *CleanupWorker) Run(ctx context.Context, interval time.Duration) {
 	w.logger.Info("Starting Cleanup Worker", zap.Duration("interval", interval))
 
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-		// Перший запуск відразу при старті
-		w.runCleanup(ctx)
+	// Перший запуск відразу при старті
+	w.runCleanup(ctx)
 
-		for {
-			select {
-			case <-ticker.C:
-				w.runCleanup(ctx)
-			case <-ctx.Done():
-				w.logger.Info("Cleanup Worker stopped")
-				return
-			}
+	for {
+		select {
+		case <-ticker.C:
+			w.runCleanup(ctx)
+		case <-ctx.Done():
+			w.logger.Info("Cleanup Worker stopped")
+			return
 		}
-	}()
+	}
 }
 
 // runCleanup виконує один цикл очищення всіх підтримуваних таблиць.

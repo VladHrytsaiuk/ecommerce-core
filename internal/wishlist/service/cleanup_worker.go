@@ -25,27 +25,25 @@ func NewWishlistCleanupWorker(repo domain.WishlistRepository, l logger.Logger) *
 	}
 }
 
-// Start запускає цикл очищення у фоновій горутині.
-func (w *WishlistCleanupWorker) Start(ctx context.Context, interval time.Duration) {
+// Run executes the cleanup loop until ctx is cancelled.
+func (w *WishlistCleanupWorker) Run(ctx context.Context, interval time.Duration) {
 	w.logger.Info("Starting Wishlist Cleanup Worker", zap.Duration("interval", interval), zap.Duration("max_age", w.maxAge))
 
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-		// Перший запуск відразу при старті
-		w.runCleanup(ctx)
+	// Перший запуск відразу при старті
+	w.runCleanup(ctx)
 
-		for {
-			select {
-			case <-ticker.C:
-				w.runCleanup(ctx)
-			case <-ctx.Done():
-				w.logger.Info("Wishlist Cleanup Worker stopped")
-				return
-			}
+	for {
+		select {
+		case <-ticker.C:
+			w.runCleanup(ctx)
+		case <-ctx.Done():
+			w.logger.Info("Wishlist Cleanup Worker stopped")
+			return
 		}
-	}()
+	}
 }
 
 // runCleanup виконує один цикл очищення

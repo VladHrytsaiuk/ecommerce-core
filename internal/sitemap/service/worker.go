@@ -45,36 +45,35 @@ func (w *sitemapWorker) GetCategories() []byte { return w.cache.Load().(*cacheSt
 func (w *sitemapWorker) GetBrands() []byte     { return w.cache.Load().(*cacheStore).brands }
 func (w *sitemapWorker) GetDocuments() []byte  { return w.cache.Load().(*cacheStore).documents }
 
-func (w *sitemapWorker) Start(ctx context.Context, interval time.Duration) {
+// Run executes sitemap regeneration until ctx is cancelled.
+func (w *sitemapWorker) Run(ctx context.Context, interval time.Duration) {
 	w.logger.Info("Starting Sitemap Worker", zap.Duration("interval", interval))
 
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-		// First run immediately
-		if err := w.GenerateAll(ctx); err != nil {
-			w.logger.Error("Failed initial sitemap generation", zap.Error(err))
-		}
+	// First run immediately
+	if err := w.GenerateAll(ctx); err != nil {
+		w.logger.Error("Failed initial sitemap generation", zap.Error(err))
+	}
 
-		for {
-			select {
-			case <-ticker.C:
-				if err := w.GenerateAll(ctx); err != nil {
-					w.logger.Error("Failed to generate sitemap", zap.Error(err))
-				}
-			case <-ctx.Done():
-				w.logger.Info("Sitemap Worker stopped")
-				return
+	for {
+		select {
+		case <-ticker.C:
+			if err := w.GenerateAll(ctx); err != nil {
+				w.logger.Error("Failed to generate sitemap", zap.Error(err))
 			}
+		case <-ctx.Done():
+			w.logger.Info("Sitemap Worker stopped")
+			return
 		}
-	}()
+	}
 }
 
 func (w *sitemapWorker) GenerateAll(ctx context.Context) error {
 	w.logger.Info("Generating sitemaps...")
 	startTime := time.Now()
-	
+
 	baseURL := w.cfg.FrontendURL
 	if baseURL == "" {
 		baseURL = "https://aquawheel.store" // fallback
@@ -159,7 +158,7 @@ func (w *sitemapWorker) GenerateAll(ctx context.Context) error {
 			{Loc: baseURL + "/sitemaps/documents.xml", LastMod: nowStr},
 		},
 	}
-	
+
 	indexBytes, err := xml.Marshal(index)
 	if err != nil {
 		return err
