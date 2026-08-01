@@ -100,6 +100,7 @@ type Application struct {
 	trackingWorker        *orderSvc.TrackingWorker
 
 	workersMu      sync.Mutex
+	workersWG      sync.WaitGroup
 	workersStarted bool
 	stopWorkers    context.CancelFunc
 }
@@ -229,16 +230,17 @@ func (a *Application) Start(ctx context.Context) {
 	a.stopWorkers = cancel
 	a.workersMu.Unlock()
 
-	a.cleanupWorker.Start(workerCtx, 24*time.Hour)
-	a.wishlistCleanupWorker.Start(workerCtx, 24*time.Hour)
-	a.cartCleanupWorker.Start(workerCtx, 24*time.Hour)
-	a.SitemapWorker.Start(workerCtx, 24*time.Hour)
-	a.paymentWorker.Start(workerCtx, time.Minute)
-	go a.trackingWorker.Run(workerCtx)
+	a.startWorker(func() { a.cleanupWorker.Run(workerCtx, 24*time.Hour) })
+	a.startWorker(func() { a.wishlistCleanupWorker.Run(workerCtx, 24*time.Hour) })
+	a.startWorker(func() { a.cartCleanupWorker.Run(workerCtx, 24*time.Hour) })
+	a.startWorker(func() { a.SitemapWorker.Run(workerCtx, 24*time.Hour) })
+	a.startWorker(func() { a.paymentWorker.Run(workerCtx, time.Minute) })
+	a.startWorker(func() { a.trackingWorker.Run(workerCtx) })
 }
 
 // Stop requests cancellation of all background workers. Existing worker
-// operations receive the cancellation context and can roll back safely.
+// operations receive the cancellation context and can roll back safely. Stop
+// waits until every worker loop has returned before completing shutdown.
 func (a *Application) Stop() {
 	a.workersMu.Lock()
 	cancel := a.stopWorkers
@@ -246,5 +248,14 @@ func (a *Application) Stop() {
 
 	if cancel != nil {
 		cancel()
+		a.workersWG.Wait()
 	}
+}
+
+func (a *Application) startWorker(run func()) {
+	a.workersWG.Add(1)
+	go func() {
+		defer a.workersWG.Done()
+		run()
+	}()
 }

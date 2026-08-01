@@ -24,20 +24,23 @@ func NewPaymentWorker(orderSvc domain.OrderService, l logger.Logger) *PaymentWor
 
 // Start запускає воркер
 func (w *PaymentWorker) Start(ctx context.Context, interval time.Duration) {
+	go w.Run(ctx, interval)
+}
+
+// Run processes payment timeouts until ctx is cancelled.
+func (w *PaymentWorker) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
-	go func() {
-		w.logger.Infow("Starting Payment Worker", "interval", interval)
-		for {
-			select {
-			case <-ticker.C:
-				if err := w.orderSvc.ProcessPaymentTimeouts(ctx); err != nil {
-					w.logger.Errorw("Error in Payment Worker", "error", err)
-				}
-			case <-ctx.Done():
-				w.logger.Info("Stopping Payment Worker")
-				ticker.Stop()
-				return
+	defer ticker.Stop()
+	w.logger.Infow("Starting Payment Worker", "interval", interval)
+	for {
+		select {
+		case <-ticker.C:
+			if err := w.orderSvc.ProcessPaymentTimeouts(ctx); err != nil {
+				w.logger.Errorw("Error in Payment Worker", "error", err)
 			}
+		case <-ctx.Done():
+			w.logger.Info("Stopping Payment Worker")
+			return
 		}
-	}()
+	}
 }
