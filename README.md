@@ -1,265 +1,86 @@
-# 🛒 AquaWheel Store Backend
+# ecommerce-core
 
-Backend сервіс для платформи електронної комерції **AquaWheel Store**.
+`ecommerce-core` is a flexible, modular Go backend engine for online stores.
+It provides a stable commerce foundation while allowing each store to select
+its integrations, locales, policies, and enabled modules through configuration.
 
-Проєкт реалізує серверну частину магазину: управління товарами, замовленнями, користувачами, оплатою та доставкою.
+## Core Philosophy
 
-На даному етапі це початок розробки production-системи, а структура проєкту вже підготовлена для масштабованого e-commerce backend.
+**One codebase. No store-specific forks.**
 
-## 🌟 Можливості
+A new store is configured rather than rewritten. Payment providers, carriers,
+languages, currencies, tax rules, checkout behaviour, inventory mode, and
+optional modules are selected through environment configuration and Dependency
+Injection in the Composition Root (`internal/app/bootstrap.go`).
 
-- REST API для ecommerce-платформи.
-- Модульна архітектура у форматі **Modular Monolith**.
-- Інтеграції з платіжними та логістичними сервісами.
-- Background jobs для фонових задач.
-- Система міграцій бази даних.
-- Swagger-документація API.
-- Тестування бізнес-логіки та інтеграцій.
+The core owns durable commerce invariants such as orders, reservations,
+security, and provider-neutral workflows. Integrations are isolated adapters,
+not business logic embedded in the order flow.
 
-## 🛠 Технологічний стек
+## Features
 
-| Технологія      | Призначення                                           |
-|-----------------|-------------------------------------------------------|
-| Go 1.25+        | Основна мова розробки.                                |
-| Gin             | HTTP framework для роутингу та API.                   |
-| PostgreSQL      | Основна база даних, наразі розміщена на Supabase.     |
-| GORM            | ORM для зручної роботи з БД.                          |
-| Uber-go/Zap     | Структуроване та швидке логування.                    |
-| Swagger         | Автоматична документація API.                         |
-| Gomarkdoc/Godoc | Документація архітектури та коду.                     |
-| Testify         | Assertion-бібліотека для тестів.                      |
-| Testcontainers  | Інтеграційні тести з реальним PostgreSQL-контейнером. |
-| Mockery         | Генерація mock-об'єктів для unit-тестів.              |
-| Docker          | Контейнеризація та запуск локального середовища.      |
+- **Pluggable payments and delivery** — provider-neutral ports for LiqPay,
+  Stripe, Redsys, Nova Poshta, Correos, and future adapters.
+- **Flexible inventory** — run autonomously with internal inventory, or use a
+  Master-Slave storefront-cache model synchronized with 1C or another ERP.
+- **Database-level i18n** — normalized translation tables make product,
+  category, attribute, and content localization scalable from day one.
+- **Modular schema evolution** — stable core tables with additive module-owned
+  migrations for inventory, vertical-specific data, and integrations.
+- **Configurable commerce rules** — money, tax, checkout, shipping, and module
+  behaviour are explicit policies rather than store-specific hardcode.
 
-## 🚀 Швидкий старт
+## Architecture and Roadmap
 
-### 1. Налаштування середовища
+The repository is being migrated incrementally from its original monolith to
+the target architecture using the Strangler Fig pattern.
 
-Створіть файл `.env` у корені проєкту на основі прикладу:
+- [Target Architecture](ARCHITECTURE.md) — architectural principles, module
+  boundaries, ports/adapters, database ownership, inventory, and Sync.
+- [Migration Roadmap](ROADMAP.md) — practical, phased migration plan with
+  concrete packages, compatibility gates, and definitions of done.
+
+## Getting Started
+
+### Prerequisites
+
+- Go (version declared in `go.mod`)
+- PostgreSQL, or Docker and Docker Compose
+
+### Local setup
+
+```bash
+git clone <repository-url>
+cd ecommerce-core
+cp .env.example .env
+go mod tidy
+go run ./cmd/migrate up
+go run ./cmd/api
+```
+
+Update `DB_URL` and other required values in `.env` before running migrations.
+Never commit `.env`; use `.env.example` for safe placeholders.
+
+### Docker
 
 ```bash
 cp .env.example .env
+docker compose up --build
 ```
-Переконайтеся, що в  .env  вказано актуальний  DB_URL  для підключення до бази даних.
 
+See the Docker Compose configuration and the migration command for the
+environment-specific service names and database settings.
 
-### 2. Запуск через Docker
-Рекомендований спосіб запуску — через Docker Compose:
+## Development
 
 ```bash
-docker-compose up --build
-```
-API буде доступне за адресою:
-```text
-http://localhost:8080
-```
-Swagger-документація:
-```
-http://localhost:8080/swagger/index.html
+go test ./internal/...
+go vet ./...
 ```
 
-## 📂 Структура проєкту
-Проєкт розбитий на незалежні бізнес-домени у стилі Modular Monolith.
-```
-ecommerce/
-│
-├── cmd/                # Точки входу в застосунок
-│   ├── api/            # Публічне API магазину
-│   ├── admin/          # API для адмін-панелі
-│   ├── worker/         # Фонові задачі
-│   └── migrate/        # Запуск міграцій БД
-│
-├── internal/           # Приватна бізнес-логіка та інфраструктура
-│   ├── product/        # Домен: каталог товарів
-│   ├── category/       # Домен: категорії товарів
-│   ├── cart/           # Домен: кошик користувача
-│   ├── order/          # Домен: замовлення
-│   ├── payment/        # Домен: платежі
-│   ├── shipment/       # Домен: доставка
-│   ├── user/           # Домен: авторизація та користувачі
-│   ├── customer/       # Домен: клієнти CRM
-│   ├── discount/       # Домен: знижки та промокоди
-│   ├── inventory/      # Домен: склад та залишки
-│   │
-│   ├── integration/    # Інтеграції з зовнішніми сервісами
-│   │   ├── liqpay/
-│   │   ├── novaposhta/
-│   │   ├── ukrposhta/
-│   │   ├── email/
-│   │   └── sms/
-│   │
-│   ├── http/           # HTTP транспорт
-│   │   └── middleware/
-│   │
-│   ├── jobs/           # Background jobs
-│   │
-│   ├── platform/       # Інфраструктурний код
-│   │   ├── config/
-│   │   ├── db/
-│   │   │   └── postgres.go
-│   │   ├── logger/
-│   │   ├── security/
-│   │   └── storage/
-│   │
-│   └── shared/         # Спільні утиліти
-│       ├── errors/
-│       ├── money/
-│       ├── pagination/
-│       └── uuid/
-│
-├── migrations/         # SQL міграції бази даних
-├── seed/               # Початкові дані
-├── tests/              # Інтеграційні та unit тести
-├── configs/            # Конфігураційні файли
-├── deployments/        # Docker / deployment
-├── scripts/            # Допоміжні скрипти
-├── docs/               # Swagger-документація API
-├── Dockerfile
-├── docker-compose.yml
-├── .env.example
-├── go.mod
-└── README.md
-```
+Some repository tests use Docker/Testcontainers. Run them in an environment
+where Docker is available.
 
-## 🏗 Архітектура
-
-Проєкт побудований за принципами **Clean Architecture** з фокусом на **модульність**. Це дозволяє легко масштабувати систему, тестувати бізнес-логіку та змінювати інфраструктурні компоненти без впливу на основну логіку застосунку.
-
-Основна ідея полягає в тому, що **бізнес-логіка не залежить від фреймворків, бази даних або зовнішніх сервісів**.
-
-### Основні шари архітектури
-
-#### 1. Доменний шар
-
-Папки: `internal/product`, `internal/order`, `internal/user` тощо.
-
-Це ядро системи. Кожен модуль є самостійним і містить:
-
-- моделі;
-- бізнес-правила;
-- сервіси;
-- інтерфейси репозиторіїв.
-
-Сервіси не знають нічого про HTTP або GORM — вони працюють тільки з інтерфейсами.
-
-#### 2. HTTP transport
-
-Папка: `internal/http`.
-
-Відповідає за HTTP API. Тут знаходяться:
-
-- handlers;
-- middleware;
-- router;
-- DTO.
-
-Handler:
-
-- приймає HTTP-запит;
-- викликає service;
-- повертає JSON-відповідь.
-
-#### 3. Інфраструктурний шар
-
-Папка: `internal/platform` та `internal/integration`.
-
-Тут реалізуються технічні деталі системи:
-
-- підключення до PostgreSQL;
-- конфігурація середовища;
-- логування;
-- інтеграції із зовнішніми API.
-
-### Потік запиту
-
-```text
-HTTP Request
-↓
-Router
-↓
-Handler
-↓
-Service
-↓
-Repository
-↓
-Database (PostgreSQL)
-```
-
-## ⚙️ Конфігурація
-Конфігурація завантажується через environment variables.
-#### Основні змінні:
-
-```
-PORT=8080
-DB_URL=postgres://user:password@host:port/dbname
-```
-
-## 🗄 База даних
-На даний момент використовується PostgreSQL, розгорнутий через Supabase.
-У майбутньому база даних може бути перенесена на власний сервер без змін у бізнес-логіці.
-ORM: **GORM**.
-
-## 🧩 Міграції
-Папка для міграцій:
-```
-migrations/
-```
-
-## 📘 Swagger
-
-Для документації API використовується **Swagger**.
-
-Swagger дозволяє:
-
-- автоматично генерувати документацію;
-- тестувати API через UI;
-- підтримувати синхронізацію між кодом та документацією.
-
-Swagger endpoint:
-
-```text
-http://localhost:8080/swagger/index.html
-```
-
-
-## 🧪 Тестування
-
-Для тестування використовуються такі інструменти:
-
-### Testify
-
-Зручна бібліотека для assertion у тестах. Дозволяє писати читабельні перевірки на кшталт `assert.NoError(t, err)`.
-
-### Mockery
-
-Генерує mock-реалізації інтерфейсів, що дозволяє тестувати service layer і бізнес-логіку без реальної бази даних.
-
-### Testcontainers
-
-Використовується для інтеграційних тестів. Піднімає реальний PostgreSQL-контейнер на час тесту, перевіряє SQL-запити й потім видаляє контейнер.
-
-Приклад запуску тестів:
-
-```bash
-go test ./... -v
-```
-
-## ⚙️ Воркери та масштабованість
-
-Папка `internal/jobs/` та точка входу `cmd/worker/` передбачені для фонових процесів, які ще в розробці.
-
-Воркери можуть відповідати за:
-
-- перевірку статусів оплат;
-- синхронізацію трекінг-кодів доставок;
-- відправку Email/SMS-сповіщень.
-
-Завдяки модульній архітектурі API та Worker можуть бути розгорнуті як окремі незалежні сервіси в Docker.
-
-## 📄 Ліцензія
-
-На даний момент ліцензія не визначена.
-
-Умови розповсюдження коду та використання платформи будуть додані пізніше у файл `LICENSE`.
+Before changing module boundaries, providers, migrations, or store
+configuration, read [ARCHITECTURE.md](ARCHITECTURE.md) and follow
+[ROADMAP.md](ROADMAP.md).
