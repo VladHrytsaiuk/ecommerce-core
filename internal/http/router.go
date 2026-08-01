@@ -84,7 +84,11 @@ func InitRouter(application *app.Application) *gin.Engine {
 	feedbackHTTP.RegisterFeedbackRoutes(api, adminGroup, feedbackRateLimitMiddleware, application.FeedbackService, logger.Log)
 
 	localeGroup := api.Group("/:lang")
-	localeGroup.Use(middleware.LocaleMiddleware())
+	localeGroup.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{
+		DefaultLocale:    application.StoreConfig.DefaultLocale,
+		FallbackLocale:   application.StoreConfig.FallbackLocale,
+		SupportedLocales: application.StoreConfig.SupportedLocales,
+	}))
 	{
 		categoryHTTP.RegisterCategoryRoutes(localeGroup, adminGroup, application.CategoryService, application.RedirectService, logger.Log)
 		productHTTP.RegisterBrandRoutes(localeGroup, adminGroup, application.BrandService, logger.Log)
