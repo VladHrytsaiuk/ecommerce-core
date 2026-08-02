@@ -9,8 +9,10 @@ import (
 )
 
 var (
-	ErrInsufficientStock = errors.New("insufficient stock")
-	ErrStockReadOnly     = errors.New("stock is read-only in external inventory mode")
+	ErrInsufficientStock   = errors.New("insufficient stock")
+	ErrStockReadOnly       = errors.New("stock is read-only in external inventory mode")
+	ErrReservationNotFound = errors.New("inventory reservation not found")
+	ErrReservationInactive = errors.New("inventory reservation is not active")
 )
 
 type Mode string
@@ -29,14 +31,17 @@ type ReservationRequest struct {
 }
 
 type Reservation struct {
-	ID             uuid.UUID
-	IdempotencyKey uuid.UUID
-	VariantID      uuid.UUID
-	WarehouseID    uuid.UUID
-	Quantity       int
-	Status         string
-	ExpiresAt      time.Time
+	ID             uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	IdempotencyKey uuid.UUID  `gorm:"type:uuid;uniqueIndex;not null"`
+	VariantID      uuid.UUID  `gorm:"type:uuid;not null"`
+	WarehouseID    uuid.UUID  `gorm:"type:uuid;not null"`
+	Quantity       int        `gorm:"not null"`
+	Status         string     `gorm:"type:varchar(32);not null"`
+	ExpiresAt      time.Time  `gorm:"not null"`
+	OrderID        *uuid.UUID `gorm:"type:uuid"`
 }
+
+func (Reservation) TableName() string { return "inventory_reservations" }
 
 // Repository must reserve atomically. Its Postgres adapter will perform the
 // guarded update; no browser-supplied stock value participates in the decision.

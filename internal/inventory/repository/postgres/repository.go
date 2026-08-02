@@ -1,0 +1,94 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
+)
+
+type Repository struct{ db *gorm.DB }
+
+func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
+
+func (r *Repository) Reserve(ctx context.Context, request domain.ReservationRequest) (*domain.Reservation, error) {
+	reservation := &domain.Reservation{ID: uuid.New(), IdempotencyKey: request.IdempotencyKey, VariantID: request.VariantID, WarehouseID: request.WarehouseID, Quantity: request.Quantity, Status: "active", ExpiresAt: request.ExpiresAt}
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "idempotency_key"}}, DoNothing: true}).Create(reservation)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return tx.Where("idempotency_key = ?", request.IdempotencyKey).First(reservation).Error
+		}
+		result = tx.Exec(`UPDATE stock_items
+            SET quantity_reserved = quantity_reserved + ?, updated_at = CURRENT_TIMESTAMP
+            WHERE variant_id = ? AND warehouse_id = ?
+              AND quantity_on_hand - quantity_reserved >= ?`, request.Quantity, request.VariantID, request.WarehouseID, request.Quantity)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrInsufficientStock
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return reservation, nil
+}
+
+func (r *Repository) Release(ctx context.Context, reservationID uuid.UUID) error {
+	return r.transition(ctx, reservationID, nil, "released")
+}
+
+func (r *Repository) Commit(ctx context.Context, reservationID, orderID uuid.UUID) error {
+	return r.transition(ctx, reservationID, &orderID, "committed")
+}
+
+func (r *Repository) transition(ctx context.Context, reservationID uuid.UUID, orderID *uuid.UUID, target string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var reservation domain.Reservation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&reservation, "id = ?", reservationID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrReservationNotFound
+			}
+			return err
+		}
+		if reservation.Status != "active" {
+			return domain.ErrReservationInactive
+		}
+		var result *gorm.DB
+		if target == "committed" {
+			result = tx.Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand - ?, quantity_reserved = quantity_reserved - ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_reserved >= ?`, reservation.Quantity, reservation.Quantity, reservation.VariantID, reservation.WarehouseID, reservation.Quantity)
+		} else {
+			result = tx.Exec(`UPDATE stock_items SET quantity_reserved = quantity_reserved - ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_reserved >= ?`, reservation.Quantity, reservation.VariantID, reservation.WarehouseID, reservation.Quantity)
+		}
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrInsufficientStock
+		}
+		return tx.Model(&reservation).Updates(map[string]any{"status": target, "order_id": orderID, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error
+	})
+}
+
+func (r *Repository) Adjust(ctx context.Context, variantID, warehouseID uuid.UUID, delta int) error {
+	if delta > 0 {
+		return r.db.WithContext(ctx).Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand) VALUES (?, ?, ?, ?) ON CONFLICT (variant_id, warehouse_id) DO UPDATE SET quantity_on_hand = stock_items.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = CURRENT_TIMESTAMP`, uuid.New(), variantID, warehouseID, delta).Error
+	}
+	result := r.db.WithContext(ctx).Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand + ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_on_hand + ? >= quantity_reserved`, delta, variantID, warehouseID, delta)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrInsufficientStock
+	}
+	return nil
+}
