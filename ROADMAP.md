@@ -51,9 +51,7 @@ compile without unported legacy packages.
 
 ## Phase 3 — Checkout, money, tax and provider ports
 
-**Status: in progress — money, VAT policy, clean order snapshots, atomic
-inventory reservation preparation, and PaymentGateway/Carrier ports are
-implemented. Checkout orchestration and concrete adapters remain.**
+**Status: complete.**
 
 **Goal:** build provider-neutral commerce workflows before any real adapter.
 
@@ -63,6 +61,14 @@ implemented. Checkout orchestration and concrete adapters remain.**
 3. Implement `internal/checkout/application` with injected checkout and tax
    policies. Use stable string order-status codes.
 4. Test workflows with fake gateways and carriers.
+
+**Definition of Done: complete.** Checkout derives immutable item snapshots
+from Catalog, applies the configured tax and checkout policies, then reserves
+stock. `internal/core/orderworkflow` atomically creates the pending order and
+associates reservations; payment success commits stock once, while gateway
+failure/cancellation releases it and cancels the order. PaymentGateway and
+Carrier are provider-neutral ports with fake-backed workflow/registry tests.
+Concrete SDK adapters and webhook transport are deliberately Phase 4.
 
 ## Phase 4 — Payment and delivery adapters
 

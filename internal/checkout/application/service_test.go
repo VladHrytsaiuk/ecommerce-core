@@ -20,7 +20,7 @@ import (
 func TestPreparePaymentAggregatesDuplicateLinesIntoOneAtomicBatch(t *testing.T) {
 	inventory := &fakeInventory{}
 	price, _ := money.New(1000, "EUR")
-	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeVATExcluded, 20), nil, nil)
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeVATExcluded, 20), checkoutDomain.Policy{AllowGuest: true}, nil, nil)
 	variant, warehouse := uuid.New(), uuid.New()
 	prepared, err := service.PreparePayment(context.Background(), checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: variant, WarehouseID: warehouse, Quantity: 1}, {VariantID: variant, WarehouseID: warehouse, Quantity: 2}}})
 	if err != nil {
@@ -34,7 +34,7 @@ func TestPreparePaymentAggregatesDuplicateLinesIntoOneAtomicBatch(t *testing.T) 
 func TestPreparePaymentDoesNotReserveWhenCatalogVariantIsUnavailable(t *testing.T) {
 	inventory := &fakeInventory{}
 	price, _ := money.New(1000, "EUR")
-	service := NewService(inventory, &fakeVariantFinder{price: price, err: errors.New("variant unavailable")}, mustTaxPolicy(t, tax.ModeNone, 0), nil, nil)
+	service := NewService(inventory, &fakeVariantFinder{price: price, err: errors.New("variant unavailable")}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, nil, nil)
 
 	_, err := service.PreparePayment(context.Background(), checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}})
 	if err == nil {
@@ -50,7 +50,7 @@ func TestStartPaymentCreatesOrderBeforeGatewayCall(t *testing.T) {
 	price, _ := money.New(1000, "EUR")
 	workflow := &fakeWorkflow{}
 	gateway := &fakeGateway{}
-	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), workflow, gateway)
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, workflow, gateway)
 	checkoutID := uuid.New()
 
 	started, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: checkoutID, Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, OrderNumber: "ES-200", ReturnURL: "https://store.example/return"})
@@ -66,7 +66,7 @@ func TestStartPaymentCancelsOrderWhenGatewayFails(t *testing.T) {
 	inventory := &fakeInventory{}
 	price, _ := money.New(1000, "EUR")
 	workflow := &fakeWorkflow{}
-	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), workflow, &fakeGateway{err: errors.New("gateway unavailable")})
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, workflow, &fakeGateway{err: errors.New("gateway unavailable")})
 
 	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, OrderNumber: "ES-201"})
 	if err == nil || workflow.cancelled == uuid.Nil {
@@ -78,11 +78,22 @@ func TestStartPaymentReleasesReservationWhenOrderWorkflowFails(t *testing.T) {
 	inventory := &fakeInventory{}
 	price, _ := money.New(1000, "EUR")
 	workflow := &fakeWorkflow{err: errors.New("cannot persist order")}
-	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), workflow, &fakeGateway{})
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, workflow, &fakeGateway{})
 
 	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, OrderNumber: "ES-202"})
 	if err == nil || len(inventory.released) != 1 {
 		t.Fatalf("StartPayment() error = %v, released = %v", err, inventory.released)
+	}
+}
+
+func TestStartPaymentAppliesCheckoutPolicyBeforeReservation(t *testing.T) {
+	inventory := &fakeInventory{}
+	price, _ := money.New(1000, "EUR")
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: false, RequirePhone: true}, &fakeWorkflow{}, &fakeGateway{})
+
+	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, OrderNumber: "ES-203"})
+	if err == nil || len(inventory.batch) != 0 {
+		t.Fatalf("StartPayment() error = %v, reservations = %+v", err, inventory.batch)
 	}
 }
 

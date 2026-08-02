@@ -82,8 +82,8 @@ go vet ./...
 Some repository tests use Docker/Testcontainers. Run them in an environment
 where Docker is available.
 
-To verify the clean-slate database path (core migrations, enabled Inventory
-module, and three-locale Catalog persistence):
+To verify the clean-slate database path, including the enabled Inventory module,
+three-locale Catalog persistence, and atomic order/reservation workflow:
 
 ```bash
 go test -tags=integration ./cmd/migrate ./internal/core/orderworkflow/repository/postgres

@@ -27,12 +27,13 @@ type Service struct {
 	inventory inventoryDomain.Service
 	variants  variantFinder
 	tax       tax.Calculator
+	policy    checkoutDomain.Policy
 	workflow  workflowDomain.Service
 	gateway   paymentsDomain.Gateway
 }
 
-func NewService(inventory inventoryDomain.Service, variants variantFinder, tax tax.Calculator, workflow workflowDomain.Service, gateway paymentsDomain.Gateway) *Service {
-	return &Service{inventory: inventory, variants: variants, tax: tax, workflow: workflow, gateway: gateway}
+func NewService(inventory inventoryDomain.Service, variants variantFinder, tax tax.Calculator, policy checkoutDomain.Policy, workflow workflowDomain.Service, gateway paymentsDomain.Gateway) *Service {
+	return &Service{inventory: inventory, variants: variants, tax: tax, policy: policy, workflow: workflow, gateway: gateway}
 }
 
 func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.PrepareRequest) (*checkoutDomain.PreparedCheckout, error) {
@@ -87,6 +88,9 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 	}
 	if strings.TrimSpace(s.gateway.Code()) == "" {
 		return nil, fmt.Errorf("checkout payment gateway code is required")
+	}
+	if err := s.policy.ValidateCustomer(request.CustomerID, request.CustomerPhone); err != nil {
+		return nil, err
 	}
 	prepared, err := s.PreparePayment(ctx, request.Preparation)
 	if err != nil {

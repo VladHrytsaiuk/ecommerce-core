@@ -26,6 +26,7 @@ import (
 // application: a blank database receives core first and enabled modules next.
 // It also proves the normalized three-locale Catalog path against PostgreSQL.
 func TestCleanSlateSchema(t *testing.T) {
+	testcontainers.SkipIfProviderIsNotHealthy(t)
 	ctx := context.Background()
 	container, err := containerPostgres.Run(ctx,
 		"postgres:16-alpine",

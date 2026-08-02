@@ -36,6 +36,7 @@ type StartPaymentRequest struct {
 	Preparation      PrepareRequest
 	OrderNumber      string
 	CustomerID       *uuid.UUID
+	CustomerPhone    string
 	DeliveryProvider string
 	ReturnURL        string
 	CancelURL        string
