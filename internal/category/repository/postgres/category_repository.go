@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/category/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -69,9 +69,9 @@ func (r *categoryRepository) FindBySlug(ctx context.Context, slug string, lang s
 	var category domain.Category
 
 	err := r.db.WithContext(ctx).
-		Joins("JOIN category_translation ct ON ct.category_id = category.id").
+		Joins("JOIN category_translations ct ON ct.category_id = categories.id").
 		Preload("Translations").
-		Where("ct.slug = ? AND ct.language_code = ?", slug, lang).
+		Where("ct.slug = ? AND ct.locale = ?", slug, lang).
 		First(&category).Error
 
 	if err != nil {

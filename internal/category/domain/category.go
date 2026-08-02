@@ -35,22 +35,25 @@ type Category struct {
 }
 
 func (Category) TableName() string {
-	return "category"
+	return "categories"
 }
 
 // CategoryTranslation містить локалізовані дані для категорій
 type CategoryTranslation struct {
-	CategoryID   uuid.UUID `gorm:"type:uuid;primaryKey" json:"category_id"`
-	LanguageCode string    `gorm:"type:varchar(2);primaryKey" json:"language_code"`
-	Name            string    `gorm:"type:varchar(100);not null" json:"name"`
-	Slug            string    `gorm:"type:varchar(255);not null;unique" json:"slug"`
-	MetaTitle       string    `gorm:"type:varchar(255)" json:"meta_title"`
-	MetaDescription string    `gorm:"type:text" json:"meta_description"`
-	MetaKeywords    string    `gorm:"type:varchar(255)" json:"meta_keywords"`
+	ID         uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	CategoryID uuid.UUID `gorm:"type:uuid;not null;index" json:"category_id"`
+	// LanguageCode is retained temporarily for legacy delivery code; it maps to
+	// the new normalized `locale` database column.
+	LanguageCode    string `gorm:"column:locale;type:varchar(10);not null" json:"locale"`
+	Name            string `gorm:"type:varchar(100);not null" json:"name"`
+	Slug            string `gorm:"type:varchar(255);not null;unique" json:"slug"`
+	MetaTitle       string `gorm:"type:varchar(255)" json:"meta_title"`
+	MetaDescription string `gorm:"type:text" json:"meta_description"`
+	MetaKeywords    string `gorm:"type:varchar(255)" json:"meta_keywords"`
 }
 
 func (CategoryTranslation) TableName() string {
-	return "category_translation"
+	return "category_translations"
 }
 
 // CategoryRepository контракт для роботи з БД
