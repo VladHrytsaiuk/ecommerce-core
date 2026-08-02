@@ -12,7 +12,21 @@ import (
 type Service struct{ repo domain.Repository }
 
 func NewService(repo domain.Repository) *Service { return &Service{repo: repo} }
+
 func (s *Service) Create(ctx context.Context, draft domain.Draft) (*domain.Order, error) {
+	order, err := NewPendingOrder(draft)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.Create(ctx, order); err != nil {
+		return nil, err
+	}
+	return order, nil
+}
+
+// NewPendingOrder validates the immutable commercial snapshot before any
+// persistence adapter or cross-module workflow receives it.
+func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {
 	if strings.TrimSpace(draft.Number) == "" || len(draft.Items) == 0 {
 		return nil, fmt.Errorf("invalid order draft")
 	}
@@ -29,9 +43,5 @@ func (s *Service) Create(ctx context.Context, draft domain.Draft) (*domain.Order
 	if sum != draft.Subtotal.Amount {
 		return nil, fmt.Errorf("order subtotal does not match items")
 	}
-	order := &domain.Order{ID: uuid.New(), Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Items: draft.Items}
-	if err := s.repo.Create(ctx, order); err != nil {
-		return nil, err
-	}
-	return order, nil
+	return &domain.Order{ID: uuid.New(), Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Items: draft.Items}, nil
 }

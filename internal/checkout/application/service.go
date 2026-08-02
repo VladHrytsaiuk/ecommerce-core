@@ -11,9 +11,11 @@ import (
 	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
+	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
+	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 	"github.com/google/uuid"
 )
 
@@ -25,10 +27,12 @@ type Service struct {
 	inventory inventoryDomain.Service
 	variants  variantFinder
 	tax       tax.Calculator
+	workflow  workflowDomain.Service
+	gateway   paymentsDomain.Gateway
 }
 
-func NewService(inventory inventoryDomain.Service, variants variantFinder, tax tax.Calculator) *Service {
-	return &Service{inventory: inventory, variants: variants, tax: tax}
+func NewService(inventory inventoryDomain.Service, variants variantFinder, tax tax.Calculator, workflow workflowDomain.Service, gateway paymentsDomain.Gateway) *Service {
+	return &Service{inventory: inventory, variants: variants, tax: tax, workflow: workflow, gateway: gateway}
 }
 
 func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.PrepareRequest) (*checkoutDomain.PreparedCheckout, error) {
@@ -73,6 +77,70 @@ func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.Pre
 		result.ReservationIDs = append(result.ReservationIDs, reservation.ID)
 	}
 	return result, nil
+}
+
+// StartPayment creates the order and associates reservations before it performs
+// provider I/O. A gateway failure is compensated through the atomic workflow.
+func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.StartPaymentRequest) (*checkoutDomain.StartedCheckout, error) {
+	if s.gateway == nil || s.workflow == nil {
+		return nil, fmt.Errorf("checkout payment workflow is not configured")
+	}
+	if strings.TrimSpace(s.gateway.Code()) == "" {
+		return nil, fmt.Errorf("checkout payment gateway code is required")
+	}
+	prepared, err := s.PreparePayment(ctx, request.Preparation)
+	if err != nil {
+		return nil, err
+	}
+	order, err := s.workflow.CreatePending(ctx, ordersDomain.Draft{
+		Number:           request.OrderNumber,
+		CustomerID:       request.CustomerID,
+		Subtotal:         prepared.Subtotal,
+		Tax:              prepared.Tax,
+		Total:            prepared.Total,
+		PaymentProvider:  strings.TrimSpace(s.gateway.Code()),
+		DeliveryProvider: strings.TrimSpace(request.DeliveryProvider),
+		Items:            prepared.Items,
+	}, prepared.ReservationIDs)
+	if err != nil {
+		s.releasePrepared(ctx, prepared.ReservationIDs)
+		return nil, err
+	}
+
+	session, err := s.gateway.CreateCheckout(ctx, paymentsDomain.CheckoutPayment{
+		OrderID:        order.ID,
+		IdempotencyKey: request.Preparation.CheckoutID.String(),
+		Amount:         prepared.Total,
+		ReturnURL:      request.ReturnURL,
+		CancelURL:      request.CancelURL,
+	})
+	if err != nil {
+		if cancelErr := s.workflow.CancelPending(context.WithoutCancel(ctx), order.ID); cancelErr != nil {
+			return nil, fmt.Errorf("create payment checkout: %w; cancel pending order: %v", err, cancelErr)
+		}
+		return nil, fmt.Errorf("create payment checkout: %w", err)
+	}
+	return &checkoutDomain.StartedCheckout{Prepared: prepared, Order: order, Session: session}, nil
+}
+
+func (s *Service) ConfirmPayment(ctx context.Context, orderID uuid.UUID) error {
+	if s.workflow == nil {
+		return fmt.Errorf("checkout payment workflow is not configured")
+	}
+	return s.workflow.MarkPaid(ctx, orderID)
+}
+
+func (s *Service) CancelPayment(ctx context.Context, orderID uuid.UUID) error {
+	if s.workflow == nil {
+		return fmt.Errorf("checkout payment workflow is not configured")
+	}
+	return s.workflow.CancelPending(ctx, orderID)
+}
+
+func (s *Service) releasePrepared(ctx context.Context, reservationIDs []uuid.UUID) {
+	for _, reservationID := range reservationIDs {
+		_ = s.inventory.Release(context.WithoutCancel(ctx), reservationID)
+	}
 }
 
 func (s *Service) snapshotItems(ctx context.Context, quantities map[uuid.UUID]int, locale string) ([]ordersDomain.Item, money.Money, error) {

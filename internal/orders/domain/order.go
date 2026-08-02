@@ -8,7 +8,11 @@ import (
 	"github.com/google/uuid"
 )
 
-const StatusPendingPayment = "pending_payment"
+const (
+	StatusPendingPayment = "pending_payment"
+	StatusPaid           = "paid"
+	StatusCancelled      = "cancelled"
+)
 
 type Item struct {
 	VariantID   *uuid.UUID

@@ -8,6 +8,7 @@ import (
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
+	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 )
 
 type Line struct {
@@ -30,6 +31,25 @@ type PreparedCheckout struct {
 	Tax            money.Money
 	Total          money.Money
 }
+
+type StartPaymentRequest struct {
+	Preparation      PrepareRequest
+	OrderNumber      string
+	CustomerID       *uuid.UUID
+	DeliveryProvider string
+	ReturnURL        string
+	CancelURL        string
+}
+
+type StartedCheckout struct {
+	Prepared *PreparedCheckout
+	Order    *ordersDomain.Order
+	Session  paymentsDomain.PaymentSession
+}
+
 type Service interface {
 	PreparePayment(context.Context, PrepareRequest) (*PreparedCheckout, error)
+	StartPayment(context.Context, StartPaymentRequest) (*StartedCheckout, error)
+	ConfirmPayment(context.Context, uuid.UUID) error
+	CancelPayment(context.Context, uuid.UUID) error
 }

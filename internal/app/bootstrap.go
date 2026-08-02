@@ -17,6 +17,9 @@ import (
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
+	orderWorkflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
+	orderWorkflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
+	orderWorkflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
@@ -39,6 +42,7 @@ type Application struct {
 	CatalogProductService  catalogDomain.ProductService
 	CatalogVariantService  catalogDomain.VariantService
 	CheckoutService        checkoutDomain.Service
+	OrderWorkflowService   orderWorkflowDomain.Service
 	InventoryService       inventoryDomain.Service
 	OrderService           ordersDomain.Service
 	TaxPolicy              tax.Calculator
@@ -83,13 +87,15 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db))
+	orderWorkflowService := orderWorkflowApp.NewService(orderWorkflowPostgres.NewRepository(db))
 
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
 		CatalogVariantService:  variantService,
-		CheckoutService:        checkoutApp.NewService(inventoryService, variantService, taxPolicy),
+		CheckoutService:        checkoutApp.NewService(inventoryService, variantService, taxPolicy, orderWorkflowService, nil),
+		OrderWorkflowService:   orderWorkflowService,
 		InventoryService:       inventoryService,
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		TaxPolicy:              taxPolicy,

@@ -19,4 +19,7 @@ jobs:
       - name: Build API
         run: go build ./cmd/api
       - name: Verify fresh PostgreSQL schema
-        run: go test -tags=integration ./cmd/migrate
+        run: >-
+          go test -tags=integration
+          ./cmd/migrate
+          ./internal/core/orderworkflow/repository/postgres
