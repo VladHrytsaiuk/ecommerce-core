@@ -13,6 +13,8 @@ import (
 	catalogApp "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/application"
 	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
+	checkoutApp "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/application"
+	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
@@ -36,6 +38,7 @@ type Application struct {
 	CatalogCategoryService catalogDomain.CategoryService
 	CatalogProductService  catalogDomain.ProductService
 	CatalogVariantService  catalogDomain.VariantService
+	CheckoutService        checkoutDomain.Service
 	InventoryService       inventoryDomain.Service
 	OrderService           ordersDomain.Service
 	TaxPolicy              tax.Calculator
@@ -78,12 +81,16 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		LocaleMiddleware: middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: storeConfig.DefaultLocale, FallbackLocale: storeConfig.FallbackLocale, SupportedLocales: storeConfig.SupportedLocales}),
 	}
 
+	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
+	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db))
+
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
-		CatalogVariantService:  catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency),
-		InventoryService:       inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db)),
+		CatalogVariantService:  variantService,
+		CheckoutService:        checkoutApp.NewService(inventoryService, variantService, taxPolicy),
+		InventoryService:       inventoryService,
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		TaxPolicy:              taxPolicy,
 		HTTP:                   httpDependencies,
