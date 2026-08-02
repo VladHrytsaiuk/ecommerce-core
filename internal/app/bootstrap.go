@@ -35,6 +35,7 @@ type Application struct {
 	TokenMaker             token.Maker
 	CatalogCategoryService catalogDomain.CategoryService
 	CatalogProductService  catalogDomain.ProductService
+	CatalogVariantService  catalogDomain.VariantService
 	InventoryService       inventoryDomain.Service
 	OrderService           ordersDomain.Service
 	TaxPolicy              tax.Calculator
@@ -81,6 +82,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
+		CatalogVariantService:  catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency),
 		InventoryService:       inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db)),
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		TaxPolicy:              taxPolicy,

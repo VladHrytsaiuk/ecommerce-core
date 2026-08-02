@@ -14,6 +14,11 @@ func RegisterProductRoutes(localeGroup, adminGroup *gin.RouterGroup, service dom
 	adminGroup.POST("/catalog/products", handler.Create)
 }
 
+func RegisterVariantRoutes(adminGroup *gin.RouterGroup, service domain.VariantService) {
+	handler := NewVariantHandler(service)
+	adminGroup.POST("/catalog/variants", handler.Create)
+}
+
 func RegisterCategoryRoutes(localeGroup, adminGroup *gin.RouterGroup, service domain.CategoryService) {
 	handler := NewCategoryHandler(service)
 	localeGroup.GET("/catalog/categories/by-slug/:slug", handler.GetBySlug)

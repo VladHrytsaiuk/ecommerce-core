@@ -24,5 +24,6 @@ func InitRouter(application *app.Application) *gin.Engine {
 	localized.Use(application.HTTP.LocaleMiddleware)
 	catalogHTTP.RegisterCategoryRoutes(localized, admin, application.CatalogCategoryService)
 	catalogHTTP.RegisterProductRoutes(localized, admin, application.CatalogProductService)
+	catalogHTTP.RegisterVariantRoutes(admin, application.CatalogVariantService)
 	return r
 }
