@@ -25,6 +25,20 @@ func (s *Service) Reserve(ctx context.Context, request domain.ReservationRequest
 	return s.repo.Reserve(ctx, request)
 }
 
+func (s *Service) Release(ctx context.Context, reservationID uuid.UUID) error {
+	if reservationID == uuid.Nil {
+		return fmt.Errorf("invalid inventory reservation id")
+	}
+	return s.repo.Release(ctx, reservationID)
+}
+
+func (s *Service) Commit(ctx context.Context, reservationID, orderID uuid.UUID) error {
+	if reservationID == uuid.Nil || orderID == uuid.Nil {
+		return fmt.Errorf("invalid inventory commit")
+	}
+	return s.repo.Commit(ctx, reservationID, orderID)
+}
+
 func (s *Service) Adjust(ctx context.Context, variantID, warehouseID uuid.UUID, delta int) error {
 	if s.mode != domain.ModeInternal {
 		return domain.ErrStockReadOnly

@@ -16,6 +16,9 @@ import (
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
+	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
+	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
+	inventoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
@@ -28,6 +31,7 @@ type Application struct {
 	TokenMaker             token.Maker
 	CatalogCategoryService catalogDomain.CategoryService
 	CatalogProductService  catalogDomain.ProductService
+	InventoryService       inventoryDomain.Service
 	HTTP                   HTTPDependencies
 }
 
@@ -67,6 +71,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
+		InventoryService:       inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db)),
 		HTTP:                   httpDependencies,
 	}, nil
+}
+
+func inventoryMode(value string) inventoryDomain.Mode {
+	if value == "internal" {
+		return inventoryDomain.ModeInternal
+	}
+	return inventoryDomain.ModeExternal
 }

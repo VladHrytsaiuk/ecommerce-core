@@ -51,3 +51,11 @@ type Repository interface {
 	Commit(context.Context, uuid.UUID, uuid.UUID) error
 	Adjust(context.Context, uuid.UUID, uuid.UUID, int) error
 }
+
+// Service is the provider-neutral port consumed by Checkout and Orders.
+type Service interface {
+	Reserve(context.Context, ReservationRequest) (*Reservation, error)
+	Release(context.Context, uuid.UUID) error
+	Commit(context.Context, uuid.UUID, uuid.UUID) error
+	Adjust(context.Context, uuid.UUID, uuid.UUID, int) error
+}
