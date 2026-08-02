@@ -19,6 +19,9 @@ import (
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	inventoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/repository/postgres"
+	ordersApp "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/application"
+	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
+	ordersPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
@@ -32,6 +35,7 @@ type Application struct {
 	CatalogCategoryService catalogDomain.CategoryService
 	CatalogProductService  catalogDomain.ProductService
 	InventoryService       inventoryDomain.Service
+	OrderService           ordersDomain.Service
 	HTTP                   HTTPDependencies
 }
 
@@ -72,6 +76,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
 		InventoryService:       inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db)),
+		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		HTTP:                   httpDependencies,
 	}, nil
 }
