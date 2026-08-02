@@ -7,6 +7,11 @@ possible to launch a new store (for example, a B2C cosmetics store in Spain)
 from the same repository by selecting configuration and enabled modules, not by
 forking or rewriting the core.
 
+The engine is a **clean-slate project**. It has no obligation to migrate or
+remain compatible with a predecessor database, API, provider payload, or store
+deployment. The old codebase may inform behaviour while modules are rebuilt,
+but it is not a schema or API contract.
+
 The repository is **not** a collection of client-specific applications. Store
 identity, locales, currency, providers, taxes, checkout rules, inventory mode,
 and enabled modules are configuration. Stable commercial invariants, security,
@@ -226,10 +231,10 @@ migrations/
         └── ..._product_details.up.sql
 ```
 
-Each migration has an explicit reversible `down` counterpart where safe. The
+The first core migration is a clean baseline for a new PostgreSQL database. The
 migration runner applies core first, then enabled modules in a documented,
-deterministic dependency order. Production migrations must be backwards
-compatible during rolling deployments.
+deterministic dependency order. After a migration is applied to an environment,
+it is immutable; use a new forward migration for later changes.
 
 Core owns universal entities: users, roles, base catalog, carts, orders,
 payments, deliveries, locales and audit records. Modules own their extension

@@ -32,8 +32,9 @@ not business logic embedded in the order flow.
 
 ## Architecture and Roadmap
 
-The repository is being migrated incrementally from its original monolith to
-the target architecture using the Strangler Fig pattern.
+The repository is being built as a clean-slate commerce engine. Older code may
+be used temporarily as an implementation reference, but no legacy database or
+store deployment is a compatibility target.
 
 - [Target Architecture](ARCHITECTURE.md) — architectural principles, module
   boundaries, ports/adapters, database ownership, inventory, and Sync.
