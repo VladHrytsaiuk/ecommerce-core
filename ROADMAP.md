@@ -50,9 +50,9 @@ tracked in `LEGACY_FEATURE_MAP.md` before its source package is retired.
 
 ## Phase 3 — Checkout, money, tax and provider ports
 
-**Status: in progress — money, VAT policy, clean order snapshots, and atomic
-inventory reservation preparation are implemented. Provider ports and checkout
-orchestration remain.**
+**Status: in progress — money, VAT policy, clean order snapshots, atomic
+inventory reservation preparation, and PaymentGateway/Carrier ports are
+implemented. Checkout orchestration and concrete adapters remain.**
 
 **Goal:** build provider-neutral commerce workflows before any real adapter.
 
