@@ -32,9 +32,6 @@ type StoreConfig struct {
 	EnabledModules       []string
 	CheckoutAllowGuest   bool
 	CheckoutRequirePhone bool
-
-	liqPayConfigured     bool
-	novaPoshtaConfigured bool
 }
 
 // NewStoreConfig maps environment-loaded configuration into the typed
@@ -55,8 +52,6 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		EnabledModules:       normalizeAll(cfg.EnabledModules),
 		CheckoutAllowGuest:   cfg.CheckoutAllowGuest,
 		CheckoutRequirePhone: cfg.CheckoutRequirePhone,
-		liqPayConfigured:     cfg.LiqPayPublicKey != "" && cfg.LiqPayPrivateKey != "",
-		novaPoshtaConfigured: cfg.NovaPoshtaAPIKey != "",
 	}
 	return storeConfig, storeConfig.Validate()
 }
@@ -100,23 +95,17 @@ func (c StoreConfig) Validate() error {
 	if c.VATRate != 0 {
 		return fmt.Errorf("VAT_RATE requires an implemented tax policy")
 	}
-	if !contains(c.PaymentProviders, c.PaymentDefault) {
+	if len(c.PaymentProviders) > 0 && !contains(c.PaymentProviders, c.PaymentDefault) {
 		return fmt.Errorf("PAYMENT_DEFAULT %q is not enabled", c.PaymentDefault)
 	}
-	if !contains(c.ShippingProviders, c.ShippingDefault) {
+	if len(c.PaymentProviders) == 0 && c.PaymentDefault != "" {
+		return fmt.Errorf("PAYMENT_DEFAULT requires an enabled payment provider")
+	}
+	if len(c.ShippingProviders) > 0 && !contains(c.ShippingProviders, c.ShippingDefault) {
 		return fmt.Errorf("SHIPPING_DEFAULT %q is not enabled", c.ShippingDefault)
 	}
-	if !allEqual(c.PaymentProviders, "liqpay") {
-		return fmt.Errorf("only the liqpay payment adapter is implemented")
-	}
-	if !c.liqPayConfigured {
-		return fmt.Errorf("LIQPAY_PUBLIC_KEY and LIQPAY_PRIVATE_KEY are required when liqpay is enabled")
-	}
-	if !allEqual(c.ShippingProviders, "novaposhta") {
-		return fmt.Errorf("only the novaposhta delivery adapter is implemented")
-	}
-	if !c.novaPoshtaConfigured {
-		return fmt.Errorf("NOVA_POSHTA_API_KEY is required when novaposhta is enabled")
+	if len(c.ShippingProviders) == 0 && c.ShippingDefault != "" {
+		return fmt.Errorf("SHIPPING_DEFAULT requires an enabled shipping provider")
 	}
 	if c.InventoryMode != "internal" {
 		return fmt.Errorf("INVENTORY_MODE %q is not implemented yet", c.InventoryMode)
@@ -145,17 +134,6 @@ func contains(values []string, value string) bool {
 		}
 	}
 	return false
-}
-
-func allEqual(values []string, expected string) bool {
-	return len(values) > 0 && func() bool {
-		for _, value := range values {
-			if value != expected {
-				return false
-			}
-		}
-		return true
-	}()
 }
 
 func hasDuplicates(values []string) bool {

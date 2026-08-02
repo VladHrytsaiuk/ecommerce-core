@@ -7,15 +7,17 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 )
 
-func TestNewStoreConfigAcceptsCurrentCompatibilityDefaults(t *testing.T) {
+func TestNewStoreConfigAcceptsProviderFreeCore(t *testing.T) {
 	cfg := validConfig()
+	cfg.PaymentProviders, cfg.PaymentDefault = nil, ""
+	cfg.ShippingProviders, cfg.ShippingDefault = nil, ""
 
 	got, err := NewStoreConfig(cfg)
 
 	if err != nil {
 		t.Fatalf("NewStoreConfig() error = %v", err)
 	}
-	if got.PaymentDefault != "liqpay" || got.ShippingDefault != "novaposhta" {
+	if got.PaymentDefault != "" || got.ShippingDefault != "" {
 		t.Fatalf("unexpected provider defaults: %+v", got)
 	}
 }
@@ -44,19 +46,6 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			name:   "duplicate locale",
 			mutate: func(cfg *config.Config) { cfg.SupportedLocales = []string{"uk", "uk"} },
 			want:   "duplicates",
-		},
-		{
-			name: "missing payment credentials",
-			mutate: func(cfg *config.Config) {
-				cfg.LiqPayPublicKey = ""
-				cfg.LiqPayPrivateKey = ""
-			},
-			want: "LIQPAY_PUBLIC_KEY",
-		},
-		{
-			name:   "missing delivery credentials",
-			mutate: func(cfg *config.Config) { cfg.NovaPoshtaAPIKey = "" },
-			want:   "NOVA_POSHTA_API_KEY",
 		},
 		{
 			name:   "external inventory before sync exists",
@@ -116,9 +105,8 @@ func validConfig() *config.Config {
 		StoreCode: "default-store", StoreName: "ecommerce-core store",
 		DefaultLocale: "uk", SupportedLocales: []string{"uk", "en"}, FallbackLocale: "uk",
 		Currency: "UAH", PriceScale: 2, TaxMode: "none", VATRate: 0,
-		PaymentProviders: []string{"liqpay"}, PaymentDefault: "liqpay",
-		ShippingProviders: []string{"novaposhta"}, ShippingDefault: "novaposhta",
-		InventoryMode:   "internal",
-		LiqPayPublicKey: "public", LiqPayPrivateKey: "private", NovaPoshtaAPIKey: "key",
+		PaymentProviders: nil, PaymentDefault: "",
+		ShippingProviders: nil, ShippingDefault: "",
+		InventoryMode: "internal",
 	}
 }
