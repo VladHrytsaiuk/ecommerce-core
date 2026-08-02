@@ -84,27 +84,28 @@ type Application struct {
 	TokenMaker  token.Maker
 	WSHub       *notification.Hub
 
-	AuthService           userDomain.AuthService
-	UserService           userDomain.UserService
-	CategoryService       categoryDomain.CategoryService
-	CatalogProductService catalogDomain.ProductService
-	ProductService        productDomain.ProductService
-	BrandService          productDomain.BrandService
-	AttributeService      productDomain.AttributeService
-	BadgeService          productDomain.BadgeService
-	RedirectService       redirectDomain.RedirectService
-	ShipmentService       shipmentDomain.ShipmentService
-	WishlistService       wishlistDomain.WishlistService
-	PromoService          discountDomain.PromoService
-	CartService           cartDomain.CartService
-	AuditService          auditDomain.AuditService
-	DocumentService       documentDomain.DocumentService
-	PaymentService        paymentDomain.PaymentService
-	OrderService          orderDomain.OrderService
-	AdminOrderService     orderDomain.AdminOrderService
-	ManagerService        orderDomain.ManagerService
-	FeedbackService       feedbackDomain.FeedbackService
-	SitemapWorker         sitemapDomain.SitemapWorkerService
+	AuthService            userDomain.AuthService
+	UserService            userDomain.UserService
+	CategoryService        categoryDomain.CategoryService
+	CatalogCategoryService catalogDomain.CategoryService
+	CatalogProductService  catalogDomain.ProductService
+	ProductService         productDomain.ProductService
+	BrandService           productDomain.BrandService
+	AttributeService       productDomain.AttributeService
+	BadgeService           productDomain.BadgeService
+	RedirectService        redirectDomain.RedirectService
+	ShipmentService        shipmentDomain.ShipmentService
+	WishlistService        wishlistDomain.WishlistService
+	PromoService           discountDomain.PromoService
+	CartService            cartDomain.CartService
+	AuditService           auditDomain.AuditService
+	DocumentService        documentDomain.DocumentService
+	PaymentService         paymentDomain.PaymentService
+	OrderService           orderDomain.OrderService
+	AdminOrderService      orderDomain.AdminOrderService
+	ManagerService         orderDomain.ManagerService
+	FeedbackService        feedbackDomain.FeedbackService
+	SitemapWorker          sitemapDomain.SitemapWorkerService
 
 	cleanupWorker         *userSvc.CleanupWorker
 	wishlistCleanupWorker *wishlistSvc.WishlistCleanupWorker
@@ -200,6 +201,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	productRepo := productPostgres.NewProductRepository(db, logger.Log)
 	productService := productSvc.NewProductService(productRepo, store, redirectService, cfg, logger.Log)
 	catalogProductService := catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales)
+	catalogCategoryService := catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales)
 	categoryService := categorySvc.NewCategoryService(categoryPostgres.NewCategoryRepository(db, logger.Log), productRepo, store, redirectService, logger.Log)
 	brandService := productSvc.NewBrandService(productPostgres.NewBrandRepository(db, logger.Log), productRepo, logger.Log)
 	attributeService := productSvc.NewAttributeService(productPostgres.NewAttributeRepository(db, logger.Log), logger.Log)
@@ -271,7 +273,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker, WSHub: wsHub,
 		AuthService: authService, UserService: userService,
-		CategoryService: categoryService, CatalogProductService: catalogProductService, ProductService: productService,
+		CategoryService: categoryService, CatalogCategoryService: catalogCategoryService, CatalogProductService: catalogProductService, ProductService: productService,
 		BrandService: brandService, AttributeService: attributeService,
 		BadgeService: badgeService, RedirectService: redirectService,
 		ShipmentService: shipmentService, WishlistService: wishlistService,

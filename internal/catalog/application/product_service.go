@@ -14,18 +14,12 @@ import (
 // ProductService validates Catalog invariants before delegating persistence to
 // the repository port. It is intentionally independent of Gin and GORM.
 type ProductService struct {
-	repo           domain.ProductRepository
-	allowedLocales map[string]struct{}
+	repo    domain.ProductRepository
+	locales localePolicy
 }
 
 func NewProductService(repo domain.ProductRepository, allowedLocales []string) *ProductService {
-	locales := make(map[string]struct{}, len(allowedLocales))
-	for _, locale := range allowedLocales {
-		if normalized := normalize(locale); normalized != "" {
-			locales[normalized] = struct{}{}
-		}
-	}
-	return &ProductService{repo: repo, allowedLocales: locales}
+	return &ProductService{repo: repo, locales: newLocalePolicy(allowedLocales)}
 }
 
 func (s *ProductService) FindBySlug(ctx context.Context, locale, slug string) (*domain.Product, error) {
@@ -34,7 +28,7 @@ func (s *ProductService) FindBySlug(ctx context.Context, locale, slug string) (*
 	if locale == "" || slug == "" {
 		return nil, fmt.Errorf("%w: locale and slug are required", domain.ErrInvalidProduct)
 	}
-	if !s.localeAllowed(locale) {
+	if !s.locales.allows(locale) {
 		return nil, fmt.Errorf("%w: locale %q is not enabled for this store", domain.ErrInvalidProduct, locale)
 	}
 	return s.repo.FindBySlug(ctx, locale, slug)
@@ -74,7 +68,7 @@ func (s *ProductService) validate(product *domain.Product) error {
 		if translation.Locale == "" || translation.Name == "" || translation.Slug == "" {
 			return fmt.Errorf("%w: translation locale, name and slug are required", domain.ErrInvalidProduct)
 		}
-		if !s.localeAllowed(translation.Locale) {
+		if !s.locales.allows(translation.Locale) {
 			return fmt.Errorf("%w: locale %q is not enabled for this store", domain.ErrInvalidProduct, translation.Locale)
 		}
 		if _, exists := seenLocales[translation.Locale]; exists {
@@ -83,13 +77,4 @@ func (s *ProductService) validate(product *domain.Product) error {
 		seenLocales[translation.Locale] = struct{}{}
 	}
 	return nil
-}
-
-func (s *ProductService) localeAllowed(locale string) bool {
-	_, ok := s.allowedLocales[locale]
-	return ok
-}
-
-func normalize(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
 }
