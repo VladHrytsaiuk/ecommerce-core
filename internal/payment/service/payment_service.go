@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
@@ -9,12 +12,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	orderDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/payment/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/email"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 

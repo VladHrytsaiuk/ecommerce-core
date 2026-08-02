@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
@@ -5,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
 	shipmentDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/shipment/domain"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -111,14 +114,14 @@ func (m *mockLogger) Sync() error                                 { return nil }
 // --- Mock Promo Service ---
 
 type mockPromoService struct {
-	createPromoFn func(ctx context.Context, p *discountDomain.PromoCode) (*discountDomain.PromoCode, error)
-	getPromoByIDFn func(ctx context.Context, id uuid.UUID) (*discountDomain.PromoCode, error)
-	getPromoByCodeFn func(ctx context.Context, code string) (*discountDomain.PromoCode, error)
-	updatePromoFn func(ctx context.Context, id uuid.UUID, p *discountDomain.PromoCode) (*discountDomain.PromoCode, error)
-	deletePromoFn func(ctx context.Context, id uuid.UUID) error
-	listPromosFn func(ctx context.Context, pgn pagination.Params) ([]discountDomain.PromoCode, pagination.Metadata, error)
+	createPromoFn           func(ctx context.Context, p *discountDomain.PromoCode) (*discountDomain.PromoCode, error)
+	getPromoByIDFn          func(ctx context.Context, id uuid.UUID) (*discountDomain.PromoCode, error)
+	getPromoByCodeFn        func(ctx context.Context, code string) (*discountDomain.PromoCode, error)
+	updatePromoFn           func(ctx context.Context, id uuid.UUID, p *discountDomain.PromoCode) (*discountDomain.PromoCode, error)
+	deletePromoFn           func(ctx context.Context, id uuid.UUID) error
+	listPromosFn            func(ctx context.Context, pgn pagination.Params) ([]discountDomain.PromoCode, pagination.Metadata, error)
 	calculateCartDiscountFn func(ctx context.Context, promoID uuid.UUID, items []discountDomain.PromoItemInfo) (*discountDomain.PromoCalculationResult, error)
-	validatePromoLimitsFn func(ctx context.Context, promoID uuid.UUID, userID *uuid.UUID, email, phone *string) error
+	validatePromoLimitsFn   func(ctx context.Context, promoID uuid.UUID, userID *uuid.UUID, email, phone *string) error
 }
 
 func (m *mockPromoService) CreatePromo(ctx context.Context, p *discountDomain.PromoCode) (*discountDomain.PromoCode, error) {

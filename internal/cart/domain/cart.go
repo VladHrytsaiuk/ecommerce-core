@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package domain
 
 import (
@@ -5,9 +8,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/google/uuid"
 	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
+	"github.com/google/uuid"
 )
 
 var (
@@ -20,12 +23,12 @@ var (
 
 // Cart заголовок кошика
 type Cart struct {
-	ID        uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	UserID    *uuid.UUID `gorm:"type:uuid" json:"user_id"`
-	SessionID *string    `gorm:"type:varchar(255)" json:"session_id"`
+	ID          uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	UserID      *uuid.UUID `gorm:"type:uuid" json:"user_id"`
+	SessionID   *string    `gorm:"type:varchar(255)" json:"session_id"`
 	PromoCodeID *uuid.UUID `gorm:"type:uuid" json:"promo_code_id"`
-	CreatedAt time.Time  `gorm:"not null;default:CURRENT_TIMESTAMP" json:"created_at"`
-	UpdatedAt time.Time  `gorm:"not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
+	CreatedAt   time.Time  `gorm:"not null;default:CURRENT_TIMESTAMP" json:"created_at"`
+	UpdatedAt   time.Time  `gorm:"not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
 
 	// Relationships
 	Items []CartItem `gorm:"foreignKey:CartID" json:"items,omitempty"`

@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package postgres
 
 import (
@@ -5,11 +8,11 @@ import (
 
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -295,7 +298,7 @@ func (r *orderRepository) MarkPaymentReminderSent(ctx context.Context, orderID u
 		Model(&domain.Order{}).
 		Where("id = ?", orderID).
 		Update("payment_reminder_sent_at", gorm.Expr("CURRENT_TIMESTAMP"))
-	
+
 	if result.Error != nil {
 		r.l.Errorw("failed to mark payment reminder sent", "error", result.Error, "order_id", orderID)
 		return result.Error
@@ -480,4 +483,3 @@ func (r *orderRepository) FindStatusHistory(ctx context.Context, orderID uuid.UU
 	}
 	return history, nil
 }
-

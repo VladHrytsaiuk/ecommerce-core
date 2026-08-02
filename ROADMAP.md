@@ -46,7 +46,8 @@ zero in the Testcontainers/CI smoke test; Category and Product read and write
 three locales through normalized tables; `scripts/check-clean-architecture.sh`
 guards active migrations and Catalog against JSONB/legacy localized maps; and
 every retained legacy behaviour is tracked in `LEGACY_FEATURE_MAP.md` before
-its source package is retired.
+its source package is retired. The default repository build and test suite
+compile without unported legacy packages.
 
 ## Phase 3 — Checkout, money, tax and provider ports
 

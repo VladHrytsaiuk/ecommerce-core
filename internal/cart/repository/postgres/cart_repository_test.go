@@ -1,4 +1,5 @@
-//go:build integration
+//go:build legacy && integration
+// +build legacy,integration
 
 package postgres
 
@@ -6,13 +7,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
-	"gorm.io/gorm"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type noopLogger struct{}
@@ -46,7 +47,7 @@ func setupTestData(t *testing.T, gormDB *gorm.DB) (uuid.UUID, uuid.UUID, uuid.UU
 	require.NoError(t, gormDB.Exec(`INSERT INTO category (id, sort_order) VALUES (?, 0)`, catID).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO product (id, brand_id, category_id, is_active, slug) VALUES (?, ?, ?, true, ?)`, prodID, brandID, catID, "prod-1").Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO product_variation (id, product_id, sku, price, stock, is_active) VALUES (?, ?, ?, ?, ?, ?)`, variationID, prodID, "SKU1", 1000, 10, true).Error)
-	
+
 	// translations
 	require.NoError(t, gormDB.Exec(`INSERT INTO product_translation (product_id, language_code, name) VALUES (?, 'uk', 'Name')`, prodID).Error)
 	require.NoError(t, gormDB.Exec(`INSERT INTO category_translation (category_id, language_code, name) VALUES (?, 'uk', 'Cat')`, catID).Error)

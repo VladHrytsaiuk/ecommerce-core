@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package postgres
 
 import (
@@ -8,15 +11,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/payment/domain"
+	platformDB "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/payment/domain"
-	platformDB "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"gorm.io/gorm"
 
 	"github.com/golang-migrate/migrate/v4"

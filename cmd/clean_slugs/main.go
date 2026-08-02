@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package main
 
 import (
@@ -6,10 +9,10 @@ import (
 
 	"os"
 
-	"github.com/gosimple/slug"
-	"github.com/joho/godotenv"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/category/domain"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
+	"github.com/gosimple/slug"
+	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -47,7 +50,7 @@ func main() {
 	for _, ct := range catTranslations {
 		baseSlug := slug.Make(ct.Name)
 		newSlug := baseSlug
-		
+
 		for attempt := 0; attempt < 100; attempt++ {
 			if attempt > 0 {
 				newSlug = fmt.Sprintf("%s-%d", baseSlug, attempt)
@@ -77,7 +80,7 @@ func main() {
 	for _, pt := range prodTranslations {
 		baseSlug := slug.Make(pt.Name)
 		newSlug := baseSlug
-		
+
 		for attempt := 0; attempt < 100; attempt++ {
 			if attempt > 0 {
 				newSlug = fmt.Sprintf("%s-%d", baseSlug, attempt)

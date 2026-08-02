@@ -1,14 +1,17 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type AdminOrderHandler struct {

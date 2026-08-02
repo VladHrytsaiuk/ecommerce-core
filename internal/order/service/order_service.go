@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
@@ -8,12 +11,10 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/google/uuid"
 	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	orderDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	paymentDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payment/domain"
-	shipmentDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/shipment/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/email"
@@ -21,22 +22,24 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/password"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
+	shipmentDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/shipment/domain"
 	userDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/user/domain"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type orderService struct {
-	orderRepo      orderDomain.OrderRepository
-	cartRepo       cartDomain.CartRepository
-	userRepo       userDomain.UserRepository
-	verifyCodeRepo userDomain.VerifyCodeRepository
-	promoRepo      discountDomain.PromoRepository
-	promoService   discountDomain.PromoService
-	paymentService paymentDomain.PaymentService
+	orderRepo       orderDomain.OrderRepository
+	cartRepo        cartDomain.CartRepository
+	userRepo        userDomain.UserRepository
+	verifyCodeRepo  userDomain.VerifyCodeRepository
+	promoRepo       discountDomain.PromoRepository
+	promoService    discountDomain.PromoService
+	paymentService  paymentDomain.PaymentService
 	shipmentService shipmentDomain.ShipmentService
-	emailProvider  email.Provider
-	cfg            *config.Config
-	l              logger.Logger
+	emailProvider   email.Provider
+	cfg             *config.Config
+	l               logger.Logger
 }
 
 // NewOrderService створює новий сервіс замовлень
@@ -54,17 +57,17 @@ func NewOrderService(
 	l logger.Logger,
 ) orderDomain.OrderService {
 	return &orderService{
-		orderRepo:      orderRepo,
-		cartRepo:       cartRepo,
-		userRepo:       userRepo,
-		verifyCodeRepo: verifyCodeRepo,
-		promoRepo:      promoRepo,
-		promoService:   promoService,
-		paymentService: paymentService,
+		orderRepo:       orderRepo,
+		cartRepo:        cartRepo,
+		userRepo:        userRepo,
+		verifyCodeRepo:  verifyCodeRepo,
+		promoRepo:       promoRepo,
+		promoService:    promoService,
+		paymentService:  paymentService,
 		shipmentService: shipmentService,
-		emailProvider:  emailProvider,
-		cfg:            cfg,
-		l:              l,
+		emailProvider:   emailProvider,
+		cfg:             cfg,
+		l:               l,
 	}
 }
 
@@ -362,17 +365,17 @@ func (s *orderService) CreateOrder(
 
 		// Створення замовлення в основній транзакції
 		order := &orderDomain.Order{
-			UserID:       resolvedUserID,
-			StatusID:     orderDomain.StatusPendingPayment,
-			FirstName:    orderFirstName,
-			LastName:     orderLastName,
-			Email:        orderEmail,
-			Phone:        orderPhone,
-			TotalPrice:   totalPrice,
-			PromoCode:    promoCodeStr,
+			UserID:         resolvedUserID,
+			StatusID:       orderDomain.StatusPendingPayment,
+			FirstName:      orderFirstName,
+			LastName:       orderLastName,
+			Email:          orderEmail,
+			Phone:          orderPhone,
+			TotalPrice:     totalPrice,
+			PromoCode:      promoCodeStr,
 			DiscountAmount: totalDiscount,
-			AdminComment: input.AdminComment,
-			PayTypes:     input.PayTypes,
+			AdminComment:   input.AdminComment,
+			PayTypes:       input.PayTypes,
 		}
 
 		if err := txOrderRepo.Create(txCtx, order, orderItems, delivery); err != nil {
@@ -448,7 +451,6 @@ func (s *orderService) GetOrderStatusByID(ctx context.Context, orderID uuid.UUID
 	return s.orderRepo.GetOrderStatusByID(ctx, orderID)
 }
 
-
 // GetMyOrders повертає замовлення поточного користувача
 func (s *orderService) GetMyOrders(ctx context.Context, userID uuid.UUID, pgn pagination.Params) ([]orderDomain.Order, pagination.Metadata, error) {
 	orders, total, err := s.orderRepo.FindByUserID(ctx, userID, pgn)
@@ -507,7 +509,7 @@ func (s *orderService) CancelOrderByUser(ctx context.Context, userID uuid.UUID, 
 		s.l.Infow("Order was paid, initiating refund process", "order_id", orderID)
 		if err := s.paymentService.ProcessRefundStub(ctx, order.ID); err != nil {
 			s.l.Errorw("failed to process refund stub for cancelled order", "error", err, "order_id", orderID)
-			// Ми можемо не повертати помилку користувачу, бо замовлення вже скасовано, 
+			// Ми можемо не повертати помилку користувачу, бо замовлення вже скасовано,
 			// але це потрібно моніторити
 		}
 	}

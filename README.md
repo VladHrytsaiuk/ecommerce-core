@@ -89,6 +89,13 @@ module, and three-locale Catalog persistence):
 go test -tags=integration ./cmd/migrate
 ```
 
+### Legacy reference
+
+Unported monolith packages are excluded from the default build with a `legacy`
+build constraint. They are retained only as migration reference; use the
+`legacy-monolith-baseline` Git tag when the complete predecessor behaviour must
+be inspected or run.
+
 Before changing module boundaries, providers, migrations, or store
 configuration, read [ARCHITECTURE.md](ARCHITECTURE.md) and follow
 [ROADMAP.md](ROADMAP.md).

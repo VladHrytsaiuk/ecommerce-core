@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
@@ -8,13 +11,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
+	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
-	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
 )
 
 func toJSON(t *testing.T, v interface{}) *bytes.Buffer {
@@ -55,7 +58,7 @@ func TestCartHandler_AddToCart_Errors(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
-	
+
 	t.Run("Internal Error", func(t *testing.T) {
 		reqBody := AddToCartRequest{VariationID: uuid.New(), Quantity: 1}
 		svc.On("AddItem", mock.Anything, mock.Anything, mock.Anything, reqBody.VariationID, 1).

@@ -1,10 +1,13 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
+	"github.com/google/uuid"
 )
 
 // AdminOrderListResponse DTO для списку замовлень в адмінці

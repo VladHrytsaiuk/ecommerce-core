@@ -1,14 +1,17 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
 	"context"
 	"encoding/json"
 
-	"github.com/google/uuid"
-	slugLib "github.com/gosimple/slug"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/document/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
+	"github.com/google/uuid"
+	slugLib "github.com/gosimple/slug"
 )
 
 type documentService struct {

@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
@@ -9,14 +12,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
 )
 
@@ -570,18 +573,18 @@ func TestApplyPromoCode_Success(t *testing.T) {
 	code := "PROMO20"
 
 	svc.On("ApplyPromoCode", mock.Anything, &userID, (*string)(nil), code, "uk").Return(nil)
-	
+
 	cart := &domain.Cart{UserID: &userID}
 	variations := []productDomain.ProductVariation{}
 	shipping := &domain.ShippingSummary{IsFreeShipping: false}
-	
+
 	svc.On("GetFullCart", mock.Anything, &userID, (*string)(nil), "uk").
 		Return(cart, variations, shipping, (*discountDomain.PromoCalculationResult)(nil), &code, nil)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(setUserID(userID))
-	
+
 	h := NewCartHandler(svc, &noopLogger{})
 	r.POST("/api/:lang/cart/promo", h.ApplyPromoCode)
 
@@ -603,7 +606,7 @@ func TestRemovePromoCode_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(setUserID(userID))
-	
+
 	h := NewCartHandler(svc, &noopLogger{})
 	r.DELETE("/api/:lang/cart/promo", h.RemovePromoCode)
 
