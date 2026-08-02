@@ -17,3 +17,13 @@ func TestModulePlansRejectDuplicateModule(t *testing.T) {
 		t.Fatal("modulePlans() error = nil, want duplicate module error")
 	}
 }
+
+func TestMigrationStepsRollBackModulesBeforeCore(t *testing.T) {
+	steps, err := migrationSteps("/repo", []string{"sync", "inventory"}, "down")
+	if err != nil {
+		t.Fatalf("migrationSteps() error = %v", err)
+	}
+	if len(steps) != 3 || steps[0].table != "schema_migrations_module_sync" || steps[1].table != "schema_migrations_module_inventory" || steps[2].table != "schema_migrations" {
+		t.Fatalf("migrationSteps() = %+v, want reverse modules followed by core", steps)
+	}
+}

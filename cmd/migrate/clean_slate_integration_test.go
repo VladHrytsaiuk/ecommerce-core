@@ -51,17 +51,8 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("get PostgreSQL connection string: %v", err)
 	}
 	root := repositoryRoot(t)
-	if err := run(filepath.Join(root, "migrations", "core"), databaseURL, "schema_migrations", "up"); err != nil {
-		t.Fatalf("migrate core schema: %v", err)
-	}
-	plans, err := modulePlans([]string{"inventory"})
-	if err != nil {
-		t.Fatalf("plan enabled modules: %v", err)
-	}
-	for _, plan := range plans {
-		if err := run(filepath.Join(root, plan.dir), databaseURL, plan.table, "up"); err != nil {
-			t.Fatalf("migrate module %s: %v", plan.dir, err)
-		}
+	if err := runMigrations(root, databaseURL, []string{"inventory"}, "up"); err != nil {
+		t.Fatalf("migrate clean-slate schema: %v", err)
 	}
 
 	db, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{})
@@ -104,6 +95,10 @@ func TestCleanSlateSchema(t *testing.T) {
 	if err != nil || len(storedProduct.Translations) != 3 {
 		t.Fatalf("read product translations = (%+v, %v), want three translations", storedProduct, err)
 	}
+	if err := runMigrations(root, databaseURL, []string{"inventory"}, "down"); err != nil {
+		t.Fatalf("rollback clean-slate schema: %v", err)
+	}
+	assertTablesAbsent(t, db, "locales", "products", "product_variants", "warehouses", "stock_items", "inventory_reservations")
 }
 
 func assertTablesExist(t *testing.T, db *gorm.DB, tables ...string) {
@@ -115,6 +110,19 @@ func assertTablesExist(t *testing.T, db *gorm.DB, tables ...string) {
 		}
 		if !exists {
 			t.Fatalf("expected migrated table %q", table)
+		}
+	}
+}
+
+func assertTablesAbsent(t *testing.T, db *gorm.DB, tables ...string) {
+	t.Helper()
+	for _, table := range tables {
+		var exists bool
+		if err := db.Raw(`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?)`, table).Scan(&exists).Error; err != nil {
+			t.Fatalf("check table %q: %v", table, err)
+		}
+		if exists {
+			t.Fatalf("expected rolled-back table %q to be absent", table)
 		}
 	}
 }

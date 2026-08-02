@@ -32,23 +32,56 @@ func main() {
 	}
 
 	direction := flag.Arg(0)
-	if err := run("migrations/core", cfg.DBURL, "schema_migrations", direction); err != nil {
+	if err := runMigrations(".", cfg.DBURL, storeConfig.EnabledModules, direction); err != nil {
 		log.Fatal(err)
-	}
-	plans, err := modulePlans(storeConfig.EnabledModules)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, plan := range plans {
-		if err := run(plan.dir, cfg.DBURL, plan.table, direction); err != nil {
-			log.Fatal(err)
-		}
 	}
 }
 
 type modulePlan struct {
 	dir   string
 	table string
+}
+
+type migrationStep struct {
+	dir       string
+	table     string
+	direction string
+}
+
+// runMigrations preserves foreign-key ownership: startup applies core before
+// extensions, while rollback removes extensions before their core references.
+func runMigrations(root, databaseURL string, enabledModules []string, direction string) error {
+	steps, err := migrationSteps(root, enabledModules, direction)
+	if err != nil {
+		return err
+	}
+	for _, step := range steps {
+		if err := run(step.dir, databaseURL, step.table, step.direction); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrationSteps(root string, enabledModules []string, direction string) ([]migrationStep, error) {
+	plans, err := modulePlans(enabledModules)
+	if err != nil {
+		return nil, err
+	}
+	core := migrationStep{dir: filepath.Join(root, "migrations", "core"), table: "schema_migrations", direction: direction}
+	steps := make([]migrationStep, 0, len(plans)+1)
+	if direction == "up" {
+		steps = append(steps, core)
+		for _, plan := range plans {
+			steps = append(steps, migrationStep{dir: filepath.Join(root, plan.dir), table: plan.table, direction: direction})
+		}
+		return steps, nil
+	}
+	for index := len(plans) - 1; index >= 0; index-- {
+		plan := plans[index]
+		steps = append(steps, migrationStep{dir: filepath.Join(root, plan.dir), table: plan.table, direction: direction})
+	}
+	return append(steps, core), nil
 }
 
 // modulePlans gives every enabled module an isolated migration history and a
