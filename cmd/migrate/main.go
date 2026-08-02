@@ -5,110 +5,70 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
-	"strconv"
+	"net/url"
+	"path/filepath"
+	"regexp"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/joho/godotenv"
+
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 )
 
+var moduleName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+
 func main() {
-	var dir string
-	flag.StringVar(&dir, "dir", "migrations/core", "Directory with migration files")
 	flag.Parse()
-
-	args := flag.Args()
-	if len(args) == 0 {
-		log.Fatal("Please specify a command: 'up' or 'down'")
+	if flag.NArg() != 1 || (flag.Arg(0) != "up" && flag.Arg(0) != "down") {
+		log.Fatal("usage: go run ./cmd/migrate [up|down]")
 	}
-	command := args[0]
-
-	// Завантажуємо змінні оточення
-	_ = godotenv.Load()
-
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = os.Getenv("DB_URL")
-	}
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL or DB_URL must be set")
-	}
-
-	m, err := migrate.New(fmt.Sprintf("file://%s", dir), dbURL)
+	cfg := config.Load()
+	storeConfig, err := app.NewStoreConfig(cfg)
 	if err != nil {
-		log.Fatalf("could not create instance of migrate: %v", err)
+		log.Fatalf("invalid store configuration: %v", err)
 	}
 
-	switch command {
-	case "up":
-		steps := 0
-		if len(args) > 1 {
-			steps, err = strconv.Atoi(args[1])
-			if err != nil {
-				log.Fatalf("Invalid number of steps for 'up': %v", err)
-			}
-		}
-
-		if steps > 0 {
-			log.Printf("Applying %d migrations UP...\n", steps)
-			err = m.Steps(steps)
-		} else {
-			log.Println("Applying ALL migrations UP...")
-			err = m.Up()
-		}
-
-		if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-			log.Fatalf("Migration UP failed: %v", err)
-		}
-		log.Println("Migrations UP completed successfully!")
-
-	case "down":
-		steps := 1 // Безпечне значення за замовчуванням (1 крок)
-		isAll := false
-
-		if len(args) > 1 {
-			if args[1] == "all" {
-				isAll = true
-			} else {
-				steps, err = strconv.Atoi(args[1])
-				if err != nil {
-					log.Fatalf("Invalid number of steps for 'down': %v", err)
-				}
-			}
-		}
-
-		if isAll {
-			log.Println("Rolling back ALL migrations (m.Down)... WARNING!")
-			err = m.Down()
-		} else {
-			log.Printf("Rolling back %d migrations DOWN...\n", steps)
-			err = m.Steps(-steps) // Передаємо від'ємне значення для відкату
-		}
-
-		// Обробляємо специфічні помилки відсутності змін
-		if err != nil && !errors.Is(err, migrate.ErrNoChange) && err.Error() != "no change" {
-			log.Fatalf("Migration DOWN failed: %v", err)
-		}
-		log.Println("Rollback completed successfully!")
-
-	case "force":
-		if len(args) < 2 {
-			log.Fatal("Please specify version for 'force' command")
-		}
-		version, err := strconv.Atoi(args[1])
-		if err != nil {
-			log.Fatalf("Invalid version for 'force': %v", err)
-		}
-		log.Printf("Forcing database version to %d...\n", version)
-		err = m.Force(version)
-		if err != nil {
-			log.Fatalf("Force command failed: %v", err)
-		}
-		log.Println("Force command completed successfully!")
-
-	default:
-		log.Fatalf("Unknown command: %s. Expected 'up' or 'down'", command)
+	direction := flag.Arg(0)
+	if err := run("migrations/core", cfg.DBURL, "schema_migrations", direction); err != nil {
+		log.Fatal(err)
 	}
+	for _, module := range storeConfig.EnabledModules {
+		if !moduleName.MatchString(module) {
+			log.Fatalf("invalid enabled module name %q", module)
+		}
+		path := filepath.Join("migrations", "modules", module)
+		if err := run(path, cfg.DBURL, "schema_migrations_module_"+module, direction); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func run(dir, databaseURL, table, direction string) error {
+	m, err := migrate.New("file://"+dir, migrationURL(databaseURL, table))
+	if err != nil {
+		return fmt.Errorf("create migration runner for %s: %w", dir, err)
+	}
+	defer func() { _, _ = m.Close() }()
+	if direction == "up" {
+		err = m.Up()
+	} else {
+		err = m.Down()
+	}
+	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("apply %s migrations in %s: %w", direction, dir, err)
+	}
+	return nil
+}
+
+func migrationURL(databaseURL, table string) string {
+	u, err := url.Parse(databaseURL)
+	if err != nil {
+		log.Fatalf("invalid DB_URL: %v", err)
+	}
+	query := u.Query()
+	query.Set("x-migrations-table", table)
+	u.RawQuery = query.Encode()
+	return u.String()
 }

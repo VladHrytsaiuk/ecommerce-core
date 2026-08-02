@@ -121,9 +121,6 @@ func (c StoreConfig) Validate() error {
 	if c.InventoryMode != "internal" {
 		return fmt.Errorf("INVENTORY_MODE %q is not implemented yet", c.InventoryMode)
 	}
-	if len(c.EnabledModules) > 0 {
-		return fmt.Errorf("ENABLED_MODULES contains modules that are not implemented yet")
-	}
 	return nil
 }
 
