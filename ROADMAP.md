@@ -50,6 +50,10 @@ tracked in `LEGACY_FEATURE_MAP.md` before its source package is retired.
 
 ## Phase 3 — Checkout, money, tax and provider ports
 
+**Status: in progress — money, VAT policy, clean order snapshots, and atomic
+inventory reservation preparation are implemented. Provider ports and checkout
+orchestration remain.**
+
 **Goal:** build provider-neutral commerce workflows before any real adapter.
 
 1. Add `internal/core/money`, `internal/core/tax`, and `internal/core/orderworkflow`.

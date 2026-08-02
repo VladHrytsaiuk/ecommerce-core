@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 )
 
@@ -83,17 +85,14 @@ func (c StoreConfig) Validate() error {
 			return fmt.Errorf("locale %q must be a valid lowercase locale code up to 10 characters", locale)
 		}
 	}
-	if c.Currency != "UAH" {
-		return fmt.Errorf("CURRENCY %q is not supported by the current money implementation", c.Currency)
+	if _, err := money.New(0, c.Currency); err != nil {
+		return fmt.Errorf("CURRENCY %q must be a three-letter ISO 4217 code", c.Currency)
 	}
-	if c.PriceScale != 2 {
-		return fmt.Errorf("PRICE_SCALE %d is not supported by the current money implementation", c.PriceScale)
+	if c.PriceScale < 0 || c.PriceScale > 6 {
+		return fmt.Errorf("PRICE_SCALE %d must be between 0 and 6", c.PriceScale)
 	}
-	if c.TaxMode != "none" {
-		return fmt.Errorf("TAX_MODE %q is not implemented yet", c.TaxMode)
-	}
-	if c.VATRate != 0 {
-		return fmt.Errorf("VAT_RATE requires an implemented tax policy")
+	if _, err := tax.NewPolicy(tax.Mode(c.TaxMode), c.VATRate); err != nil {
+		return err
 	}
 	if len(c.PaymentProviders) > 0 && !contains(c.PaymentProviders, c.PaymentDefault) {
 		return fmt.Errorf("PAYMENT_DEFAULT %q is not enabled", c.PaymentDefault)

@@ -52,14 +52,7 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			mutate: func(cfg *config.Config) { cfg.InventoryMode = "external_1c" },
 			want:   "INVENTORY_MODE",
 		},
-		{
-			name: "tax policy is not implemented",
-			mutate: func(cfg *config.Config) {
-				cfg.TaxMode = "vat_included"
-				cfg.VATRate = 21
-			},
-			want: "TAX_MODE",
-		},
+		{name: "unsupported tax policy", mutate: func(cfg *config.Config) { cfg.TaxMode = "sales_tax" }, want: "TAX_MODE"},
 	}
 
 	for _, tt := range tests {
@@ -72,6 +65,16 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 				t.Fatalf("NewStoreConfig() error = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewStoreConfigAcceptsVATAndNonUAHCurrency(t *testing.T) {
+	cfg := validConfig()
+	cfg.Currency, cfg.PriceScale = "EUR", 2
+	cfg.TaxMode, cfg.VATRate = "vat_included", 21
+
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
 	}
 }
 

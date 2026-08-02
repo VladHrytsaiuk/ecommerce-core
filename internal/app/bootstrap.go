@@ -15,6 +15,7 @@ import (
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
@@ -36,6 +37,7 @@ type Application struct {
 	CatalogProductService  catalogDomain.ProductService
 	InventoryService       inventoryDomain.Service
 	OrderService           ordersDomain.Service
+	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
 }
 
@@ -52,6 +54,10 @@ type HTTPDependencies struct {
 // Bootstrap is the sole Composition Root for the active clean-slate modules.
 func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker) (*Application, error) {
 	if err := storeConfig.Validate(); err != nil {
+		return nil, err
+	}
+	taxPolicy, err := tax.NewPolicy(tax.Mode(storeConfig.TaxMode), storeConfig.VATRate)
+	if err != nil {
 		return nil, err
 	}
 	if err := localeApp.NewService(localePostgres.NewRepository(db)).Synchronize(context.Background(), storeConfig.SupportedLocales, storeConfig.DefaultLocale); err != nil {
@@ -77,6 +83,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
 		InventoryService:       inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db)),
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
+		TaxPolicy:              taxPolicy,
 		HTTP:                   httpDependencies,
 	}, nil
 }
