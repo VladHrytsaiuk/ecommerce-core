@@ -7,15 +7,17 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 )
 
-func TestNewStoreConfigAcceptsCurrentCompatibilityDefaults(t *testing.T) {
+func TestNewStoreConfigAcceptsProviderFreeCore(t *testing.T) {
 	cfg := validConfig()
+	cfg.PaymentProviders, cfg.PaymentDefault = nil, ""
+	cfg.ShippingProviders, cfg.ShippingDefault = nil, ""
 
 	got, err := NewStoreConfig(cfg)
 
 	if err != nil {
 		t.Fatalf("NewStoreConfig() error = %v", err)
 	}
-	if got.PaymentDefault != "liqpay" || got.ShippingDefault != "novaposhta" {
+	if got.PaymentDefault != "" || got.ShippingDefault != "" {
 		t.Fatalf("unexpected provider defaults: %+v", got)
 	}
 }
@@ -32,11 +34,11 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want:   "PAYMENT_DEFAULT",
 		},
 		{
-			name: "unsupported locale",
+			name: "invalid locale",
 			mutate: func(cfg *config.Config) {
-				cfg.SupportedLocales = []string{"es"}
-				cfg.DefaultLocale = "es"
-				cfg.FallbackLocale = "es"
+				cfg.SupportedLocales = []string{"es$"}
+				cfg.DefaultLocale = "es$"
+				cfg.FallbackLocale = "es$"
 			},
 			want: "locale",
 		},
@@ -46,31 +48,11 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want:   "duplicates",
 		},
 		{
-			name: "missing payment credentials",
-			mutate: func(cfg *config.Config) {
-				cfg.LiqPayPublicKey = ""
-				cfg.LiqPayPrivateKey = ""
-			},
-			want: "LIQPAY_PUBLIC_KEY",
-		},
-		{
-			name:   "missing delivery credentials",
-			mutate: func(cfg *config.Config) { cfg.NovaPoshtaAPIKey = "" },
-			want:   "NOVA_POSHTA_API_KEY",
-		},
-		{
 			name:   "external inventory before sync exists",
 			mutate: func(cfg *config.Config) { cfg.InventoryMode = "external_1c" },
 			want:   "INVENTORY_MODE",
 		},
-		{
-			name: "tax policy is not implemented",
-			mutate: func(cfg *config.Config) {
-				cfg.TaxMode = "vat_included"
-				cfg.VATRate = 21
-			},
-			want: "TAX_MODE",
-		},
+		{name: "unsupported tax policy", mutate: func(cfg *config.Config) { cfg.TaxMode = "sales_tax" }, want: "TAX_MODE"},
 	}
 
 	for _, tt := range tests {
@@ -83,6 +65,31 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 				t.Fatalf("NewStoreConfig() error = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewStoreConfigAcceptsVATAndNonUAHCurrency(t *testing.T) {
+	cfg := validConfig()
+	cfg.Currency, cfg.PriceScale = "EUR", 2
+	cfg.TaxMode, cfg.VATRate = "vat_included", 21
+
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
+func TestNewStoreConfigAcceptsThreeConfiguredLocales(t *testing.T) {
+	cfg := validConfig()
+	cfg.SupportedLocales = []string{"es", "en", "ca"}
+	cfg.DefaultLocale = "es"
+	cfg.FallbackLocale = "es"
+
+	got, err := NewStoreConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+	if len(got.SupportedLocales) != 3 {
+		t.Fatalf("SupportedLocales = %v, want three locales", got.SupportedLocales)
 	}
 }
 
@@ -101,9 +108,8 @@ func validConfig() *config.Config {
 		StoreCode: "default-store", StoreName: "ecommerce-core store",
 		DefaultLocale: "uk", SupportedLocales: []string{"uk", "en"}, FallbackLocale: "uk",
 		Currency: "UAH", PriceScale: 2, TaxMode: "none", VATRate: 0,
-		PaymentProviders: []string{"liqpay"}, PaymentDefault: "liqpay",
-		ShippingProviders: []string{"novaposhta"}, ShippingDefault: "novaposhta",
-		InventoryMode:   "internal",
-		LiqPayPublicKey: "public", LiqPayPrivateKey: "private", NovaPoshtaAPIKey: "key",
+		PaymentProviders: nil, PaymentDefault: "",
+		ShippingProviders: nil, ShippingDefault: "",
+		InventoryMode: "internal",
 	}
 }

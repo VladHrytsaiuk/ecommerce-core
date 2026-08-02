@@ -32,8 +32,9 @@ not business logic embedded in the order flow.
 
 ## Architecture and Roadmap
 
-The repository is being migrated incrementally from its original monolith to
-the target architecture using the Strangler Fig pattern.
+The repository is being built as a clean-slate commerce engine. Older code may
+be used temporarily as an implementation reference, but no legacy database or
+store deployment is a compatibility target.
 
 - [Target Architecture](ARCHITECTURE.md) — architectural principles, module
   boundaries, ports/adapters, database ownership, inventory, and Sync.
@@ -80,6 +81,20 @@ go vet ./...
 
 Some repository tests use Docker/Testcontainers. Run them in an environment
 where Docker is available.
+
+To verify the clean-slate database path, including the enabled Inventory module,
+three-locale Catalog persistence, and atomic order/reservation workflow:
+
+```bash
+go test -tags=integration ./cmd/migrate ./internal/platform/postgres/orderworkflow
+```
+
+### Legacy reference
+
+Unported monolith packages are excluded from the default build with a `legacy`
+build constraint. They are retained only as migration reference; use the
+`legacy-monolith-baseline` Git tag when the complete predecessor behaviour must
+be inspected or run.
 
 Before changing module boundaries, providers, migrations, or store
 configuration, read [ARCHITECTURE.md](ARCHITECTURE.md) and follow

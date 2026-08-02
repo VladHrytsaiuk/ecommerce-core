@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
@@ -82,7 +85,7 @@ func (w *TrackingWorker) processShippedOrders(ctx context.Context) {
 		// Якщо доставлено — оновлюємо статус замовлення та пишемо в історію
 		if result.IsDelivered && order.StatusID == domain.StatusShipped {
 			w.l.Infow("TrackingWorker: order delivered", "order_number", order.OrderNumber, "ttn", order.TTNNumber)
-			
+
 			err = w.orderRepo.WithTransaction(ctx, func(txCtx context.Context, txRepo domain.OrderRepository) error {
 				// Блокуємо замовлення
 				lockedOrder, err := txRepo.FindByIDForUpdate(txCtx, order.ID)

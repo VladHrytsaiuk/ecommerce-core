@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
@@ -8,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	orderDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/payment/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/email"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -218,7 +221,6 @@ func (m *mockOrderRepo) UpdateCarrierData(ctx context.Context, orderID uuid.UUID
 	return args.Error(0)
 }
 
-
 func (m *mockOrderRepo) UpdateStatus(ctx context.Context, id uuid.UUID, statusID int) error {
 	args := m.Called(ctx, id, statusID)
 	return args.Error(0)
@@ -315,7 +317,7 @@ func TestPaymentService_SimulatePayment(t *testing.T) {
 
 	orderID := uuid.New()
 	paymentID := uuid.New()
-	
+
 	p := &domain.Payment{ID: paymentID, OrderID: orderID, Status: "pending"}
 	o := &orderDomain.Order{ID: orderID, StatusID: orderDomain.StatusPendingPayment}
 
@@ -332,14 +334,12 @@ func TestPaymentService_SimulatePayment(t *testing.T) {
 
 	err := svc.SimulatePayment(context.Background(), orderID)
 	require.NoError(t, err)
-	
+
 	time.Sleep(200 * time.Millisecond)
 
 	paymentRepo.AssertExpectations(t)
 	orderRepo.AssertExpectations(t)
 }
-
-
 
 func TestPaymentService_ProcessWebhook_Success(t *testing.T) {
 	paymentRepo := new(mockPaymentRepo)
@@ -364,7 +364,7 @@ func TestPaymentService_ProcessWebhook_Success(t *testing.T) {
 
 	b, _ := json.Marshal(liqData)
 	data64 := base64.StdEncoding.EncodeToString(b)
-	
+
 	h := sha1.New()
 	h.Write([]byte(cfg.LiqPayPrivateKey + data64 + cfg.LiqPayPrivateKey))
 	sig64 := base64.StdEncoding.EncodeToString(h.Sum(nil))

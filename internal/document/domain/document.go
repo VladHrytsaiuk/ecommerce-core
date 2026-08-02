@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package domain
 
 import (
@@ -6,10 +9,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/google/uuid"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
 	userDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/user/domain"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 

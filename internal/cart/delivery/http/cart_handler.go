@@ -1,15 +1,18 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/helpers"
 	mymiddleware "github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // CartHandler обробляє HTTP запити для кошика

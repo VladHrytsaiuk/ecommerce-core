@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
@@ -5,13 +8,13 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/document/domain"
 	mymiddleware "github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	validationerrors "github.com/VladHrytsaiuk/ecommerce-core/internal/shared/errors"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type DocumentHandler struct {

@@ -1,11 +1,12 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/helpers"
 	mymiddleware "github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
@@ -13,6 +14,8 @@ import (
 	validationerrors "github.com/VladHrytsaiuk/ecommerce-core/internal/shared/errors"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
 	userDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/user/domain"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // OrderHandler обробляє HTTP запити для замовлень
@@ -449,7 +452,7 @@ func mapToOrderResponse(o *domain.Order, lang string) OrderResponse {
 			}
 		}
 		dto := OrderItemDTO{
-			ID:          item.ID,
+			ID:              item.ID,
 			VariationID:     item.VariationID,
 			Slug:            slug,
 			Price:           item.Price,

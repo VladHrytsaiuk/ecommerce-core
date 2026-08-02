@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
@@ -10,7 +13,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	
+
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	paymentDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payment/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
@@ -21,6 +24,7 @@ import (
 
 // noopLogger для тестів
 type noopLogger struct{}
+
 func (l *noopLogger) Debug(msg string, fields ...zap.Field) {}
 func (l *noopLogger) Info(msg string, fields ...zap.Field)  {}
 func (l *noopLogger) Warn(msg string, fields ...zap.Field)  {}
@@ -162,13 +166,13 @@ func setupOrderService() (*MockOrderRepo, *MockPaymentSvc, *MockEmailProvider, d
 
 	svc := NewOrderService(
 		mockRepo,
-		nil, // cartRepo
-		nil, // userRepo
-		nil, // verifyCodeRepo
-		nil, // promoRepo
-		nil, // promoService
+		nil,         // cartRepo
+		nil,         // userRepo
+		nil,         // verifyCodeRepo
+		nil,         // promoRepo
+		nil,         // promoService
 		mockPayment, // paymentService
-		nil, // shipmentService
+		nil,         // shipmentService
 		mockEmail,
 		cfg,
 		loggerInstance,

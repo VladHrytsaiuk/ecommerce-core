@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
@@ -5,9 +8,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/gin-gonic/gin"
 )
 
 // ManagerHandler обробляє HTTP запити для менеджерського доступу до замовлень

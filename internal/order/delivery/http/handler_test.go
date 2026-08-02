@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
@@ -91,7 +94,7 @@ func setupTestRouter() (*gin.Engine, *MockOrderService) {
 	router := gin.New()
 	mockSvc := new(MockOrderService)
 	handler := NewOrderHandler(mockSvc, &noopLogger{})
-	
+
 	// Inject dummy user_id for test
 	router.Use(func(c *gin.Context) {
 		if c.GetHeader("X-User-ID") != "" {
@@ -110,7 +113,7 @@ func setupTestRouter() (*gin.Engine, *MockOrderService) {
 	router.GET("/orders/:id/payment-status", handler.GetPaymentStatus)
 	router.GET("/my-orders", handler.GetMyOrders)
 	router.POST("/orders/:id/cancel", handler.CancelOrder)
-	
+
 	return router, mockSvc
 }
 
@@ -120,11 +123,11 @@ func TestGetOrder(t *testing.T) {
 	userID := uuid.New()
 
 	order := &domain.Order{
-		ID: orderID,
-		UserID: &userID,
+		ID:       orderID,
+		UserID:   &userID,
 		StatusID: domain.StatusPendingPayment,
 		Status: domain.OrderStatus{
-			ID: domain.StatusPendingPayment,
+			ID:   domain.StatusPendingPayment,
 			Code: "pending_payment",
 		},
 	}
@@ -139,7 +142,7 @@ func TestGetOrder(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	
+
 	var res OrderResponse
 	err := json.Unmarshal(w.Body.Bytes(), &res)
 	require.NoError(t, err)

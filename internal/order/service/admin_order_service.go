@@ -1,14 +1,17 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	paymentDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payment/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
+	"github.com/google/uuid"
 )
 
 type adminOrderService struct {

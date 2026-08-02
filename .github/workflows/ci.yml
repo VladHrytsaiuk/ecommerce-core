@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  clean-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Verify active clean architecture
+        run: bash scripts/check-clean-architecture.sh
+      - name: Test default repository build
+        run: go test ./...
+      - name: Build API
+        run: go build ./cmd/api
+      - name: Verify fresh PostgreSQL schema
+        run: >-
+          go test -tags=integration
+          ./cmd/migrate
+          ./internal/platform/postgres/orderworkflow

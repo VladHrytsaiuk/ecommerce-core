@@ -1,12 +1,15 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
+	"github.com/google/uuid"
 )
 
 type wishlistService struct {

@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package postgres
 
 import (
@@ -8,14 +11,14 @@ import (
 	"testing"
 	"time"
 
+	platformDB "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/redirect/domain"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-	platformDB "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/redirect/domain"
 	"gorm.io/gorm"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -130,7 +133,7 @@ func (s *RedirectRepositoryTestSuite) TestFindCurrentSlug_Category() {
 func (s *RedirectRepositoryTestSuite) TestFindCurrentSlug_Variation() {
 	productID := uuid.New()
 	s.Require().NoError(s.db.Exec("INSERT INTO product (id, updated_at) VALUES (?, NOW())", productID).Error)
-	
+
 	variationID := uuid.New()
 	s.Require().NoError(s.db.Exec("INSERT INTO product_variation (id, product_id, slug, updated_at) VALUES (?, ?, 'current-variation', NOW())", variationID, productID).Error)
 

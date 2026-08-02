@@ -1,13 +1,16 @@
+//go:build legacy
+// +build legacy
+
 package postgres
 
 import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

@@ -1,9 +1,12 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
-	"github.com/gin-gonic/gin"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/gin-gonic/gin"
 )
 
 // RegisterCartRoutes реєструє маршрути модуля кошика.

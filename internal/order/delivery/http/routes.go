@@ -1,9 +1,12 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
-	"github.com/gin-gonic/gin"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/order/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/gin-gonic/gin"
 )
 
 // RegisterOrderRoutes реєструє маршрути модуля замовлень.
@@ -24,7 +27,7 @@ func RegisterOrderRoutes(
 
 	// Отримання замовлень — тільки для авторизованих
 	authGrp.GET("/orders/my", h.GetMyOrders)
-	
+
 	// Скасування замовлення користувачем (авторизація через bearer auth, перевірка власника всередині)
 	authGrp.POST("/orders/:id/cancel", h.CancelOrder)
 

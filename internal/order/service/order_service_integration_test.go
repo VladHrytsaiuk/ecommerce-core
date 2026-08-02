@@ -1,4 +1,5 @@
-//go:build integration
+//go:build legacy && integration
+// +build legacy,integration
 
 package service
 
@@ -7,9 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	cartRepoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/repository/postgres"
 	discountPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/repository/postgres"
 	discountSvc "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/service"
@@ -23,6 +21,9 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	userDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/user/domain"
 	userRepoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/user/repository/postgres"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 

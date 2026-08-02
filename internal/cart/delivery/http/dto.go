@@ -1,10 +1,13 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
+	"github.com/google/uuid"
 )
 
 const DefaultBundleUnitID = 6
@@ -30,24 +33,24 @@ type ShippingResponse struct {
 
 // CartItemResponse елемент кошика з інформацією про продукт
 type CartItemResponse struct {
-	VariationID      uuid.UUID     `json:"variation_id"`
-	ProductID        uuid.UUID     `json:"product_id"`
-	Slug             string        `json:"slug"`
-	SKU              string        `json:"sku"`
-	Name             string        `json:"name"`
-	BrandName        string        `json:"brand_name"`
-	Price            int           `json:"price"`
-	OldPrice         *int          `json:"old_price,omitempty"`
-	ImageURL         string        `json:"image_url"`
-	HoverImageURL    string        `json:"hover_image_url"`
-	QuantityValue    float64       `json:"quantity_value"`
-	Unit             *UnitResponse `json:"unit,omitempty"`
-	Quantity         int           `json:"quantity"`
-	TotalPrice       int           `json:"total_price"`
-	DiscountAmount   int           `json:"discount_amount"`
-	FinalTotalPrice  int           `json:"final_total_price"`
-	IsBundle         bool          `json:"is_bundle"`
-	IsActive         bool          `json:"is_active"`
+	VariationID     uuid.UUID     `json:"variation_id"`
+	ProductID       uuid.UUID     `json:"product_id"`
+	Slug            string        `json:"slug"`
+	SKU             string        `json:"sku"`
+	Name            string        `json:"name"`
+	BrandName       string        `json:"brand_name"`
+	Price           int           `json:"price"`
+	OldPrice        *int          `json:"old_price,omitempty"`
+	ImageURL        string        `json:"image_url"`
+	HoverImageURL   string        `json:"hover_image_url"`
+	QuantityValue   float64       `json:"quantity_value"`
+	Unit            *UnitResponse `json:"unit,omitempty"`
+	Quantity        int           `json:"quantity"`
+	TotalPrice      int           `json:"total_price"`
+	DiscountAmount  int           `json:"discount_amount"`
+	FinalTotalPrice int           `json:"final_total_price"`
+	IsBundle        bool          `json:"is_bundle"`
+	IsActive        bool          `json:"is_active"`
 }
 
 // UnitResponse спрощена структура для одиниці виміру

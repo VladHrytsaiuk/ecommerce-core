@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package http_test
 
 import (
@@ -9,14 +12,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
 	wishlistHttp "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 type mockWishlistService struct {

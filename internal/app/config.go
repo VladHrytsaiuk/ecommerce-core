@@ -5,10 +5,13 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 )
 
 var storeCodePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+var localeCodePattern = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{2,8})*$`)
 
 // StoreConfig is the normalized, provider-neutral configuration consumed by the
 // Composition Root. It coexists with platform/config.Config while legacy
@@ -31,9 +34,6 @@ type StoreConfig struct {
 	EnabledModules       []string
 	CheckoutAllowGuest   bool
 	CheckoutRequirePhone bool
-
-	liqPayConfigured     bool
-	novaPoshtaConfigured bool
 }
 
 // NewStoreConfig maps environment-loaded configuration into the typed
@@ -54,8 +54,6 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		EnabledModules:       normalizeAll(cfg.EnabledModules),
 		CheckoutAllowGuest:   cfg.CheckoutAllowGuest,
 		CheckoutRequirePhone: cfg.CheckoutRequirePhone,
-		liqPayConfigured:     cfg.LiqPayPublicKey != "" && cfg.LiqPayPrivateKey != "",
-		novaPoshtaConfigured: cfg.NovaPoshtaAPIKey != "",
 	}
 	return storeConfig, storeConfig.Validate()
 }
@@ -83,45 +81,33 @@ func (c StoreConfig) Validate() error {
 		return fmt.Errorf("FALLBACK_LOCALE %q is not in SUPPORTED_LOCALES", c.FallbackLocale)
 	}
 	for _, locale := range c.SupportedLocales {
-		if !isSupportedLocale(locale) {
-			return fmt.Errorf("locale %q is not supported by the current catalog and HTTP compatibility layer", locale)
+		if !isValidLocale(locale) {
+			return fmt.Errorf("locale %q must be a valid lowercase locale code up to 10 characters", locale)
 		}
 	}
-	if c.Currency != "UAH" {
-		return fmt.Errorf("CURRENCY %q is not supported by the current money implementation", c.Currency)
+	if _, err := money.New(0, c.Currency); err != nil {
+		return fmt.Errorf("CURRENCY %q must be a three-letter ISO 4217 code", c.Currency)
 	}
-	if c.PriceScale != 2 {
-		return fmt.Errorf("PRICE_SCALE %d is not supported by the current money implementation", c.PriceScale)
+	if c.PriceScale < 0 || c.PriceScale > 6 {
+		return fmt.Errorf("PRICE_SCALE %d must be between 0 and 6", c.PriceScale)
 	}
-	if c.TaxMode != "none" {
-		return fmt.Errorf("TAX_MODE %q is not implemented yet", c.TaxMode)
+	if _, err := tax.NewPolicy(tax.Mode(c.TaxMode), c.VATRate); err != nil {
+		return err
 	}
-	if c.VATRate != 0 {
-		return fmt.Errorf("VAT_RATE requires an implemented tax policy")
-	}
-	if !contains(c.PaymentProviders, c.PaymentDefault) {
+	if len(c.PaymentProviders) > 0 && !contains(c.PaymentProviders, c.PaymentDefault) {
 		return fmt.Errorf("PAYMENT_DEFAULT %q is not enabled", c.PaymentDefault)
 	}
-	if !contains(c.ShippingProviders, c.ShippingDefault) {
+	if len(c.PaymentProviders) == 0 && c.PaymentDefault != "" {
+		return fmt.Errorf("PAYMENT_DEFAULT requires an enabled payment provider")
+	}
+	if len(c.ShippingProviders) > 0 && !contains(c.ShippingProviders, c.ShippingDefault) {
 		return fmt.Errorf("SHIPPING_DEFAULT %q is not enabled", c.ShippingDefault)
 	}
-	if !allEqual(c.PaymentProviders, "liqpay") {
-		return fmt.Errorf("only the liqpay payment adapter is implemented")
-	}
-	if !c.liqPayConfigured {
-		return fmt.Errorf("LIQPAY_PUBLIC_KEY and LIQPAY_PRIVATE_KEY are required when liqpay is enabled")
-	}
-	if !allEqual(c.ShippingProviders, "novaposhta") {
-		return fmt.Errorf("only the novaposhta delivery adapter is implemented")
-	}
-	if !c.novaPoshtaConfigured {
-		return fmt.Errorf("NOVA_POSHTA_API_KEY is required when novaposhta is enabled")
+	if len(c.ShippingProviders) == 0 && c.ShippingDefault != "" {
+		return fmt.Errorf("SHIPPING_DEFAULT requires an enabled shipping provider")
 	}
 	if c.InventoryMode != "internal" {
 		return fmt.Errorf("INVENTORY_MODE %q is not implemented yet", c.InventoryMode)
-	}
-	if len(c.EnabledModules) > 0 {
-		return fmt.Errorf("ENABLED_MODULES contains modules that are not implemented yet")
 	}
 	return nil
 }
@@ -149,17 +135,6 @@ func contains(values []string, value string) bool {
 	return false
 }
 
-func allEqual(values []string, expected string) bool {
-	return len(values) > 0 && func() bool {
-		for _, value := range values {
-			if value != expected {
-				return false
-			}
-		}
-		return true
-	}()
-}
-
 func hasDuplicates(values []string) bool {
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
@@ -171,6 +146,6 @@ func hasDuplicates(values []string) bool {
 	return false
 }
 
-func isSupportedLocale(locale string) bool {
-	return locale == "uk" || locale == "en"
+func isValidLocale(locale string) bool {
+	return len(locale) <= 10 && localeCodePattern.MatchString(locale)
 }

@@ -7,6 +7,11 @@ possible to launch a new store (for example, a B2C cosmetics store in Spain)
 from the same repository by selecting configuration and enabled modules, not by
 forking or rewriting the core.
 
+The engine is a **clean-slate project**. It has no obligation to migrate or
+remain compatible with a predecessor database, API, provider payload, or store
+deployment. The old codebase may inform behaviour while modules are rebuilt,
+but it is not a schema or API contract.
+
 The repository is **not** a collection of client-specific applications. Store
 identity, locales, currency, providers, taxes, checkout rules, inventory mode,
 and enabled modules are configuration. Stable commercial invariants, security,
@@ -81,8 +86,9 @@ commercial rules.
 ## 4. Composition Root and configuration
 
 `internal/app/bootstrap.go` is the sole Composition Root. It is responsible
-for loading configuration, validating compatibility, constructing repositories,
-policies and enabled adapters, registering routes, and starting workers.
+for validating configuration, constructing repositories, policies, enabled
+adapters and worker instances. `cmd/api/main.go` starts and stops the assembled
+`Application` lifecycle after the HTTP server has drained requests.
 
 `internal/http/router.go` must only wire already-created handlers and
 middleware. It must not instantiate an SDK or contain provider selection.
@@ -226,16 +232,32 @@ migrations/
         └── ..._product_details.up.sql
 ```
 
-Each migration has an explicit reversible `down` counterpart where safe. The
-migration runner applies core first, then enabled modules in a documented,
-deterministic dependency order. Production migrations must be backwards
-compatible during rolling deployments.
+The first core migration is a clean baseline for a new PostgreSQL database. The
+migration runner applies core first, then enabled modules in deterministic
+lexicographic order. Core uses `schema_migrations`; each module uses its own
+`schema_migrations_module_<module>` table to avoid version collisions. After a
+migration is applied to an environment, it is immutable; use a new forward
+migration for later changes.
 
 Core owns universal entities: users, roles, base catalog, carts, orders,
 payments, deliveries, locales and audit records. Modules own their extension
 tables. For example, cosmetics uses `cosmetics_product_details(product_id, ...)`
 and inventory uses `stock_item(variation_id, warehouse_id, ...)`; neither adds
 vertical-specific columns to `core.product`.
+
+### 6.1.1 Cross-module references
+
+Each module owns its migration history and tables. A module may store another
+context's UUID (for example `inventory.stock_items.variant_id`), but it must
+not declare a PostgreSQL foreign key to that context's table. The owning
+application service validates the referenced aggregate through a port; a
+provider-neutral workflow owns transactions that must change multiple contexts
+atomically. This keeps module schema evolution independent while retaining the
+commerce invariants of reservation and order creation.
+
+Cross-context SQL belongs only in a named infrastructure transaction adapter
+under `internal/platform/postgres/...`; core/domain and module application
+packages must not import another module's concrete repository.
 
 ### 6.2 Localization
 

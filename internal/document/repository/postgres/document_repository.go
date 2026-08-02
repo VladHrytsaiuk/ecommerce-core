@@ -1,15 +1,18 @@
+//go:build legacy
+// +build legacy
+
 package postgres
 
 import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/document/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/pagination"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 

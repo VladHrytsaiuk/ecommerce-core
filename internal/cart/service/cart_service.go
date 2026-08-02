@@ -1,14 +1,17 @@
+//go:build legacy
+// +build legacy
+
 package service
 
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
+	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	productDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/product/domain"
-	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	shipmentDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/shipment/domain"
+	"github.com/google/uuid"
 )
 
 type cartService struct {

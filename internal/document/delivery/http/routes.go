@@ -1,9 +1,12 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
-	"github.com/gin-gonic/gin"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/document/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/gin-gonic/gin"
 )
 
 // RegisterDocumentRoutes registers the routes for the document module

@@ -1,3 +1,6 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import "github.com/google/uuid"
@@ -8,10 +11,10 @@ import "github.com/google/uuid"
 
 // CreateOrderRequest запит на створення замовлення
 type CreateOrderRequest struct {
-	Delivery     DeliveryRequest  `json:"delivery" binding:"required"`
-	Customer     CustomerRequest  `json:"customer" binding:"required"`
-	AdminComment string           `json:"admin_comment"`
-	PayTypes     string           `json:"paytypes"`
+	Delivery     DeliveryRequest `json:"delivery" binding:"required"`
+	Customer     CustomerRequest `json:"customer" binding:"required"`
+	AdminComment string          `json:"admin_comment"`
+	PayTypes     string          `json:"paytypes"`
 }
 
 // DeliveryRequest інформація про доставку
@@ -59,21 +62,21 @@ type OrderBriefResponse struct {
 
 // OrderResponse детальна відповідь замовлення
 type OrderResponse struct {
-	ID           uuid.UUID         `json:"id"`
-	OrderNumber  int64             `json:"order_number"`
-	Status       OrderStatusDTO    `json:"status"`
-	FirstName      string            `json:"first_name"`
-	LastName       string            `json:"last_name"`
-	Email          string            `json:"email"`
-	Phone          string            `json:"phone"`
-	TotalPrice     int               `json:"total_price"`
-	PromoCode      *string           `json:"promo_code,omitempty"`
-	DiscountAmount int               `json:"discount_amount"`
-	Items          []OrderItemDTO    `json:"items"`
-	Delivery       *DeliveryDTO      `json:"delivery"`
-	AdminComment   string            `json:"admin_comment,omitempty"`
-	CreatedAt      string            `json:"created_at"`
-	PaymentURL     string            `json:"payment_url,omitempty"`
+	ID             uuid.UUID      `json:"id"`
+	OrderNumber    int64          `json:"order_number"`
+	Status         OrderStatusDTO `json:"status"`
+	FirstName      string         `json:"first_name"`
+	LastName       string         `json:"last_name"`
+	Email          string         `json:"email"`
+	Phone          string         `json:"phone"`
+	TotalPrice     int            `json:"total_price"`
+	PromoCode      *string        `json:"promo_code,omitempty"`
+	DiscountAmount int            `json:"discount_amount"`
+	Items          []OrderItemDTO `json:"items"`
+	Delivery       *DeliveryDTO   `json:"delivery"`
+	AdminComment   string         `json:"admin_comment,omitempty"`
+	CreatedAt      string         `json:"created_at"`
+	PaymentURL     string         `json:"payment_url,omitempty"`
 }
 
 // OrderStatusDTO статус замовлення для API
@@ -85,11 +88,11 @@ type OrderStatusDTO struct {
 
 // OrderItemDTO елемент замовлення для API
 type OrderItemDTO struct {
-	ID          uuid.UUID `json:"id"`
-	VariationID uuid.UUID `json:"variation_id"`
-	ProductName string    `json:"product_name,omitempty"`
-	Slug        string    `json:"slug,omitempty"`
-	ImageURL    string    `json:"image_url,omitempty"`
+	ID              uuid.UUID `json:"id"`
+	VariationID     uuid.UUID `json:"variation_id"`
+	ProductName     string    `json:"product_name,omitempty"`
+	Slug            string    `json:"slug,omitempty"`
+	ImageURL        string    `json:"image_url,omitempty"`
 	Price           int       `json:"price"`
 	Quantity        int       `json:"quantity"`
 	TotalPrice      int       `json:"total_price"`

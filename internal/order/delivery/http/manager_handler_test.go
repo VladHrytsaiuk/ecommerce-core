@@ -1,11 +1,14 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"encoding/json"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -52,18 +55,18 @@ func setupManagerTestRouter() (*gin.Engine, *MockManagerService) {
 	router.GET("/manager/orders/:orderNumber", handler.GetManagerOrder)
 	router.POST("/manager/orders/:orderNumber/confirm", handler.ConfirmOrder)
 	router.POST("/manager/orders/:orderNumber/cancel", handler.CancelOrder)
-	
+
 	return router, mockSvc
 }
 
 func TestGetManagerOrder(t *testing.T) {
 	router, mockSvc := setupManagerTestRouter()
-	
+
 	order := &domain.Order{
-		ID: uuid.New(),
+		ID:          uuid.New(),
 		OrderNumber: 1001,
 		Status: domain.OrderStatus{
-			ID: domain.StatusPaid,
+			ID:   domain.StatusPaid,
 			Code: "paid",
 		},
 	}
@@ -82,9 +85,9 @@ func TestManagerConfirmOrder(t *testing.T) {
 	router, mockSvc := setupManagerTestRouter()
 
 	order := &domain.Order{
-		ID: uuid.New(),
+		ID:          uuid.New(),
 		OrderNumber: 1001,
-		TTNNumber: "TTN123",
+		TTNNumber:   "TTN123",
 	}
 
 	mockSvc.On("ConfirmOrder", mock.Anything, int64(1001), "secret").Return(order, nil)
@@ -96,7 +99,7 @@ func TestManagerConfirmOrder(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	
+
 	var res map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &res)
 	require.NoError(t, err)

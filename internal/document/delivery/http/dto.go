@@ -1,11 +1,14 @@
+//go:build legacy
+// +build legacy
+
 package http
 
 import (
 	"encoding/json"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/document/domain"
+	"github.com/google/uuid"
 )
 
 type CreateDocumentRequest struct {
