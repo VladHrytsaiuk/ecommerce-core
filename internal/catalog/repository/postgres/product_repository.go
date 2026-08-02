@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -21,6 +22,9 @@ func (r *ProductRepository) FindBySlug(ctx context.Context, locale, slug string)
 		Where("pt.locale = ? AND pt.slug = ?", locale, slug).
 		First(&product).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrProductNotFound
+		}
 		return nil, err
 	}
 	return &product, nil

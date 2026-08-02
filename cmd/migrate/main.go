@@ -16,7 +16,7 @@ import (
 
 func main() {
 	var dir string
-	flag.StringVar(&dir, "dir", "migrations", "Directory with migration files")
+	flag.StringVar(&dir, "dir", "migrations/core", "Directory with migration files")
 	flag.Parse()
 
 	args := flag.Args()

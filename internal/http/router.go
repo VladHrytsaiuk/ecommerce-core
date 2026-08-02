@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
+	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
 	categoryHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/category/delivery/http"
 	discountHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/delivery/http"
@@ -51,6 +52,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	localeGroup := api.Group("/:lang")
 	localeGroup.Use(application.HTTP.LocaleMiddleware)
 	{
+		catalogHTTP.RegisterProductRoutes(localeGroup, adminGroup, application.CatalogProductService)
 		categoryHTTP.RegisterCategoryRoutes(localeGroup, adminGroup, application.CategoryService, application.RedirectService, logger.Log)
 		productHTTP.RegisterBrandRoutes(localeGroup, adminGroup, application.BrandService, logger.Log)
 		productHTTP.RegisterAttributeRoutes(localeGroup, adminGroup, application.AttributeService, logger.Log)

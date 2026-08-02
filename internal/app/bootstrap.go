@@ -21,6 +21,9 @@ import (
 	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	cartPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/repository/postgres"
 	cartSvc "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/service"
+	catalogApp "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/application"
+	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
+	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
 	categoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/category/domain"
 	categoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/category/repository/postgres"
 	categorySvc "github.com/VladHrytsaiuk/ecommerce-core/internal/category/service"
@@ -81,26 +84,27 @@ type Application struct {
 	TokenMaker  token.Maker
 	WSHub       *notification.Hub
 
-	AuthService       userDomain.AuthService
-	UserService       userDomain.UserService
-	CategoryService   categoryDomain.CategoryService
-	ProductService    productDomain.ProductService
-	BrandService      productDomain.BrandService
-	AttributeService  productDomain.AttributeService
-	BadgeService      productDomain.BadgeService
-	RedirectService   redirectDomain.RedirectService
-	ShipmentService   shipmentDomain.ShipmentService
-	WishlistService   wishlistDomain.WishlistService
-	PromoService      discountDomain.PromoService
-	CartService       cartDomain.CartService
-	AuditService      auditDomain.AuditService
-	DocumentService   documentDomain.DocumentService
-	PaymentService    paymentDomain.PaymentService
-	OrderService      orderDomain.OrderService
-	AdminOrderService orderDomain.AdminOrderService
-	ManagerService    orderDomain.ManagerService
-	FeedbackService   feedbackDomain.FeedbackService
-	SitemapWorker     sitemapDomain.SitemapWorkerService
+	AuthService           userDomain.AuthService
+	UserService           userDomain.UserService
+	CategoryService       categoryDomain.CategoryService
+	CatalogProductService catalogDomain.ProductService
+	ProductService        productDomain.ProductService
+	BrandService          productDomain.BrandService
+	AttributeService      productDomain.AttributeService
+	BadgeService          productDomain.BadgeService
+	RedirectService       redirectDomain.RedirectService
+	ShipmentService       shipmentDomain.ShipmentService
+	WishlistService       wishlistDomain.WishlistService
+	PromoService          discountDomain.PromoService
+	CartService           cartDomain.CartService
+	AuditService          auditDomain.AuditService
+	DocumentService       documentDomain.DocumentService
+	PaymentService        paymentDomain.PaymentService
+	OrderService          orderDomain.OrderService
+	AdminOrderService     orderDomain.AdminOrderService
+	ManagerService        orderDomain.ManagerService
+	FeedbackService       feedbackDomain.FeedbackService
+	SitemapWorker         sitemapDomain.SitemapWorkerService
 
 	cleanupWorker         *userSvc.CleanupWorker
 	wishlistCleanupWorker *wishlistSvc.WishlistCleanupWorker
@@ -195,6 +199,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	redirectService := redirectSvc.NewRedirectService(redirectPostgres.NewRedirectRepository(db), logger.Log)
 	productRepo := productPostgres.NewProductRepository(db, logger.Log)
 	productService := productSvc.NewProductService(productRepo, store, redirectService, cfg, logger.Log)
+	catalogProductService := catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales)
 	categoryService := categorySvc.NewCategoryService(categoryPostgres.NewCategoryRepository(db, logger.Log), productRepo, store, redirectService, logger.Log)
 	brandService := productSvc.NewBrandService(productPostgres.NewBrandRepository(db, logger.Log), productRepo, logger.Log)
 	attributeService := productSvc.NewAttributeService(productPostgres.NewAttributeRepository(db, logger.Log), logger.Log)
@@ -266,7 +271,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker, WSHub: wsHub,
 		AuthService: authService, UserService: userService,
-		CategoryService: categoryService, ProductService: productService,
+		CategoryService: categoryService, CatalogProductService: catalogProductService, ProductService: productService,
 		BrandService: brandService, AttributeService: attributeService,
 		BadgeService: badgeService, RedirectService: redirectService,
 		ShipmentService: shipmentService, WishlistService: wishlistService,

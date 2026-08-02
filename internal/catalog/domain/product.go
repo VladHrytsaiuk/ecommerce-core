@@ -2,9 +2,15 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+var (
+	ErrProductNotFound = errors.New("product not found")
+	ErrInvalidProduct  = errors.New("invalid product")
 )
 
 // Product is the clean catalog aggregate. Localized business content belongs
@@ -32,6 +38,14 @@ type ProductTranslation struct {
 func (ProductTranslation) TableName() string { return "product_translations" }
 
 type ProductRepository interface {
+	FindBySlug(context.Context, string, string) (*Product, error)
+	Create(context.Context, *Product) error
+}
+
+// ProductService is the application-facing port used by delivery adapters.
+// It deliberately exposes translation lists instead of language-specific
+// product fields.
+type ProductService interface {
 	FindBySlug(context.Context, string, string) (*Product, error)
 	Create(context.Context, *Product) error
 }

@@ -9,6 +9,7 @@ import (
 )
 
 var storeCodePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+var localeCodePattern = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{2,8})*$`)
 
 // StoreConfig is the normalized, provider-neutral configuration consumed by the
 // Composition Root. It coexists with platform/config.Config while legacy
@@ -83,8 +84,8 @@ func (c StoreConfig) Validate() error {
 		return fmt.Errorf("FALLBACK_LOCALE %q is not in SUPPORTED_LOCALES", c.FallbackLocale)
 	}
 	for _, locale := range c.SupportedLocales {
-		if !isSupportedLocale(locale) {
-			return fmt.Errorf("locale %q is not supported by the current catalog and HTTP compatibility layer", locale)
+		if !isValidLocale(locale) {
+			return fmt.Errorf("locale %q must be a valid lowercase locale code up to 10 characters", locale)
 		}
 	}
 	if c.Currency != "UAH" {
@@ -171,6 +172,6 @@ func hasDuplicates(values []string) bool {
 	return false
 }
 
-func isSupportedLocale(locale string) bool {
-	return locale == "uk" || locale == "en"
+func isValidLocale(locale string) bool {
+	return len(locale) <= 10 && localeCodePattern.MatchString(locale)
 }

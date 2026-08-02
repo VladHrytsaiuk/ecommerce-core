@@ -32,11 +32,11 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want:   "PAYMENT_DEFAULT",
 		},
 		{
-			name: "unsupported locale",
+			name: "invalid locale",
 			mutate: func(cfg *config.Config) {
-				cfg.SupportedLocales = []string{"es"}
-				cfg.DefaultLocale = "es"
-				cfg.FallbackLocale = "es"
+				cfg.SupportedLocales = []string{"es$"}
+				cfg.DefaultLocale = "es$"
+				cfg.FallbackLocale = "es$"
 			},
 			want: "locale",
 		},
@@ -83,6 +83,21 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 				t.Fatalf("NewStoreConfig() error = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewStoreConfigAcceptsThreeConfiguredLocales(t *testing.T) {
+	cfg := validConfig()
+	cfg.SupportedLocales = []string{"es", "en", "ca"}
+	cfg.DefaultLocale = "es"
+	cfg.FallbackLocale = "es"
+
+	got, err := NewStoreConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+	if len(got.SupportedLocales) != 3 {
+		t.Fatalf("SupportedLocales = %v, want three locales", got.SupportedLocales)
 	}
 }
 
