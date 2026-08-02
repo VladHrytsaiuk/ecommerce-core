@@ -1,6 +1,6 @@
 //go:build integration
 
-package postgres
+package orderworkflow
 
 import (
 	"context"
@@ -150,5 +150,5 @@ func repositoryRoot(t *testing.T) string {
 	if !ok {
 		t.Fatal("discover repository root")
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "..", ".."))
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", ".."))
 }

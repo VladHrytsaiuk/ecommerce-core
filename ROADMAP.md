@@ -68,6 +68,9 @@ stock. `internal/core/orderworkflow` atomically creates the pending order and
 associates reservations; payment success commits stock once, while gateway
 failure/cancellation releases it and cancels the order. PaymentGateway and
 Carrier are provider-neutral ports with fake-backed workflow/registry tests.
+The cross-context PostgreSQL transaction adapter lives in
+`internal/platform/postgres/orderworkflow`, so core does not depend on a
+concrete Orders or Inventory repository.
 Concrete SDK adapters and webhook transport are deliberately Phase 4.
 
 ## Phase 4 — Payment and delivery adapters

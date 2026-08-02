@@ -54,6 +54,14 @@ func TestProductServiceCreateRejectsDisabledLocale(t *testing.T) {
 	}
 }
 
+func TestProductServiceCreateRejectsUnsupportedStatus(t *testing.T) {
+	service := NewProductService(&fakeProductRepository{}, []string{"es"})
+	err := service.Create(context.Background(), &domain.Product{Status: "deleted", Translations: []domain.ProductTranslation{{Locale: "es", Name: "Crema", Slug: "crema"}}})
+	if !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Create() error = %v, want ErrInvalidProduct", err)
+	}
+}
+
 type fakeProductRepository struct {
 	created bool
 	product *domain.Product

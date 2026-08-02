@@ -42,6 +42,15 @@ func TestVariantServiceCheckoutLookupRequiresEnabledLocale(t *testing.T) {
 	}
 }
 
+func TestVariantServiceRejectsUnsupportedStatus(t *testing.T) {
+	service := NewVariantService(&fakeVariantRepository{}, []string{"es"}, "EUR")
+	price, _ := money.New(100, "EUR")
+	err := service.Create(context.Background(), &domain.ProductVariant{ProductID: uuid.New(), SKU: "CREAM-50", Status: "deleted", Price: price})
+	if !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Create() error = %v, want ErrInvalidProduct", err)
+	}
+}
+
 type fakeVariantRepository struct {
 	created bool
 }

@@ -1,4 +1,8 @@
-package postgres
+// Package orderworkflow contains the PostgreSQL transaction adapter for the
+// commerce workflow. It is infrastructure, not a core or module repository:
+// it is the one explicit place permitted to coordinate persisted Order and
+// Inventory state in one database transaction.
+package orderworkflow
 
 import (
 	"context"
@@ -11,16 +15,11 @@ import (
 
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
-	ordersPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/repository/postgres"
 )
 
-type Repository struct {
-	db *gorm.DB
-}
+type Repository struct{ db *gorm.DB }
 
-func NewRepository(db *gorm.DB) *Repository {
-	return &Repository{db: db}
-}
+func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 type reservationRecord struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -32,18 +31,43 @@ type reservationRecord struct {
 	OrderID     *uuid.UUID
 }
 
-func (reservationRecord) TableName() string {
-	return "inventory_reservations"
-}
+func (reservationRecord) TableName() string { return "inventory_reservations" }
 
 type orderStateRecord struct {
 	ID     uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Status string
 }
 
-func (orderStateRecord) TableName() string {
-	return "orders"
+func (orderStateRecord) TableName() string { return "orders" }
+
+type orderRecord struct {
+	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Number           string
+	CustomerID       *uuid.UUID
+	Status           string
+	Currency         string
+	SubtotalAmount   int64
+	TaxAmount        int64
+	TotalAmount      int64
+	PaymentProvider  string
+	DeliveryProvider string
 }
+
+func (orderRecord) TableName() string { return "orders" }
+
+type itemRecord struct {
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey"`
+	OrderID         uuid.UUID
+	VariantID       *uuid.UUID
+	ProductName     string
+	SKU             string
+	Quantity        int
+	UnitPriceAmount int64
+	TotalAmount     int64
+	Currency        string
+}
+
+func (itemRecord) TableName() string { return "order_items" }
 
 func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -56,7 +80,7 @@ func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Orde
 				return workflowDomain.ErrReservationUnavailable
 			}
 		}
-		if err := ordersPostgres.CreateInTransaction(tx, order); err != nil {
+		if err := createOrderSnapshot(tx, order); err != nil {
 			return err
 		}
 		result := tx.Model(&reservationRecord{}).
@@ -131,10 +155,21 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, targetSt
 	})
 }
 
+func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
+	record := orderRecord{ID: order.ID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider}
+	if err := tx.Create(&record).Error; err != nil {
+		return err
+	}
+	items := make([]itemRecord, 0, len(order.Items))
+	for _, item := range order.Items {
+		items = append(items, itemRecord{ID: uuid.New(), OrderID: order.ID, VariantID: item.VariantID, ProductName: item.ProductName, SKU: item.SKU, Quantity: item.Quantity, UnitPriceAmount: item.UnitPrice.Amount, TotalAmount: item.Total.Amount, Currency: item.Total.Currency})
+	}
+	return tx.Create(&items).Error
+}
+
 func lockReservations(tx *gorm.DB, reservationIDs []uuid.UUID) ([]reservationRecord, error) {
-	query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id IN ?", reservationIDs)
 	var reservations []reservationRecord
-	if err := query.Find(&reservations).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id IN ?", reservationIDs).Find(&reservations).Error; err != nil {
 		return nil, err
 	}
 	if len(reservations) != len(reservationIDs) {

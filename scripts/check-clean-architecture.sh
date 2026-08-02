@@ -33,6 +33,16 @@ if rg -n 'map\[string\]string' internal/catalog; then
   exit 1
 fi
 
+if rg -n 'REFERENCES (product_variants|orders)' migrations/modules; then
+  echo 'Module migrations must not declare foreign keys to Core tables.' >&2
+  exit 1
+fi
+
+if rg -n 'internal/(orders|inventory)/repository/postgres' internal/core; then
+  echo 'Core must not import a concrete repository from another module.' >&2
+  exit 1
+fi
+
 if rg -n 'github\.com/VladHrytsaiuk/ecommerce-core/internal/(category|product)(/|"|$)' "${active_paths[@]}"; then
   echo 'The active clean graph must not import removed legacy Catalog packages.' >&2
   exit 1

@@ -14,7 +14,7 @@ the `legacy-monolith-baseline` Git tag instead.
 |---|---|---|---|---|
 | Category hierarchy, localized names, slugs | `internal/category/` | `internal/catalog` | `categories`, `category_translations`; three-locale CRUD | Rebuilding |
 | Product content and localized slugs | `internal/product/` | `internal/catalog` | `products`, `product_translations`; publish status | Rebuilding |
-| Variants, SKU, barcode, prices | `internal/product/` | `internal/catalog` + `internal/inventory` | catalog-owned `product_variants`; inventory-owned stock and reservation migrations | Rebuilding |
+| Variants, SKU, barcode, prices | `internal/product/` | `internal/catalog` + `internal/inventory` | catalog-owned `product_variants`; inventory-owned stock and reservation migrations; port SKU/price/status contract tests before declaring rebuilt | Rebuilding |
 | Images and localized alt text | `internal/product/` | `internal/media` | owned asset tables and storage port | Planned |
 | Attributes, values and storefront filters | `internal/product/` | `internal/attributes` | normalized attribute/value translation tables | Planned |
 | Brands, badges and bundles | `internal/product/` | `catalog` / `promotions` | decide module ownership before schema | Planned |

@@ -19,7 +19,6 @@ import (
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
 	orderWorkflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
 	orderWorkflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
-	orderWorkflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
@@ -30,6 +29,7 @@ import (
 	ordersPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	workflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/orderworkflow"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 )
 
@@ -87,7 +87,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db))
-	orderWorkflowService := orderWorkflowApp.NewService(orderWorkflowPostgres.NewRepository(db))
+	// The workflow repository is PostgreSQL infrastructure. It is deliberately
+	// outside core so core/application code does not depend on an Orders or
+	// Inventory repository implementation.
+	orderWorkflowService := orderWorkflowApp.NewService(workflowPostgres.NewRepository(db))
 
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,

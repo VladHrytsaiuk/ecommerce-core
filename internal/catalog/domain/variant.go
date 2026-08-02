@@ -10,7 +10,9 @@ import (
 )
 
 // ProductVariant is the sellable catalog unit. Its price always comes from
-// the server-side catalog, never from a checkout request.
+// the server-side catalog, never from a checkout request. SKU is an optional,
+// externally assigned identifier; the core normalizes it but never invents a
+// store-specific SKU format.
 type ProductVariant struct {
 	ID        uuid.UUID
 	ProductID uuid.UUID

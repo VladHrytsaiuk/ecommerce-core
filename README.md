@@ -86,7 +86,7 @@ To verify the clean-slate database path, including the enabled Inventory module,
 three-locale Catalog persistence, and atomic order/reservation workflow:
 
 ```bash
-go test -tags=integration ./cmd/migrate ./internal/core/orderworkflow/repository/postgres
+go test -tags=integration ./cmd/migrate ./internal/platform/postgres/orderworkflow
 ```
 
 ### Legacy reference

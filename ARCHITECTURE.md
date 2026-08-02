@@ -245,6 +245,20 @@ tables. For example, cosmetics uses `cosmetics_product_details(product_id, ...)`
 and inventory uses `stock_item(variation_id, warehouse_id, ...)`; neither adds
 vertical-specific columns to `core.product`.
 
+### 6.1.1 Cross-module references
+
+Each module owns its migration history and tables. A module may store another
+context's UUID (for example `inventory.stock_items.variant_id`), but it must
+not declare a PostgreSQL foreign key to that context's table. The owning
+application service validates the referenced aggregate through a port; a
+provider-neutral workflow owns transactions that must change multiple contexts
+atomically. This keeps module schema evolution independent while retaining the
+commerce invariants of reservation and order creation.
+
+Cross-context SQL belongs only in a named infrastructure transaction adapter
+under `internal/platform/postgres/...`; core/domain and module application
+packages must not import another module's concrete repository.
+
 ### 6.2 Localization
 
 All translatable business content is stored in normalized translation tables:

@@ -7,9 +7,13 @@ CREATE TABLE warehouses (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Inventory owns its tables. variant_id and order_id are logical UUID
+-- references to Core aggregates, intentionally without cross-module foreign
+-- keys. Cross-context validity is enforced by application ports and the
+-- atomic workflow, so either module can evolve its schema independently.
 CREATE TABLE stock_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    variant_id UUID NOT NULL REFERENCES product_variants(id) ON DELETE CASCADE,
+    variant_id UUID NOT NULL,
     warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
     quantity_on_hand INTEGER NOT NULL DEFAULT 0 CHECK (quantity_on_hand >= 0),
     quantity_reserved INTEGER NOT NULL DEFAULT 0 CHECK (quantity_reserved >= 0),
@@ -21,13 +25,13 @@ CREATE TABLE stock_items (
 CREATE TABLE inventory_reservations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     idempotency_key UUID NOT NULL UNIQUE,
-    variant_id UUID NOT NULL REFERENCES product_variants(id) ON DELETE RESTRICT,
+    variant_id UUID NOT NULL,
     warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     status VARCHAR(32) NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'released', 'committed', 'expired')),
     expires_at TIMESTAMPTZ NOT NULL,
-    order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    order_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

@@ -52,13 +52,11 @@ func (itemRecord) TableName() string {
 
 func (r *Repository) Create(ctx context.Context, order *domain.Order) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return CreateInTransaction(tx, order)
+		return createInTransaction(tx, order)
 	})
 }
 
-// CreateInTransaction is shared by the Checkout workflow adapter so the order
-// snapshot and reservation association can commit as one PostgreSQL unit.
-func CreateInTransaction(tx *gorm.DB, order *domain.Order) error {
+func createInTransaction(tx *gorm.DB, order *domain.Order) error {
 	record := orderRecord{
 		ID:               order.ID,
 		Number:           order.Number,
