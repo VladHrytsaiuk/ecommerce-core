@@ -27,6 +27,8 @@ import (
 	categoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/category/domain"
 	categoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/category/repository/postgres"
 	categorySvc "github.com/VladHrytsaiuk/ecommerce-core/internal/category/service"
+	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
+	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
 	discountDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/domain"
 	discountPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/repository/postgres"
 	discountSvc "github.com/VladHrytsaiuk/ecommerce-core/internal/discount/service"
@@ -150,6 +152,9 @@ type HTTPDependencies struct {
 // implementations while moving composition out of the HTTP router.
 func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker) (*Application, error) {
 	if err := storeConfig.Validate(); err != nil {
+		return nil, err
+	}
+	if err := localeApp.NewService(localePostgres.NewRepository(db)).Synchronize(context.Background(), storeConfig.SupportedLocales, storeConfig.DefaultLocale); err != nil {
 		return nil, err
 	}
 
