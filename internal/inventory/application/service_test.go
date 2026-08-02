@@ -28,6 +28,14 @@ func (r *fakeRepository) Reserve(_ context.Context, q domain.ReservationRequest)
 	r.reserved = true
 	return &domain.Reservation{ID: uuid.New(), IdempotencyKey: q.IdempotencyKey}, nil
 }
+func (r *fakeRepository) ReserveBatch(_ context.Context, qs []domain.ReservationRequest) ([]domain.Reservation, error) {
+	r.reserved = true
+	reservations := make([]domain.Reservation, 0, len(qs))
+	for _, q := range qs {
+		reservations = append(reservations, domain.Reservation{ID: uuid.New(), IdempotencyKey: q.IdempotencyKey})
+	}
+	return reservations, nil
+}
 func (r *fakeRepository) Release(context.Context, uuid.UUID) error                { return nil }
 func (r *fakeRepository) Commit(context.Context, uuid.UUID, uuid.UUID) error      { return nil }
 func (r *fakeRepository) Adjust(context.Context, uuid.UUID, uuid.UUID, int) error { return nil }

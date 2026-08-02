@@ -16,29 +16,52 @@ type Repository struct{ db *gorm.DB }
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 func (r *Repository) Reserve(ctx context.Context, request domain.ReservationRequest) (*domain.Reservation, error) {
-	reservation := &domain.Reservation{ID: uuid.New(), IdempotencyKey: request.IdempotencyKey, VariantID: request.VariantID, WarehouseID: request.WarehouseID, Quantity: request.Quantity, Status: "active", ExpiresAt: request.ExpiresAt}
+	reservations, err := r.ReserveBatch(ctx, []domain.ReservationRequest{request})
+	if err != nil {
+		return nil, err
+	}
+	return &reservations[0], nil
+}
+
+func (r *Repository) ReserveBatch(ctx context.Context, requests []domain.ReservationRequest) ([]domain.Reservation, error) {
+	reservations := make([]domain.Reservation, 0, len(requests))
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "idempotency_key"}}, DoNothing: true}).Create(reservation)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return tx.Where("idempotency_key = ?", request.IdempotencyKey).First(reservation).Error
-		}
-		result = tx.Exec(`UPDATE stock_items
-            SET quantity_reserved = quantity_reserved + ?, updated_at = CURRENT_TIMESTAMP
-            WHERE variant_id = ? AND warehouse_id = ?
-              AND quantity_on_hand - quantity_reserved >= ?`, request.Quantity, request.VariantID, request.WarehouseID, request.Quantity)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return domain.ErrInsufficientStock
+		for _, request := range requests {
+			reservation, err := reserveInTransaction(tx, request)
+			if err != nil {
+				return err
+			}
+			reservations = append(reservations, *reservation)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	return reservations, nil
+}
+
+func reserveInTransaction(tx *gorm.DB, request domain.ReservationRequest) (*domain.Reservation, error) {
+	reservation := &domain.Reservation{ID: uuid.New(), IdempotencyKey: request.IdempotencyKey, VariantID: request.VariantID, WarehouseID: request.WarehouseID, Quantity: request.Quantity, Status: "active", ExpiresAt: request.ExpiresAt}
+	result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "idempotency_key"}}, DoNothing: true}).Create(reservation)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		if err := tx.Where("idempotency_key = ?", request.IdempotencyKey).First(reservation).Error; err != nil {
+			return nil, err
+		}
+		return reservation, nil
+	}
+	result = tx.Exec(`UPDATE stock_items
+        SET quantity_reserved = quantity_reserved + ?, updated_at = CURRENT_TIMESTAMP
+        WHERE variant_id = ? AND warehouse_id = ?
+          AND quantity_on_hand - quantity_reserved >= ?`, request.Quantity, request.VariantID, request.WarehouseID, request.Quantity)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, domain.ErrInsufficientStock
 	}
 	return reservation, nil
 }

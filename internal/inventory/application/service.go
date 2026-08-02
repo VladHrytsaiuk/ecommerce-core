@@ -19,10 +19,26 @@ func NewService(mode domain.Mode, repo domain.Repository) *Service {
 }
 
 func (s *Service) Reserve(ctx context.Context, request domain.ReservationRequest) (*domain.Reservation, error) {
-	if request.IdempotencyKey == uuid.Nil || request.VariantID == uuid.Nil || request.WarehouseID == uuid.Nil || request.Quantity <= 0 || !request.ExpiresAt.After(time.Now()) {
+	if !validReservation(request) {
 		return nil, fmt.Errorf("invalid inventory reservation")
 	}
 	return s.repo.Reserve(ctx, request)
+}
+
+func (s *Service) ReserveBatch(ctx context.Context, requests []domain.ReservationRequest) ([]domain.Reservation, error) {
+	if len(requests) == 0 {
+		return nil, fmt.Errorf("inventory reservation batch is empty")
+	}
+	for _, request := range requests {
+		if !validReservation(request) {
+			return nil, fmt.Errorf("invalid inventory reservation")
+		}
+	}
+	return s.repo.ReserveBatch(ctx, requests)
+}
+
+func validReservation(request domain.ReservationRequest) bool {
+	return request.IdempotencyKey != uuid.Nil && request.VariantID != uuid.Nil && request.WarehouseID != uuid.Nil && request.Quantity > 0 && request.ExpiresAt.After(time.Now())
 }
 
 func (s *Service) Release(ctx context.Context, reservationID uuid.UUID) error {

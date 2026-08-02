@@ -47,6 +47,7 @@ func (Reservation) TableName() string { return "inventory_reservations" }
 // guarded update; no browser-supplied stock value participates in the decision.
 type Repository interface {
 	Reserve(context.Context, ReservationRequest) (*Reservation, error)
+	ReserveBatch(context.Context, []ReservationRequest) ([]Reservation, error)
 	Release(context.Context, uuid.UUID) error
 	Commit(context.Context, uuid.UUID, uuid.UUID) error
 	Adjust(context.Context, uuid.UUID, uuid.UUID, int) error
@@ -55,6 +56,7 @@ type Repository interface {
 // Service is the provider-neutral port consumed by Checkout and Orders.
 type Service interface {
 	Reserve(context.Context, ReservationRequest) (*Reservation, error)
+	ReserveBatch(context.Context, []ReservationRequest) ([]Reservation, error)
 	Release(context.Context, uuid.UUID) error
 	Commit(context.Context, uuid.UUID, uuid.UUID) error
 	Adjust(context.Context, uuid.UUID, uuid.UUID, int) error
