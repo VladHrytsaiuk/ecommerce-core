@@ -82,6 +82,13 @@ go vet ./...
 Some repository tests use Docker/Testcontainers. Run them in an environment
 where Docker is available.
 
+To verify the clean-slate database path (core migrations, enabled Inventory
+module, and three-locale Catalog persistence):
+
+```bash
+go test -tags=integration ./cmd/migrate
+```
+
 Before changing module boundaries, providers, migrations, or store
 configuration, read [ARCHITECTURE.md](ARCHITECTURE.md) and follow
 [ROADMAP.md](ROADMAP.md).
