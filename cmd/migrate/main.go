@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"sort"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -34,15 +35,41 @@ func main() {
 	if err := run("migrations/core", cfg.DBURL, "schema_migrations", direction); err != nil {
 		log.Fatal(err)
 	}
-	for _, module := range storeConfig.EnabledModules {
-		if !moduleName.MatchString(module) {
-			log.Fatalf("invalid enabled module name %q", module)
-		}
-		path := filepath.Join("migrations", "modules", module)
-		if err := run(path, cfg.DBURL, "schema_migrations_module_"+module, direction); err != nil {
+	plans, err := modulePlans(storeConfig.EnabledModules)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, plan := range plans {
+		if err := run(plan.dir, cfg.DBURL, plan.table, direction); err != nil {
 			log.Fatal(err)
 		}
 	}
+}
+
+type modulePlan struct {
+	dir   string
+	table string
+}
+
+// modulePlans gives every enabled module an isolated migration history and a
+// stable execution order independent of the order used in .env.
+func modulePlans(enabledModules []string) ([]modulePlan, error) {
+	modules := append([]string(nil), enabledModules...)
+	sort.Strings(modules)
+	plans := make([]modulePlan, 0, len(modules))
+	for index, module := range modules {
+		if !moduleName.MatchString(module) {
+			return nil, fmt.Errorf("invalid enabled module name %q", module)
+		}
+		if index > 0 && modules[index-1] == module {
+			return nil, fmt.Errorf("duplicate enabled module %q", module)
+		}
+		plans = append(plans, modulePlan{
+			dir:   filepath.Join("migrations", "modules", module),
+			table: "schema_migrations_module_" + module,
+		})
+	}
+	return plans, nil
 }
 
 func run(dir, databaseURL, table, direction string) error {

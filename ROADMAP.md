@@ -22,6 +22,9 @@ each module independently of Gin and a real provider.
 
 ## Phase 2 — Core schema and localization foundation
 
+**Status: in progress — active Catalog foundation is complete; clean-slate
+verification and legacy feature porting remain.**
+
 **Goal:** create the ideal PostgreSQL schema for a new engine, with normalized
 translations from day one.
 
@@ -39,9 +42,11 @@ translations from day one.
 6. Introduce locale policy from typed configuration; adding a locale must not
    require a code change.
 
-**Definition of Done:** a fresh PostgreSQL database migrates from zero; a
-category/product can read and write three locales through normalized tables;
-no multilingual core content uses JSONB or language-specific fields.
+**Definition of Done:** a fresh PostgreSQL database migrates from zero in an
+automated PostgreSQL/CI smoke test; a category/product can read and write three
+locales through normalized tables; no active multilingual core content uses
+JSONB or language-specific fields; and every retained legacy behaviour is
+tracked in `LEGACY_FEATURE_MAP.md` before its source package is retired.
 
 ## Phase 3 — Checkout, money, tax and provider ports
 

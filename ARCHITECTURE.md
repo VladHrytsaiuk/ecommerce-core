@@ -86,8 +86,9 @@ commercial rules.
 ## 4. Composition Root and configuration
 
 `internal/app/bootstrap.go` is the sole Composition Root. It is responsible
-for loading configuration, validating compatibility, constructing repositories,
-policies and enabled adapters, registering routes, and starting workers.
+for validating configuration, constructing repositories, policies, enabled
+adapters and worker instances. `cmd/api/main.go` starts and stops the assembled
+`Application` lifecycle after the HTTP server has drained requests.
 
 `internal/http/router.go` must only wire already-created handlers and
 middleware. It must not instantiate an SDK or contain provider selection.
@@ -232,9 +233,11 @@ migrations/
 ```
 
 The first core migration is a clean baseline for a new PostgreSQL database. The
-migration runner applies core first, then enabled modules in a documented,
-deterministic dependency order. After a migration is applied to an environment,
-it is immutable; use a new forward migration for later changes.
+migration runner applies core first, then enabled modules in deterministic
+lexicographic order. Core uses `schema_migrations`; each module uses its own
+`schema_migrations_module_<module>` table to avoid version collisions. After a
+migration is applied to an environment, it is immutable; use a new forward
+migration for later changes.
 
 Core owns universal entities: users, roles, base catalog, carts, orders,
 payments, deliveries, locales and audit records. Modules own their extension
