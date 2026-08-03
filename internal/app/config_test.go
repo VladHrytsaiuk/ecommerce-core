@@ -42,6 +42,13 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want: "LIQPAY_PUBLIC_KEY",
 		},
 		{
+			name: "enabled novaposhta has no credentials",
+			mutate: func(cfg *config.Config) {
+				cfg.ShippingProviders, cfg.ShippingDefault = []string{"novaposhta"}, "novaposhta"
+			},
+			want: "NOVA_POSHTA_API_KEY",
+		},
+		{
 			name: "invalid locale",
 			mutate: func(cfg *config.Config) {
 				cfg.SupportedLocales = []string{"es$"}
@@ -84,6 +91,43 @@ func TestNewStoreConfigAcceptsConfiguredLiqPay(t *testing.T) {
 
 	if _, err := NewStoreConfig(cfg); err != nil {
 		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
+func TestNewStoreConfigAcceptsConfiguredNovaPoshta(t *testing.T) {
+	cfg := validConfig()
+	cfg.ShippingProviders, cfg.ShippingDefault = []string{"novaposhta"}, "novaposhta"
+	cfg.NovaPoshtaAPIKey = "api-key"
+	cfg.NPSenderRef = "sender"
+	cfg.NPSenderCityRef = "sender-city"
+	cfg.NPSenderAddressRef = "sender-address"
+	cfg.NPContactSenderRef = "sender-contact"
+
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
+func TestNewDeliveryRegistryBuildsOnlyEnabledNovaPoshtaAdapter(t *testing.T) {
+	cfg := validConfig()
+	cfg.ShippingProviders, cfg.ShippingDefault = []string{"novaposhta"}, "novaposhta"
+	cfg.NovaPoshtaAPIKey = "api-key"
+	cfg.NovaPoshtaURL = "https://api.example.test/novaposhta"
+	cfg.NPSenderRef = "sender"
+	cfg.NPSenderCityRef = "sender-city"
+	cfg.NPSenderAddressRef = "sender-address"
+	cfg.NPContactSenderRef = "sender-contact"
+	storeConfig, err := NewStoreConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry, err := newDeliveryRegistry(cfg, storeConfig)
+	if err != nil {
+		t.Fatalf("newDeliveryRegistry() error = %v", err)
+	}
+	if registry.Default() == nil || registry.Default().Code() != "novaposhta" {
+		t.Fatalf("default carrier = %v", registry.Default())
 	}
 }
 

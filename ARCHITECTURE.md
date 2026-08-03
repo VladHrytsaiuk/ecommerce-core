@@ -141,6 +141,11 @@ type Carrier interface {
 }
 ```
 
+`Carrier` receives a provider-neutral recipient address, optional opaque
+`LocalityID`/`ServicePointID`, shipment items and declared value. An adapter
+validates its own carrier-location identifiers; core never stores a field such
+as `nova_poshta_warehouse_ref` or `correos_office_id`.
+
 `PaymentGateway` and `Carrier` are ports owned by the core/domain layer. Their
 implementations live in `internal/adapters/...`. Provider callback payloads are
 decoded and verified inside an adapter, then converted to a provider-neutral,

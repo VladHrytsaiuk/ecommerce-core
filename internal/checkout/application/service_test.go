@@ -98,6 +98,32 @@ func TestStartPaymentAppliesCheckoutPolicyBeforeReservation(t *testing.T) {
 	}
 }
 
+func TestStartPaymentRejectsDisabledDeliveryProviderBeforeReservation(t *testing.T) {
+	inventory := &fakeInventory{}
+	price, _ := money.New(1000, "EUR")
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, SupportedDeliveryProviders: []string{"correos"}, DefaultDeliveryProvider: "correos"}, &fakeWorkflow{}, &fakeGateway{})
+
+	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, DeliveryProvider: "novaposhta"})
+	if err == nil || len(inventory.batch) != 0 {
+		t.Fatalf("StartPayment() error = %v, reservations = %+v", err, inventory.batch)
+	}
+}
+
+func TestStartPaymentUsesConfiguredDefaultDeliveryProvider(t *testing.T) {
+	inventory := &fakeInventory{}
+	price, _ := money.New(1000, "EUR")
+	workflow := &fakeWorkflow{}
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, SupportedDeliveryProviders: []string{"novaposhta"}, DefaultDeliveryProvider: "novaposhta"}, workflow, &fakeGateway{})
+
+	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}})
+	if err != nil {
+		t.Fatalf("StartPayment() error = %v", err)
+	}
+	if workflow.created == nil || workflow.created.DeliveryProvider != "novaposhta" {
+		t.Fatalf("created order = %+v", workflow.created)
+	}
+}
+
 func TestStartPaymentGeneratesConfiguredOrderNumberWhenNotSupplied(t *testing.T) {
 	inventory := &fakeInventory{}
 	price, _ := money.New(1000, "EUR")
@@ -167,7 +193,7 @@ func (f *fakeWorkflow) CreatePending(_ context.Context, draft ordersDomain.Draft
 	if f.err != nil {
 		return nil, f.err
 	}
-	f.created = &ordersDomain.Order{ID: uuid.New(), Number: draft.Number, Total: draft.Total}
+	f.created = &ordersDomain.Order{ID: uuid.New(), Number: draft.Number, Total: draft.Total, DeliveryProvider: draft.DeliveryProvider}
 	return f.created, nil
 }
 func (f *fakeWorkflow) CancelPending(_ context.Context, orderID uuid.UUID) error {

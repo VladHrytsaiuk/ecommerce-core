@@ -20,11 +20,18 @@ type Carrier interface {
 }
 
 type Address struct {
-	CountryCode string
-	PostalCode  string
-	City        string
-	Line1       string
-	Line2       string
+	RecipientName  string
+	RecipientPhone string
+	CountryCode    string
+	PostalCode     string
+	City           string
+	Line1          string
+	Line2          string
+	// LocalityID and ServicePointID are opaque identifiers supplied by the
+	// chosen carrier's location lookup. They are not Nova Poshta-specific and
+	// let every adapter validate its own service-point namespace.
+	LocalityID     string
+	ServicePointID string
 }
 
 type ShipmentItem struct {
@@ -51,6 +58,7 @@ type CreateShipmentRequest struct {
 	IdempotencyKey string
 	Destination    Address
 	Items          []ShipmentItem
+	DeclaredValue  money.Money
 }
 
 type ShipmentResult struct {
@@ -60,6 +68,7 @@ type ShipmentResult struct {
 
 type TrackingRequest struct {
 	TrackingNumber string
+	RecipientPhone string
 }
 
 type TrackingResult struct {

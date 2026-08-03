@@ -13,6 +13,11 @@ type Policy struct {
 	AllowGuest        bool
 	RequirePhone      bool
 	OrderNumberPrefix string
+	// SupportedDeliveryProviders is assembled from the enabled adapter codes in
+	// Bootstrap. Checkout stores only the selected code, never an adapter or a
+	// provider-specific delivery field.
+	SupportedDeliveryProviders []string
+	DefaultDeliveryProvider    string
 }
 
 func (p Policy) OrderNumber(checkoutID uuid.UUID) string {
@@ -31,4 +36,23 @@ func (p Policy) ValidateCustomer(customerID *uuid.UUID, phone string) error {
 		return fmt.Errorf("customer phone is required")
 	}
 	return nil
+}
+
+// ResolveDeliveryProvider applies the store delivery policy before stock is
+// reserved. This avoids persisting an arbitrary browser-supplied provider code
+// on an order, while allowing a provider-free deployment to omit delivery.
+func (p Policy) ResolveDeliveryProvider(requested string) (string, error) {
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	if requested == "" {
+		requested = strings.ToLower(strings.TrimSpace(p.DefaultDeliveryProvider))
+	}
+	if requested == "" {
+		return "", nil
+	}
+	for _, provider := range p.SupportedDeliveryProviders {
+		if strings.ToLower(strings.TrimSpace(provider)) == requested {
+			return requested, nil
+		}
+	}
+	return "", fmt.Errorf("delivery provider %q is not enabled", requested)
 }

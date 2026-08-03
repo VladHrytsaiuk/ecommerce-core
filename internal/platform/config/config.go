@@ -73,6 +73,7 @@ type Config struct {
 
 	// Nova Poshta Sender (for TTN creation)
 	NPSenderRef               string
+	NPSenderCityRef           string
 	NPSenderAddressRef        string
 	NPContactSenderRef        string
 	NPSenderPhone             string
@@ -296,6 +297,7 @@ func Load() *Config {
 
 	// Nova Poshta Sender Config (for TTN creation)
 	npSenderRef := os.Getenv("NP_SENDER_REF")
+	npSenderCityRef := os.Getenv("NP_SENDER_CITY_REF")
 	npSenderAddressRef := os.Getenv("NP_SENDER_ADDRESS_REF")
 	npContactSenderRef := os.Getenv("NP_CONTACT_SENDER_REF")
 	npSenderPhone := os.Getenv("NP_SENDER_PHONE")
@@ -428,6 +430,7 @@ func Load() *Config {
 		LiqPayPrivateKey:          liqPayPrivateKey,
 		LiqPayCallbackURL:         liqPayCallbackURL,
 		NPSenderRef:               npSenderRef,
+		NPSenderCityRef:           npSenderCityRef,
 		NPSenderAddressRef:        npSenderAddressRef,
 		NPContactSenderRef:        npContactSenderRef,
 		NPSenderPhone:             npSenderPhone,

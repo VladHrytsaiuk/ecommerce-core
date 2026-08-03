@@ -86,7 +86,14 @@ func validateEnabledAdapters(cfg *config.Config, storeConfig StoreConfig) error 
 		}
 	}
 	for _, provider := range storeConfig.ShippingProviders {
-		return fmt.Errorf("SHIPPING_PROVIDERS contains unsupported provider %q", provider)
+		switch provider {
+		case "novaposhta":
+			if strings.TrimSpace(cfg.NovaPoshtaAPIKey) == "" || strings.TrimSpace(cfg.NPSenderRef) == "" || strings.TrimSpace(cfg.NPSenderCityRef) == "" || strings.TrimSpace(cfg.NPSenderAddressRef) == "" || strings.TrimSpace(cfg.NPContactSenderRef) == "" {
+				return fmt.Errorf("NOVA_POSHTA_API_KEY and NP sender references are required when novaposhta is enabled")
+			}
+		default:
+			return fmt.Errorf("SHIPPING_PROVIDERS contains unsupported provider %q", provider)
+		}
 	}
 	return nil
 }

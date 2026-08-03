@@ -92,6 +92,11 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 	if err := s.policy.ValidateCustomer(request.CustomerID, request.CustomerPhone); err != nil {
 		return nil, err
 	}
+	provider, err := s.policy.ResolveDeliveryProvider(request.DeliveryProvider)
+	if err != nil {
+		return nil, err
+	}
+	request.DeliveryProvider = provider
 	if strings.TrimSpace(request.OrderNumber) == "" {
 		request.OrderNumber = s.policy.OrderNumber(request.Preparation.CheckoutID)
 	}

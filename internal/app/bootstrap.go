@@ -20,6 +20,7 @@ import (
 	orderWorkflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
 	orderWorkflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
+	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
@@ -49,6 +50,7 @@ type Application struct {
 	OrderService           ordersDomain.Service
 	PaymentGateways        *paymentsApp.Registry
 	PaymentWebhookService  *paymentsApp.WebhookService
+	DeliveryCarriers       *deliveryApp.Registry
 	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
 }
@@ -73,6 +75,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		return nil, err
 	}
 	paymentGateways, err := newPaymentRegistry(cfg, storeConfig)
+	if err != nil {
+		return nil, err
+	}
+	deliveryCarriers, err := newDeliveryRegistry(cfg, storeConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -106,14 +112,21 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
 		CatalogVariantService:  variantService,
-		CheckoutService:        checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{AllowGuest: storeConfig.CheckoutAllowGuest, RequirePhone: storeConfig.CheckoutRequirePhone, OrderNumberPrefix: storeConfig.Code}, orderWorkflowService, paymentGateways.Default()),
-		OrderWorkflowService:   orderWorkflowService,
-		InventoryService:       inventoryService,
-		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
-		PaymentGateways:        paymentGateways,
-		PaymentWebhookService:  paymentWebhookService,
-		TaxPolicy:              taxPolicy,
-		HTTP:                   httpDependencies,
+		CheckoutService: checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
+			AllowGuest:                 storeConfig.CheckoutAllowGuest,
+			RequirePhone:               storeConfig.CheckoutRequirePhone,
+			OrderNumberPrefix:          storeConfig.Code,
+			SupportedDeliveryProviders: storeConfig.ShippingProviders,
+			DefaultDeliveryProvider:    storeConfig.ShippingDefault,
+		}, orderWorkflowService, paymentGateways.Default()),
+		OrderWorkflowService:  orderWorkflowService,
+		InventoryService:      inventoryService,
+		OrderService:          ordersApp.NewService(ordersPostgres.NewRepository(db)),
+		PaymentGateways:       paymentGateways,
+		PaymentWebhookService: paymentWebhookService,
+		DeliveryCarriers:      deliveryCarriers,
+		TaxPolicy:             taxPolicy,
+		HTTP:                  httpDependencies,
 	}, nil
 }
 

@@ -77,7 +77,9 @@ Concrete SDK adapters and webhook transport are deliberately Phase 4.
 
 **Status: in progress — LiqPay is the first clean payment adapter, selected
 through Bootstrap, with an idempotent webhook workflow and clean checkout
-endpoint. Delivery adapters and additional payment providers remain.**
+endpoint. Nova Poshta is the first clean Carrier adapter with `httptest`
+contract coverage. Stripe, Redsys, Correos, delivery workflow/outbox and
+additional payment providers remain.**
 
 **Goal:** select real integrations only in Bootstrap configuration.
 
@@ -86,6 +88,10 @@ endpoint. Delivery adapters and additional payment providers remain.**
 2. Register only enabled adapters and their webhook routes.
 3. Make callbacks idempotent and translate payloads to domain events.
 4. Add contract tests using fixtures and `httptest`.
+
+For delivery, extend the neutral `Carrier` request only with universal facts:
+recipient, opaque selected service-point identifiers, item weight and declared
+value. Never add a carrier-named field to Checkout, Orders or Core schema.
 
 ## Phase 5 — Inventory and Sync
 

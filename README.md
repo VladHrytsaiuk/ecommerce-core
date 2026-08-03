@@ -20,8 +20,9 @@ not business logic embedded in the order flow.
 ## Features
 
 - **Pluggable payments and delivery** — provider-neutral ports for LiqPay,
-  Stripe, Redsys, Nova Poshta, Correos, and future adapters. LiqPay is the
-  first implemented clean adapter; the other providers remain planned.
+  Stripe, Redsys, Nova Poshta, Correos, and future adapters. LiqPay and Nova
+  Poshta are the first implemented clean adapters; other providers remain
+  planned.
 - **Flexible inventory** — run autonomously with internal inventory, or use a
   Master-Slave storefront-cache model synchronized with 1C or another ERP.
 - **Database-level i18n** — normalized translation tables make product,
