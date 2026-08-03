@@ -38,8 +38,21 @@ type StartPaymentRequest struct {
 	CustomerID       *uuid.UUID
 	CustomerPhone    string
 	DeliveryProvider string
+	Delivery         *DeliveryDetails
 	ReturnURL        string
 	CancelURL        string
+}
+
+type DeliveryDetails struct {
+	RecipientName  string
+	RecipientPhone string
+	CountryCode    string
+	PostalCode     string
+	City           string
+	Line1          string
+	Line2          string
+	LocalityID     string
+	ServicePointID string
 }
 
 type StartedCheckout struct {

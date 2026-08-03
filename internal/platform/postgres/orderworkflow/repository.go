@@ -34,8 +34,9 @@ type reservationRecord struct {
 func (reservationRecord) TableName() string { return "inventory_reservations" }
 
 type orderStateRecord struct {
-	ID     uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Status string
+	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Status           string
+	DeliveryProvider string
 }
 
 func (orderStateRecord) TableName() string { return "orders" }
@@ -68,6 +69,31 @@ type itemRecord struct {
 }
 
 func (itemRecord) TableName() string { return "order_items" }
+
+type deliveryDetailsRecord struct {
+	OrderID        uuid.UUID `gorm:"type:uuid;primaryKey"`
+	RecipientName  string
+	RecipientPhone string
+	CountryCode    string
+	PostalCode     string
+	City           string
+	Line1          string
+	Line2          string
+	LocalityID     string
+	ServicePointID string
+}
+
+func (deliveryDetailsRecord) TableName() string { return "order_delivery_details" }
+
+type deliveryJobRecord struct {
+	ID             uuid.UUID `gorm:"type:uuid;primaryKey"`
+	OrderID        uuid.UUID
+	Provider       string
+	IdempotencyKey uuid.UUID
+	Status         string
+}
+
+func (deliveryJobRecord) TableName() string { return "delivery_jobs" }
 
 func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -151,7 +177,17 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, targetSt
 		if err := tx.Model(&reservationRecord{}).Where("order_id = ? AND status = ?", orderID, "active").Updates(map[string]any{"status": reservationStatus, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
 			return err
 		}
-		return tx.Model(&order).Update("status", targetStatus).Error
+		if err := tx.Model(&order).Update("status", targetStatus).Error; err != nil {
+			return err
+		}
+		if targetStatus == ordersDomain.StatusPaid && order.DeliveryProvider != "" {
+			var details deliveryDetailsRecord
+			if err := tx.First(&details, "order_id = ?", orderID).Error; err != nil {
+				return err
+			}
+			return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "order_id"}}, DoNothing: true}).Create(&deliveryJobRecord{ID: uuid.New(), OrderID: orderID, Provider: order.DeliveryProvider, IdempotencyKey: uuid.NewSHA1(orderID, []byte("delivery:create")), Status: "pending"}).Error
+		}
+		return nil
 	})
 }
 
@@ -159,6 +195,12 @@ func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
 	record := orderRecord{ID: order.ID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider}
 	if err := tx.Create(&record).Error; err != nil {
 		return err
+	}
+	if order.Delivery != nil {
+		details := order.Delivery
+		if err := tx.Create(&deliveryDetailsRecord{OrderID: order.ID, RecipientName: details.RecipientName, RecipientPhone: details.RecipientPhone, CountryCode: details.CountryCode, PostalCode: details.PostalCode, City: details.City, Line1: details.Line1, Line2: details.Line2, LocalityID: details.LocalityID, ServicePointID: details.ServicePointID}).Error; err != nil {
+			return err
+		}
 	}
 	items := make([]itemRecord, 0, len(order.Items))
 	for _, item := range order.Items {

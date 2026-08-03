@@ -30,7 +30,23 @@ type Draft struct {
 	Total            money.Money
 	PaymentProvider  string
 	DeliveryProvider string
+	Delivery         *DeliveryDetails
 	Items            []Item
+}
+
+// DeliveryDetails is a provider-neutral immutable recipient snapshot. The
+// provider code stays on the order; opaque location IDs are interpreted only
+// by the selected Carrier adapter.
+type DeliveryDetails struct {
+	RecipientName  string
+	RecipientPhone string
+	CountryCode    string
+	PostalCode     string
+	City           string
+	Line1          string
+	Line2          string
+	LocalityID     string
+	ServicePointID string
 }
 type Order struct {
 	ID               uuid.UUID
@@ -42,6 +58,7 @@ type Order struct {
 	Total            money.Money
 	PaymentProvider  string
 	DeliveryProvider string
+	Delivery         *DeliveryDetails
 	Items            []Item
 	CreatedAt        time.Time
 }

@@ -43,5 +43,5 @@ func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {
 	if sum != draft.Subtotal.Amount {
 		return nil, fmt.Errorf("order subtotal does not match items")
 	}
-	return &domain.Order{ID: uuid.New(), Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Items: draft.Items}, nil
+	return &domain.Order{ID: uuid.New(), Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Delivery: draft.Delivery, Items: draft.Items}, nil
 }

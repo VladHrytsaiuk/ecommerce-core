@@ -315,6 +315,10 @@ or a new field per language.
   order workflow policy and written to history.
 - An order records provider codes and display snapshots. Providers may change
   later without corrupting historical data.
+- A selected delivery stores a provider-neutral recipient/service-point
+  snapshot in its own core-owned table. Payment success atomically enqueues a
+  durable delivery job; a worker calls the selected carrier only after commit,
+  with the job's stable idempotency key.
 
 ## 8. Target folder structure
 

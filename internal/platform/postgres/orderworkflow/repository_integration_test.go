@@ -60,8 +60,9 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	price, _ := money.New(1000, "EUR")
 	service := workflowApp.NewService(NewRepository(db))
 	order, err := service.CreatePending(ctx, ordersDomain.Draft{
-		Number: "ES-300", Subtotal: price, Tax: money.Money{Currency: "EUR"}, Total: price,
-		Items: []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "CREAM-50", Quantity: 1, UnitPrice: price, Total: price}},
+		Number: "ES-300", Subtotal: price, Tax: money.Money{Currency: "EUR"}, Total: price, DeliveryProvider: "novaposhta",
+		Delivery: &ordersDomain.DeliveryDetails{RecipientName: "Iryna Customer", RecipientPhone: "+34123456789", CountryCode: "ES", City: "Madrid", LocalityID: "madrid", ServicePointID: "branch-1"},
+		Items:    []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "CREAM-50", Quantity: 1, UnitPrice: price, Total: price}},
 	}, []uuid.UUID{reservationID})
 	if err != nil {
 		t.Fatalf("CreatePending() error = %v", err)
@@ -75,6 +76,17 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 		t.Fatalf("idempotent MarkPaid() error = %v", err)
 	}
 	assertOrderAndReservation(t, db, order.ID, reservationID, "paid", "committed", 4, 0)
+	var jobs int
+	var recipient string
+	if err := db.Raw(`SELECT COUNT(*) FROM delivery_jobs WHERE order_id = ? AND provider = 'novaposhta' AND status = 'pending'`, order.ID).Scan(&jobs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Raw(`SELECT recipient_name FROM order_delivery_details WHERE order_id = ?`, order.ID).Scan(&recipient).Error; err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 || recipient != "Iryna Customer" {
+		t.Fatalf("delivery snapshot/jobs = %q/%d", recipient, jobs)
+	}
 }
 
 func seedReservation(t *testing.T, db *gorm.DB) (uuid.UUID, uuid.UUID, uuid.UUID) {

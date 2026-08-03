@@ -97,6 +97,11 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		return nil, err
 	}
 	request.DeliveryProvider = provider
+	if provider != "" {
+		if request.Delivery == nil || strings.TrimSpace(request.Delivery.RecipientName) == "" || strings.TrimSpace(request.Delivery.RecipientPhone) == "" {
+			return nil, fmt.Errorf("delivery recipient details are required")
+		}
+	}
 	if strings.TrimSpace(request.OrderNumber) == "" {
 		request.OrderNumber = s.policy.OrderNumber(request.Preparation.CheckoutID)
 	}
@@ -112,6 +117,7 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		Total:            prepared.Total,
 		PaymentProvider:  strings.TrimSpace(s.gateway.Code()),
 		DeliveryProvider: strings.TrimSpace(request.DeliveryProvider),
+		Delivery:         mapDelivery(request.Delivery),
 		Items:            prepared.Items,
 	}, prepared.ReservationIDs)
 	if err != nil {
@@ -133,6 +139,13 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		return nil, fmt.Errorf("create payment checkout: %w", err)
 	}
 	return &checkoutDomain.StartedCheckout{Prepared: prepared, Order: order, Session: session}, nil
+}
+
+func mapDelivery(details *checkoutDomain.DeliveryDetails) *ordersDomain.DeliveryDetails {
+	if details == nil {
+		return nil
+	}
+	return &ordersDomain.DeliveryDetails{RecipientName: details.RecipientName, RecipientPhone: details.RecipientPhone, CountryCode: details.CountryCode, PostalCode: details.PostalCode, City: details.City, Line1: details.Line1, Line2: details.Line2, LocalityID: details.LocalityID, ServicePointID: details.ServicePointID}
 }
 
 func (s *Service) ConfirmPayment(ctx context.Context, orderID uuid.UUID) error {

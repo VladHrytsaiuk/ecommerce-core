@@ -80,8 +80,9 @@ through Bootstrap, with an idempotent webhook workflow and clean checkout
 endpoint. Stripe is a clean Payment Intent adapter with verified, idempotent
 webhooks; Redsys is a signed redirect adapter with a verified callback and
 refund request. Nova Poshta is the first clean Carrier adapter with `httptest`
-contract coverage. Correos, delivery workflow/outbox and additional payment
-providers remain.**
+contract coverage. Payment success now persists a provider-neutral delivery
+snapshot and one durable delivery job atomically; the dispatch worker, Correos,
+and additional payment providers remain.**
 
 **Goal:** select real integrations only in Bootstrap configuration.
 
