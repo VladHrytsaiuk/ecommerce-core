@@ -49,6 +49,11 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want: "STRIPE_SECRET_KEY",
 		},
 		{
+			name:   "enabled redsys has no credentials",
+			mutate: func(cfg *config.Config) { cfg.PaymentProviders, cfg.PaymentDefault = []string{"redsys"}, "redsys" },
+			want:   "REDSYS_MERCHANT_CODE",
+		},
+		{
 			name: "enabled novaposhta has no credentials",
 			mutate: func(cfg *config.Config) {
 				cfg.ShippingProviders, cfg.ShippingDefault = []string{"novaposhta"}, "novaposhta"
@@ -106,6 +111,16 @@ func TestNewStoreConfigAcceptsConfiguredStripe(t *testing.T) {
 	cfg.PaymentProviders, cfg.PaymentDefault = []string{"stripe"}, "stripe"
 	cfg.StripeSecretKey, cfg.StripeWebhookSecret = "sk_test", "whsec_test"
 
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
+func TestNewStoreConfigAcceptsConfiguredRedsys(t *testing.T) {
+	cfg := validConfig()
+	cfg.PaymentProviders, cfg.PaymentDefault = []string{"redsys"}, "redsys"
+	cfg.RedsysMerchantCode, cfg.RedsysTerminal, cfg.RedsysSecretKey = "999008881", "001", "sq7HjrUOBfKmC576"
+	cfg.RedsysCallbackURL, cfg.RedsysCurrencyCode = "https://api.example.test/api/webhooks/payments/redsys", "978"
 	if _, err := NewStoreConfig(cfg); err != nil {
 		t.Fatalf("NewStoreConfig() error = %v", err)
 	}

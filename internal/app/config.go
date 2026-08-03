@@ -85,6 +85,10 @@ func validateEnabledAdapters(cfg *config.Config, storeConfig StoreConfig) error 
 			if strings.TrimSpace(cfg.StripeSecretKey) == "" || strings.TrimSpace(cfg.StripeWebhookSecret) == "" {
 				return fmt.Errorf("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required when stripe is enabled")
 			}
+		case "redsys":
+			if strings.TrimSpace(cfg.RedsysMerchantCode) == "" || strings.TrimSpace(cfg.RedsysTerminal) == "" || strings.TrimSpace(cfg.RedsysSecretKey) == "" || strings.TrimSpace(cfg.RedsysCallbackURL) == "" || strings.TrimSpace(cfg.RedsysCurrencyCode) == "" {
+				return fmt.Errorf("REDSYS_MERCHANT_CODE, REDSYS_TERMINAL, REDSYS_SECRET_KEY, REDSYS_CALLBACK_URL and REDSYS_CURRENCY_CODE are required when redsys is enabled")
+			}
 		default:
 			return fmt.Errorf("PAYMENT_PROVIDERS contains unsupported provider %q", provider)
 		}

@@ -72,6 +72,11 @@ type Config struct {
 	LiqPayCallbackURL      string
 	StripeSecretKey        string
 	StripeWebhookSecret    string
+	RedsysMerchantCode     string
+	RedsysTerminal         string
+	RedsysSecretKey        string
+	RedsysCallbackURL      string
+	RedsysCurrencyCode     string
 
 	// Nova Poshta Sender (for TTN creation)
 	NPSenderRef               string
@@ -295,6 +300,11 @@ func Load() *Config {
 	liqPayCallbackURL := os.Getenv("LIQPAY_CALLBACK_URL")
 	stripeSecretKey := os.Getenv("STRIPE_SECRET_KEY")
 	stripeWebhookSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
+	redsysMerchantCode := os.Getenv("REDSYS_MERCHANT_CODE")
+	redsysTerminal := os.Getenv("REDSYS_TERMINAL")
+	redsysSecretKey := os.Getenv("REDSYS_SECRET_KEY")
+	redsysCallbackURL := os.Getenv("REDSYS_CALLBACK_URL")
+	redsysCurrencyCode := os.Getenv("REDSYS_CURRENCY_CODE")
 	if liqPayPublicKey == "" || liqPayPrivateKey == "" {
 		log.Println("Warning: LIQPAY_PUBLIC_KEY / LIQPAY_PRIVATE_KEY not set. Payment will not work.")
 	}
@@ -435,6 +445,11 @@ func Load() *Config {
 		LiqPayCallbackURL:         liqPayCallbackURL,
 		StripeSecretKey:           stripeSecretKey,
 		StripeWebhookSecret:       stripeWebhookSecret,
+		RedsysMerchantCode:        redsysMerchantCode,
+		RedsysTerminal:            redsysTerminal,
+		RedsysSecretKey:           redsysSecretKey,
+		RedsysCallbackURL:         redsysCallbackURL,
+		RedsysCurrencyCode:        redsysCurrencyCode,
 		NPSenderRef:               npSenderRef,
 		NPSenderCityRef:           npSenderCityRef,
 		NPSenderAddressRef:        npSenderAddressRef,

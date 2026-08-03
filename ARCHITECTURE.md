@@ -151,10 +151,11 @@ implementations live in `internal/adapters/...`. Provider callback payloads are
 decoded and verified inside an adapter, then converted to a provider-neutral,
 idempotent domain event.
 
-A payment session may expose either a provider-hosted `redirect_url` or an
-ephemeral `client_secret` for an in-page flow. The client secret is returned
-only to the buyer, is never written to an order or logs, and is not a stable
-payment credential.
+A payment session may expose either a provider-hosted `redirect_url` (with
+ephemeral signed form fields, when the provider requires an HTTP POST) or an
+ephemeral `client_secret` for an in-page flow. These values are returned only
+to the buyer, are never written to an order or logs, and are not stable payment
+credentials.
 
 ### 4.2 Startup validation
 

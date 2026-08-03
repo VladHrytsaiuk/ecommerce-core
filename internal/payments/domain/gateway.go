@@ -37,6 +37,9 @@ type CheckoutPayment struct {
 type PaymentSession struct {
 	ProviderReference string
 	RedirectURL       string
+	// FormFields contains signed browser-post fields for provider-hosted
+	// redirect checkouts. It is ephemeral just like ClientSecret.
+	FormFields map[string]string
 	// ClientSecret is returned by providers that require the storefront to
 	// complete an in-page payment flow (for example, Stripe Payment Intents).
 	// It is intentionally not persisted in the order and must never be logged.

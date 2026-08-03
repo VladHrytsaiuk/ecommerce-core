@@ -5,6 +5,7 @@ import (
 
 	novaposhtaAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/novaposhta"
 	liqpayAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/liqpay"
+	redsysAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/redsys"
 	stripeAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/stripe"
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
 	deliveryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
@@ -28,6 +29,12 @@ func newPaymentRegistry(cfg *config.Config, storeConfig StoreConfig) (*paymentsA
 			gateways = append(gateways, gateway)
 		case "stripe":
 			gateway, err := stripeAdapter.New(stripeAdapter.Config{SecretKey: cfg.StripeSecretKey, WebhookSecret: cfg.StripeWebhookSecret})
+			if err != nil {
+				return nil, err
+			}
+			gateways = append(gateways, gateway)
+		case "redsys":
+			gateway, err := redsysAdapter.New(redsysAdapter.Config{MerchantCode: cfg.RedsysMerchantCode, Terminal: cfg.RedsysTerminal, SecretKey: cfg.RedsysSecretKey, CallbackURL: cfg.RedsysCallbackURL, Currency: storeConfig.Currency, CurrencyCode: cfg.RedsysCurrencyCode})
 			if err != nil {
 				return nil, err
 			}

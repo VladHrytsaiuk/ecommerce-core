@@ -78,9 +78,10 @@ Concrete SDK adapters and webhook transport are deliberately Phase 4.
 **Status: in progress — LiqPay is the first clean payment adapter, selected
 through Bootstrap, with an idempotent webhook workflow and clean checkout
 endpoint. Stripe is a clean Payment Intent adapter with verified, idempotent
-webhooks; Nova Poshta is the first clean Carrier adapter with `httptest`
-contract coverage. Redsys, Correos, delivery workflow/outbox and additional
-payment providers remain.**
+webhooks; Redsys is a signed redirect adapter with a verified callback and
+refund request. Nova Poshta is the first clean Carrier adapter with `httptest`
+contract coverage. Correos, delivery workflow/outbox and additional payment
+providers remain.**
 
 **Goal:** select real integrations only in Bootstrap configuration.
 
