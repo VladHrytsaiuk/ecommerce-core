@@ -3,6 +3,8 @@ package app
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -21,6 +23,7 @@ import (
 	orderWorkflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
+	deliveryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
@@ -51,8 +54,12 @@ type Application struct {
 	PaymentGateways        *paymentsApp.Registry
 	PaymentWebhookService  *paymentsApp.WebhookService
 	DeliveryCarriers       *deliveryApp.Registry
+	DeliveryDispatcher     *deliveryApp.Dispatcher
 	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
+	workerMu               sync.Mutex
+	workerCancel           context.CancelFunc
+	workerWG               sync.WaitGroup
 }
 
 type HTTPDependencies struct {
@@ -125,6 +132,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		PaymentGateways:       paymentGateways,
 		PaymentWebhookService: paymentWebhookService,
 		DeliveryCarriers:      deliveryCarriers,
+		DeliveryDispatcher:    deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
 		TaxPolicy:             taxPolicy,
 		HTTP:                  httpDependencies,
 	}, nil

@@ -318,7 +318,9 @@ or a new field per language.
 - A selected delivery stores a provider-neutral recipient/service-point
   snapshot in its own core-owned table. Payment success atomically enqueues a
   durable delivery job; a worker calls the selected carrier only after commit,
-  with the job's stable idempotency key.
+  with the job's stable idempotency key. PostgreSQL claims jobs with row locks;
+  completion persists the carrier tracking number, while temporary failures are
+  retried and a disabled provider is marked failed without an external call.
 
 ## 8. Target folder structure
 
