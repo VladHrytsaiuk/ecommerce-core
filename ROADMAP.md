@@ -75,8 +75,9 @@ Concrete SDK adapters and webhook transport are deliberately Phase 4.
 
 ## Phase 4 — Payment and delivery adapters
 
-**Status: in progress — LiqPay is the first clean payment adapter and is
-selected through Bootstrap. Webhook processing and delivery adapters remain.**
+**Status: in progress — LiqPay is the first clean payment adapter, selected
+through Bootstrap, with an idempotent webhook workflow and clean checkout
+endpoint. Delivery adapters and additional payment providers remain.**
 
 **Goal:** select real integrations only in Bootstrap configuration.
 

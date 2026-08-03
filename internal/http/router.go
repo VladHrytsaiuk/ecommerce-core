@@ -5,6 +5,7 @@ import (
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
+	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 )
@@ -26,6 +27,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	admin := api.Group("/admin")
 	localized := api.Group("/:lang")
 	localized.Use(application.HTTP.LocaleMiddleware)
+	checkoutHTTP.RegisterRoutes(localized, application.CheckoutService, application.StoreConfig.CheckoutReservationTTL)
 	catalogHTTP.RegisterCategoryRoutes(localized, admin, application.CatalogCategoryService)
 	catalogHTTP.RegisterProductRoutes(localized, admin, application.CatalogProductService)
 	catalogHTTP.RegisterVariantRoutes(admin, application.CatalogVariantService)

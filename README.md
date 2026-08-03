@@ -83,6 +83,15 @@ go vet ./...
 Some repository tests use Docker/Testcontainers. Run them in an environment
 where Docker is available.
 
+### LiqPay development configuration
+
+The first clean payment adapter is LiqPay. To enable it locally, set
+`PAYMENT_PROVIDERS=liqpay`, `PAYMENT_DEFAULT=liqpay`, its two keys, and
+`LIQPAY_CALLBACK_URL` (for example
+`https://api.example.com/api/webhooks/payments/liqpay`). The checkout endpoint
+is `POST /api/:lang/checkout/payment`; verified callbacks use the generic route
+`POST /api/webhooks/payments/liqpay`.
+
 To verify the clean-slate database path, including the enabled Inventory module,
 three-locale Catalog persistence, and atomic order/reservation workflow:
 

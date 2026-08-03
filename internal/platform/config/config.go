@@ -96,23 +96,24 @@ type Config struct {
 
 	// Store configuration. These fields are consumed by internal/app during the
 	// Strangler Fig migration; legacy services continue to use the fields above.
-	StoreCode            string
-	StoreName            string
-	DefaultLocale        string
-	SupportedLocales     []string
-	FallbackLocale       string
-	Currency             string
-	PriceScale           int
-	TaxMode              string
-	VATRate              int
-	PaymentProviders     []string
-	PaymentDefault       string
-	ShippingProviders    []string
-	ShippingDefault      string
-	InventoryMode        string
-	EnabledModules       []string
-	CheckoutAllowGuest   bool
-	CheckoutRequirePhone bool
+	StoreCode              string
+	StoreName              string
+	DefaultLocale          string
+	SupportedLocales       []string
+	FallbackLocale         string
+	Currency               string
+	PriceScale             int
+	TaxMode                string
+	VATRate                int
+	PaymentProviders       []string
+	PaymentDefault         string
+	ShippingProviders      []string
+	ShippingDefault        string
+	InventoryMode          string
+	EnabledModules         []string
+	CheckoutAllowGuest     bool
+	CheckoutRequirePhone   bool
+	CheckoutReservationTTL time.Duration
 }
 
 // Load читає файл .env (якщо він існує) та повертає готову структуру Config.
@@ -382,6 +383,15 @@ func Load() *Config {
 	enabledModules := getEnvList("ENABLED_MODULES", nil)
 	checkoutAllowGuest := getEnvBool("CHECKOUT_ALLOW_GUEST", true)
 	checkoutRequirePhone := getEnvBool("CHECKOUT_REQUIRE_PHONE", true)
+	checkoutReservationTTL := 15 * time.Minute
+	if value := os.Getenv("CHECKOUT_RESERVATION_TTL"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed <= 0 {
+			log.Printf("Warning: invalid CHECKOUT_RESERVATION_TTL, using 15m")
+		} else {
+			checkoutReservationTTL = parsed
+		}
+	}
 
 	return &Config{
 		Port:                      port,
@@ -451,6 +461,7 @@ func Load() *Config {
 		EnabledModules:            enabledModules,
 		CheckoutAllowGuest:        checkoutAllowGuest,
 		CheckoutRequirePhone:      checkoutRequirePhone,
+		CheckoutReservationTTL:    checkoutReservationTTL,
 	}
 }
 

@@ -106,7 +106,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
 		CatalogVariantService:  variantService,
-		CheckoutService:        checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{AllowGuest: storeConfig.CheckoutAllowGuest, RequirePhone: storeConfig.CheckoutRequirePhone}, orderWorkflowService, paymentGateways.Default()),
+		CheckoutService:        checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{AllowGuest: storeConfig.CheckoutAllowGuest, RequirePhone: storeConfig.CheckoutRequirePhone, OrderNumberPrefix: storeConfig.Code}, orderWorkflowService, paymentGateways.Default()),
 		OrderWorkflowService:   orderWorkflowService,
 		InventoryService:       inventoryService,
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),

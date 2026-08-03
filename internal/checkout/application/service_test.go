@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,20 @@ func TestStartPaymentAppliesCheckoutPolicyBeforeReservation(t *testing.T) {
 	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, OrderNumber: "ES-203"})
 	if err == nil || len(inventory.batch) != 0 {
 		t.Fatalf("StartPayment() error = %v, reservations = %+v", err, inventory.batch)
+	}
+}
+
+func TestStartPaymentGeneratesConfiguredOrderNumberWhenNotSupplied(t *testing.T) {
+	inventory := &fakeInventory{}
+	price, _ := money.New(1000, "EUR")
+	workflow := &fakeWorkflow{}
+	checkoutID := uuid.New()
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, OrderNumberPrefix: "cosmetics-es"}, workflow, &fakeGateway{})
+	if _, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: checkoutID, Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}}); err != nil {
+		t.Fatalf("StartPayment() error = %v", err)
+	}
+	if workflow.created == nil || workflow.created.Number != "COSMETICS-ES-"+strings.ToUpper(checkoutID.String()[:8]) {
+		t.Fatalf("generated order = %+v", workflow.created)
 	}
 }
 

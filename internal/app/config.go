@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
@@ -17,23 +18,24 @@ var localeCodePattern = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{2,8})*$`)
 // Composition Root. It coexists with platform/config.Config while legacy
 // services are migrated to narrow policies.
 type StoreConfig struct {
-	Code                 string
-	Name                 string
-	DefaultLocale        string
-	SupportedLocales     []string
-	FallbackLocale       string
-	Currency             string
-	PriceScale           int
-	TaxMode              string
-	VATRate              int
-	PaymentProviders     []string
-	PaymentDefault       string
-	ShippingProviders    []string
-	ShippingDefault      string
-	InventoryMode        string
-	EnabledModules       []string
-	CheckoutAllowGuest   bool
-	CheckoutRequirePhone bool
+	Code                   string
+	Name                   string
+	DefaultLocale          string
+	SupportedLocales       []string
+	FallbackLocale         string
+	Currency               string
+	PriceScale             int
+	TaxMode                string
+	VATRate                int
+	PaymentProviders       []string
+	PaymentDefault         string
+	ShippingProviders      []string
+	ShippingDefault        string
+	InventoryMode          string
+	EnabledModules         []string
+	CheckoutAllowGuest     bool
+	CheckoutRequirePhone   bool
+	CheckoutReservationTTL time.Duration
 }
 
 // NewStoreConfig maps environment-loaded configuration into the typed
@@ -46,14 +48,15 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		FallbackLocale:   normalize(cfg.FallbackLocale),
 		Currency:         strings.ToUpper(strings.TrimSpace(cfg.Currency)),
 		PriceScale:       cfg.PriceScale, TaxMode: normalize(cfg.TaxMode), VATRate: cfg.VATRate,
-		PaymentProviders:     normalizeAll(cfg.PaymentProviders),
-		PaymentDefault:       normalize(cfg.PaymentDefault),
-		ShippingProviders:    normalizeAll(cfg.ShippingProviders),
-		ShippingDefault:      normalize(cfg.ShippingDefault),
-		InventoryMode:        normalize(cfg.InventoryMode),
-		EnabledModules:       normalizeAll(cfg.EnabledModules),
-		CheckoutAllowGuest:   cfg.CheckoutAllowGuest,
-		CheckoutRequirePhone: cfg.CheckoutRequirePhone,
+		PaymentProviders:       normalizeAll(cfg.PaymentProviders),
+		PaymentDefault:         normalize(cfg.PaymentDefault),
+		ShippingProviders:      normalizeAll(cfg.ShippingProviders),
+		ShippingDefault:        normalize(cfg.ShippingDefault),
+		InventoryMode:          normalize(cfg.InventoryMode),
+		EnabledModules:         normalizeAll(cfg.EnabledModules),
+		CheckoutAllowGuest:     cfg.CheckoutAllowGuest,
+		CheckoutRequirePhone:   cfg.CheckoutRequirePhone,
+		CheckoutReservationTTL: cfg.CheckoutReservationTTL,
 	}
 	if err := storeConfig.Validate(); err != nil {
 		return StoreConfig{}, err
@@ -138,6 +141,9 @@ func (c StoreConfig) Validate() error {
 	}
 	if c.InventoryMode != "internal" {
 		return fmt.Errorf("INVENTORY_MODE %q is not implemented yet", c.InventoryMode)
+	}
+	if c.CheckoutReservationTTL <= 0 || c.CheckoutReservationTTL > 24*time.Hour {
+		return fmt.Errorf("CHECKOUT_RESERVATION_TTL must be between 1ns and 24h")
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 )
@@ -128,6 +129,7 @@ func validConfig() *config.Config {
 		Currency: "UAH", PriceScale: 2, TaxMode: "none", VATRate: 0,
 		PaymentProviders: nil, PaymentDefault: "",
 		ShippingProviders: nil, ShippingDefault: "",
-		InventoryMode: "internal",
+		InventoryMode:          "internal",
+		CheckoutReservationTTL: 15 * time.Minute,
 	}
 }
