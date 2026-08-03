@@ -25,9 +25,11 @@ type Item struct {
 }
 type Draft struct {
 	Number           string
+	CartID           uuid.UUID
 	CustomerID       *uuid.UUID
 	Subtotal         money.Money
 	Tax              money.Money
+	Shipping         money.Money
 	Total            money.Money
 	PaymentProvider  string
 	DeliveryProvider string
@@ -51,11 +53,13 @@ type DeliveryDetails struct {
 }
 type Order struct {
 	ID               uuid.UUID
+	CartID           uuid.UUID
 	Number           string
 	CustomerID       *uuid.UUID
 	Status           string
 	Subtotal         money.Money
 	Tax              money.Money
+	Shipping         money.Money
 	Total            money.Money
 	PaymentProvider  string
 	DeliveryProvider string

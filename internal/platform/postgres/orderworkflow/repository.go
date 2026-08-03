@@ -7,12 +7,14 @@ package orderworkflow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 )
@@ -35,6 +37,8 @@ func (reservationRecord) TableName() string { return "inventory_reservations" }
 
 type orderStateRecord struct {
 	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
+	CartID           uuid.UUID
+	Number           string
 	Status           string
 	Currency         string
 	TotalAmount      int64
@@ -46,12 +50,14 @@ func (orderStateRecord) TableName() string { return "orders" }
 
 type orderRecord struct {
 	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
+	CartID           uuid.UUID
 	Number           string
 	CustomerID       *uuid.UUID
 	Status           string
 	Currency         string
 	SubtotalAmount   int64
 	TaxAmount        int64
+	ShippingAmount   int64
 	TotalAmount      int64
 	PaymentProvider  string
 	DeliveryProvider string
@@ -109,9 +115,35 @@ type paymentRecord struct {
 
 func (paymentRecord) TableName() string { return "payments" }
 
+type paymentCheckoutAttemptRecord struct {
+	ID                uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	OrderID           uuid.UUID
+	Provider          string
+	IdempotencyKey    string
+	Amount            int64
+	Currency          string
+	ProviderReference *string
+	Status            string
+	Attempts          int
+	LastError         *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	LockedAt          *time.Time
+}
+
+func (paymentCheckoutAttemptRecord) TableName() string { return "payment_checkout_attempts" }
+
 func (deliveryJobRecord) TableName() string { return "delivery_jobs" }
 
 func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID) error {
+	return r.createPending(ctx, order, reservationIDs, nil)
+}
+
+func (r *Repository) CreatePendingCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt workflowDomain.CheckoutAttemptRequest) error {
+	return r.createPending(ctx, order, reservationIDs, &attempt)
+}
+
+func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt *workflowDomain.CheckoutAttemptRequest) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		reservations, err := lockReservations(tx, reservationIDs)
 		if err != nil {
@@ -125,14 +157,17 @@ func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Orde
 		if err := createOrderSnapshot(tx, order); err != nil {
 			return err
 		}
-		result := tx.Model(&reservationRecord{}).
-			Where("id IN ? AND order_id IS NULL AND status = ?", reservationIDs, "active").
-			Updates(map[string]any{"order_id": order.ID, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")})
+		result := tx.Model(&reservationRecord{}).Where("id IN ? AND order_id IS NULL AND status = ?", reservationIDs, "active").Updates(map[string]any{"order_id": order.ID, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")})
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected != int64(len(reservationIDs)) {
 			return workflowDomain.ErrReservationUnavailable
+		}
+		if attempt != nil {
+			if err := tx.Create(&paymentCheckoutAttemptRecord{OrderID: order.ID, Provider: attempt.Provider, IdempotencyKey: attempt.IdempotencyKey, Amount: attempt.Amount.Amount, Currency: attempt.Amount.Currency, Status: "creating", Attempts: 1}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -162,8 +197,119 @@ func (r *Repository) RegisterPayment(ctx context.Context, attempt workflowDomain
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		return tx.Create(&paymentRecord{ID: uuid.New(), OrderID: attempt.OrderID, Provider: attempt.Provider, ProviderReference: attempt.ProviderReference, Status: "pending", Amount: attempt.Amount.Amount, Currency: attempt.Amount.Currency}).Error
+
+		if err := tx.Create(&paymentRecord{ID: uuid.New(), OrderID: attempt.OrderID, Provider: attempt.Provider, ProviderReference: attempt.ProviderReference, Status: "pending", Amount: attempt.Amount.Amount, Currency: attempt.Amount.Currency}).Error; err != nil {
+			return err
+		}
+		result := tx.Model(&paymentCheckoutAttemptRecord{}).Where("order_id = ? AND provider = ? AND status IN ?", attempt.OrderID, attempt.Provider, []string{"creating", "processing"}).Updates(map[string]any{"status": "created", "provider_reference": attempt.ProviderReference, "locked_at": nil, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return workflowDomain.ErrPaymentMismatch
+		}
+		return nil
 	})
+}
+
+func (r *Repository) RecordCheckoutAttempt(ctx context.Context, req workflowDomain.CheckoutAttemptRequest) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing paymentCheckoutAttemptRecord
+		err := tx.First(&existing, "order_id = ?", req.OrderID).Error
+		if err == nil {
+			if existing.IdempotencyKey != req.IdempotencyKey || existing.Provider != req.Provider {
+				return errors.New("idempotency key or provider mismatch for existing checkout attempt")
+			}
+			return tx.Model(&existing).Updates(map[string]any{
+				"attempts":   existing.Attempts + 1,
+				"updated_at": gorm.Expr("CURRENT_TIMESTAMP"),
+			}).Error
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		return tx.Create(&paymentCheckoutAttemptRecord{
+			OrderID:        req.OrderID,
+			Provider:       req.Provider,
+			IdempotencyKey: req.IdempotencyKey,
+			Amount:         req.Amount.Amount,
+			Currency:       req.Amount.Currency,
+			Status:         "creating",
+			Attempts:       1,
+		}).Error
+	})
+}
+
+func (r *Repository) FindCheckoutAttempt(ctx context.Context, idempotencyKey string) (*workflowDomain.CheckoutAttempt, error) {
+	var record paymentCheckoutAttemptRecord
+	if err := r.db.WithContext(ctx).Where("idempotency_key = ?", idempotencyKey).First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var order orderStateRecord
+	if err := r.db.WithContext(ctx).First(&order, "id = ?", record.OrderID).Error; err != nil {
+		return nil, err
+	}
+	amount, err := money.New(record.Amount, record.Currency)
+	if err != nil {
+		return nil, err
+	}
+	return &workflowDomain.CheckoutAttempt{OrderID: record.OrderID, OrderNumber: order.Number, OrderStatus: order.Status, Provider: record.Provider, IdempotencyKey: record.IdempotencyKey, Amount: amount, Status: record.Status, Attempts: record.Attempts, CreatedAt: record.CreatedAt}, nil
+}
+
+func (r *Repository) ClaimPendingCheckoutAttempt(ctx context.Context, olderThan, lease time.Duration) (*workflowDomain.CheckoutAttempt, error) {
+	now := time.Now().UTC()
+	var claimed *workflowDomain.CheckoutAttempt
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&paymentCheckoutAttemptRecord{}).
+			Where("status = ? AND locked_at < ?", "processing", now.Add(-lease)).
+			Updates(map[string]any{"status": "creating", "locked_at": nil, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+			return err
+		}
+		var record paymentCheckoutAttemptRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("status = ? AND updated_at < ?", "creating", now.Add(-olderThan)).Order("updated_at").First(&record).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		if err := tx.Model(&record).Updates(map[string]any{"status": "processing", "locked_at": now, "attempts": gorm.Expr("attempts + 1"), "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+			return err
+		}
+		amount, err := money.New(record.Amount, record.Currency)
+		if err != nil {
+			return err
+		}
+		claimed = &workflowDomain.CheckoutAttempt{OrderID: record.OrderID, Provider: record.Provider, IdempotencyKey: record.IdempotencyKey, Amount: amount, Status: "processing", Attempts: record.Attempts + 1, CreatedAt: record.CreatedAt}
+		return nil
+	})
+	return claimed, err
+}
+
+func (r *Repository) MarkCheckoutAttemptFailed(ctx context.Context, orderID uuid.UUID) error {
+	result := r.db.WithContext(ctx).Model(&paymentCheckoutAttemptRecord{}).
+		Where("order_id = ? AND status IN ?", orderID, []string{"creating", "processing"}).
+		Updates(map[string]any{
+			"status":     "failed",
+			"locked_at":  nil,
+			"updated_at": gorm.Expr("CURRENT_TIMESTAMP"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return workflowDomain.ErrPaymentMismatch
+	}
+	return nil
+}
+
+func (r *Repository) RetryCheckoutAttempt(ctx context.Context, orderID uuid.UUID, cause error) error {
+	return r.db.WithContext(ctx).Model(&paymentCheckoutAttemptRecord{}).
+		Where("order_id = ? AND status = ?", orderID, "processing").
+		Updates(map[string]any{"status": "creating", "locked_at": nil, "last_error": fmt.Sprint(cause), "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error
 }
 
 func (r *Repository) MarkPaid(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
@@ -247,14 +393,21 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirma
 			if err := tx.First(&details, "order_id = ?", orderID).Error; err != nil {
 				return err
 			}
-			return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "order_id"}}, DoNothing: true}).Create(&deliveryJobRecord{ID: uuid.New(), OrderID: orderID, Provider: order.DeliveryProvider, IdempotencyKey: uuid.NewSHA1(orderID, []byte("delivery:create")), Status: "pending"}).Error
+			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "order_id"}}, DoNothing: true}).Create(&deliveryJobRecord{ID: uuid.New(), OrderID: orderID, Provider: order.DeliveryProvider, IdempotencyKey: uuid.NewSHA1(orderID, []byte("delivery:create")), Status: "pending"}).Error; err != nil {
+				return err
+			}
+		}
+		if targetStatus == ordersDomain.StatusPaid && order.CartID != uuid.Nil {
+			if err := tx.Table("carts").Where("id = ? AND status = ?", order.CartID, "active").Updates(map[string]any{"status": "converted", "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 }
 
 func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
-	record := orderRecord{ID: order.ID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider}
+	record := orderRecord{ID: order.ID, CartID: order.CartID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, ShippingAmount: order.Shipping.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider}
 	if err := tx.Create(&record).Error; err != nil {
 		return err
 	}

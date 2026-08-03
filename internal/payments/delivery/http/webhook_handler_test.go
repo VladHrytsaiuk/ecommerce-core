@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -54,9 +55,23 @@ type httpWorkflow struct{}
 func (*httpWorkflow) CreatePending(context.Context, ordersDomain.Draft, []uuid.UUID) (*ordersDomain.Order, error) {
 	return nil, nil
 }
+func (*httpWorkflow) CreatePendingCheckout(context.Context, ordersDomain.Draft, []uuid.UUID, workflowDomain.CheckoutAttemptRequest) (*ordersDomain.Order, error) {
+	return nil, nil
+}
 func (*httpWorkflow) RegisterPayment(context.Context, workflowDomain.PaymentAttempt) error {
 	return nil
 }
+func (*httpWorkflow) RecordCheckoutAttempt(context.Context, workflowDomain.CheckoutAttemptRequest) error {
+	return nil
+}
+func (*httpWorkflow) FindCheckoutAttempt(context.Context, string) (*workflowDomain.CheckoutAttempt, error) {
+	return nil, nil
+}
+func (*httpWorkflow) ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*workflowDomain.CheckoutAttempt, error) {
+	return nil, nil
+}
+func (*httpWorkflow) MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error         { return nil }
+func (*httpWorkflow) RetryCheckoutAttempt(context.Context, uuid.UUID, error) error       { return nil }
 func (*httpWorkflow) MarkPaid(context.Context, workflowDomain.PaymentConfirmation) error { return nil }
 func (*httpWorkflow) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil

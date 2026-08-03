@@ -31,7 +31,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	cart := localized.Group("")
 	cart.Use(application.HTTP.OptionalAuth)
 	cartHTTP.RegisterRoutes(cart, application.CartService)
-	checkoutHTTP.RegisterRoutes(localized, application.CheckoutService, application.StoreConfig.CheckoutReservationTTL)
+	checkoutHTTP.RegisterRoutes(cart, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID)
 	catalogHTTP.RegisterCategoryRoutes(localized, admin, application.CatalogCategoryService)
 	catalogHTTP.RegisterProductRoutes(localized, admin, application.CatalogProductService)
 	catalogHTTP.RegisterVariantRoutes(admin, application.CatalogVariantService)

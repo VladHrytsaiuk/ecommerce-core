@@ -75,17 +75,9 @@ Concrete SDK adapters and webhook transport are deliberately Phase 4.
 
 ## Phase 4 — Payment and delivery adapters
 
-**Status: in progress — LiqPay is the first clean payment adapter, selected
-through Bootstrap, with an idempotent webhook workflow and clean checkout
-endpoint. Stripe is a clean Payment Intent adapter with verified, idempotent
-webhooks; Redsys is a signed redirect adapter with a verified callback and
-refund request. Nova Poshta is the first clean Carrier adapter with `httptest`
-contract coverage. Payment success now persists a provider-neutral delivery
-snapshot and one durable delivery job atomically; a variant's shipping weight
-is snapshotted on its order item and passed to the job. The dispatch worker
-claims, retries and completes jobs outside transactions; a reconciliation
-worker tracks active shipments. Correos and additional payment providers
-remain.**
+**Status: complete for LiqPay, Stripe, Redsys and Nova Poshta. Correos is
+explicitly deferred until its customer-specific contract/API documentation is
+available.**
 
 **Goal:** select real integrations only in Bootstrap configuration.
 
@@ -98,6 +90,25 @@ remain.**
 For delivery, extend the neutral `Carrier` request only with universal facts:
 recipient, opaque selected service-point identifiers, item weight and declared
 value. Never add a carrier-named field to Checkout, Orders or Core schema.
+
+**Definition of Done: complete (implemented adapters).** Bootstrap selects
+only enabled gateways/carriers; clean Checkout creates Cart-derived order,
+reservation, tax and shipping snapshots; gateway callbacks are verified and
+idempotent; payment success creates one durable delivery job; Nova Poshta's
+adapter is covered by HTTP contract tests. `shipping_amount` is a forward-only
+core snapshot and the gateway receives the exact immutable total. Checkout
+requires an HTTP `Idempotency-Key`, from which it derives a stable checkout ID
+so a browser retry cannot create a second order or payment attempt.
+
+### Post-Phase-4 operational hardening
+
+- Add a durable Refund application workflow and admin/API authorization model;
+  existing gateway `Refund` methods are adapters only.
+- Add carrier-side reconciliation by stable idempotency key before retrying an
+  ambiguous shipment creation timeout, once every supported carrier exposes
+  the necessary lookup semantics.
+- Implement the Correos adapter after receiving its production contract,
+  sender setup and service-point/location requirements.
 
 ## Phase 5 — Inventory and Sync
 

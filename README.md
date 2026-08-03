@@ -21,8 +21,8 @@ not business logic embedded in the order flow.
 
 - **Pluggable payments and delivery** — provider-neutral ports for LiqPay,
   Stripe, Redsys, Nova Poshta, Correos, and future adapters. LiqPay, Stripe,
-  Redsys, and Nova Poshta are the first implemented clean adapters; other
-  providers remain planned.
+  Redsys, and Nova Poshta are implemented clean adapters. Correos remains
+  deferred until its deployment-specific contract is available.
 - **Flexible inventory** — run autonomously with internal inventory, or use a
   Master-Slave storefront-cache model synchronized with 1C or another ERP.
 - **Database-level i18n** — normalized translation tables make product,
@@ -63,6 +63,33 @@ go run ./cmd/api
 
 Update `DB_URL` and other required values in `.env` before running migrations.
 Never commit `.env`; use `.env.example` for safe placeholders.
+
+After the Inventory migration, create an active warehouse and put its UUID in
+`DEFAULT_WAREHOUSE_ID`. This selects the stock-reservation warehouse for the
+initial checkout policy; it is separate from a carrier's sender address.
+
+### Checkout contract
+
+`POST /api/:lang/checkout/payment` starts payment for the caller's active
+Cart. The request contains only buyer, delivery and redirect details; item
+lines, `customer_id`, and a warehouse identifier are deliberately not accepted
+from the browser. The server reads the Cart, resolves the authenticated buyer
+or anonymous cart session, and reserves stock at `DEFAULT_WAREHOUSE_ID`.
+The client must send a high-entropy `Idempotency-Key` HTTP header for every
+logical checkout attempt and reuse that key only when retrying the same request.
+If the first response is lost after payment creation, the retry replays the
+existing checkout and returns fresh provider session data without creating a
+second order or reservation.
+
+`POST /api/:lang/checkout/delivery-options` uses that same active Cart to
+return provider-neutral delivery options. It sends server-side item weights and
+the configured currency to the selected enabled carrier; it does not reserve
+stock or create an order.
+
+When delivery is selected, `POST /api/:lang/checkout/payment` must include the
+chosen `delivery_option_code`. Checkout re-quotes that code server-side and
+persists its amount in the immutable order snapshot; the payment amount is
+`items + tax + shipping`.
 
 ### Docker
 

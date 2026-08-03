@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -29,6 +30,24 @@ func (s *Service) CreatePending(ctx context.Context, draft ordersDomain.Draft, r
 		return nil, err
 	}
 	if err := s.repo.CreatePending(ctx, order, reservationIDs); err != nil {
+		return nil, err
+	}
+	return order, nil
+}
+
+func (s *Service) CreatePendingCheckout(ctx context.Context, draft ordersDomain.Draft, reservationIDs []uuid.UUID, attempt workflowDomain.CheckoutAttemptRequest) (*ordersDomain.Order, error) {
+	if err := validateReservationIDs(reservationIDs); err != nil {
+		return nil, err
+	}
+	if attempt.OrderID != uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount <= 0 || attempt.Amount.Currency == "" {
+		return nil, fmt.Errorf("invalid checkout attempt request")
+	}
+	order, err := ordersApp.NewPendingOrder(draft)
+	if err != nil {
+		return nil, err
+	}
+	attempt.OrderID = order.ID
+	if err := s.repo.CreatePendingCheckout(ctx, order, reservationIDs, attempt); err != nil {
 		return nil, err
 	}
 	return order, nil
@@ -91,6 +110,41 @@ func validatePaymentConfirmation(confirmation workflowDomain.PaymentConfirmation
 		return fmt.Errorf("invalid payment confirmation status")
 	}
 	return validatePaymentAttempt(confirmation.PaymentAttempt)
+}
+
+func (s *Service) RecordCheckoutAttempt(ctx context.Context, req workflowDomain.CheckoutAttemptRequest) error {
+	if req.OrderID == uuid.Nil || strings.TrimSpace(req.Provider) == "" || strings.TrimSpace(req.IdempotencyKey) == "" || req.Amount.Amount <= 0 || req.Amount.Currency == "" {
+		return fmt.Errorf("invalid checkout attempt request")
+	}
+	return s.repo.RecordCheckoutAttempt(ctx, req)
+}
+
+func (s *Service) FindCheckoutAttempt(ctx context.Context, idempotencyKey string) (*workflowDomain.CheckoutAttempt, error) {
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return nil, fmt.Errorf("checkout idempotency key is required")
+	}
+	return s.repo.FindCheckoutAttempt(ctx, idempotencyKey)
+}
+
+func (s *Service) ClaimPendingCheckoutAttempt(ctx context.Context, olderThan, lease time.Duration) (*workflowDomain.CheckoutAttempt, error) {
+	if olderThan <= 0 || lease <= 0 {
+		return nil, fmt.Errorf("checkout attempt recovery age and lease must be positive")
+	}
+	return s.repo.ClaimPendingCheckoutAttempt(ctx, olderThan, lease)
+}
+
+func (s *Service) MarkCheckoutAttemptFailed(ctx context.Context, orderID uuid.UUID) error {
+	if orderID == uuid.Nil {
+		return fmt.Errorf("invalid order id")
+	}
+	return s.repo.MarkCheckoutAttemptFailed(ctx, orderID)
+}
+
+func (s *Service) RetryCheckoutAttempt(ctx context.Context, orderID uuid.UUID, cause error) error {
+	if orderID == uuid.Nil || cause == nil {
+		return fmt.Errorf("invalid checkout retry")
+	}
+	return s.repo.RetryCheckoutAttempt(ctx, orderID, cause)
 }
 
 var _ workflowDomain.Service = (*Service)(nil)

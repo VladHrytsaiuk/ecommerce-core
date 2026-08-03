@@ -79,6 +79,16 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			mutate: func(cfg *config.Config) { cfg.InventoryMode = "external_1c" },
 			want:   "INVENTORY_MODE",
 		},
+		{
+			name:   "default warehouse is required",
+			mutate: func(cfg *config.Config) { cfg.DefaultWarehouseID = "" },
+			want:   "DEFAULT_WAREHOUSE_ID",
+		},
+		{
+			name:   "inventory module is required by checkout",
+			mutate: func(cfg *config.Config) { cfg.EnabledModules = nil },
+			want:   "ENABLED_MODULES",
+		},
 		{name: "unsupported tax policy", mutate: func(cfg *config.Config) { cfg.TaxMode = "sales_tax" }, want: "TAX_MODE"},
 	}
 
@@ -224,6 +234,8 @@ func validConfig() *config.Config {
 		PaymentProviders: nil, PaymentDefault: "",
 		ShippingProviders: nil, ShippingDefault: "",
 		InventoryMode:          "internal",
+		EnabledModules:         []string{"inventory"},
 		CheckoutReservationTTL: 15 * time.Minute,
+		DefaultWarehouseID:     "00000000-0000-4000-8000-000000000001",
 	}
 }

@@ -96,9 +96,23 @@ type fakeWorkflow struct {
 func (w *fakeWorkflow) CreatePending(context.Context, ordersDomain.Draft, []uuid.UUID) (*ordersDomain.Order, error) {
 	panic("unused")
 }
+func (*fakeWorkflow) CreatePendingCheckout(context.Context, ordersDomain.Draft, []uuid.UUID, workflowDomain.CheckoutAttemptRequest) (*ordersDomain.Order, error) {
+	panic("unused")
+}
 func (*fakeWorkflow) RegisterPayment(context.Context, workflowDomain.PaymentAttempt) error {
 	return nil
 }
+func (*fakeWorkflow) RecordCheckoutAttempt(context.Context, workflowDomain.CheckoutAttemptRequest) error {
+	return nil
+}
+func (*fakeWorkflow) FindCheckoutAttempt(context.Context, string) (*workflowDomain.CheckoutAttempt, error) {
+	return nil, nil
+}
+func (*fakeWorkflow) ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*workflowDomain.CheckoutAttempt, error) {
+	return nil, nil
+}
+func (*fakeWorkflow) MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error   { return nil }
+func (*fakeWorkflow) RetryCheckoutAttempt(context.Context, uuid.UUID, error) error { return nil }
 func (w *fakeWorkflow) MarkPaid(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {
 	w.calls++
 	w.paid = confirmation

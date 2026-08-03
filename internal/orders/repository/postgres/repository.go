@@ -25,6 +25,7 @@ type orderRecord struct {
 	Currency         string
 	SubtotalAmount   int64
 	TaxAmount        int64
+	ShippingAmount   int64
 	TotalAmount      int64
 	PaymentProvider  string
 	DeliveryProvider string
@@ -66,6 +67,7 @@ func createInTransaction(tx *gorm.DB, order *domain.Order) error {
 		Currency:         order.Total.Currency,
 		SubtotalAmount:   order.Subtotal.Amount,
 		TaxAmount:        order.Tax.Amount,
+		ShippingAmount:   order.Shipping.Amount,
 		TotalAmount:      order.Total.Amount,
 		PaymentProvider:  order.PaymentProvider,
 		DeliveryProvider: order.DeliveryProvider,

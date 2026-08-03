@@ -8,6 +8,7 @@ import (
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
+	deliveryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 )
@@ -30,18 +31,21 @@ type PreparedCheckout struct {
 	Items          []ordersDomain.Item
 	Subtotal       money.Money
 	Tax            money.Money
+	Shipping       money.Money
 	Total          money.Money
 }
 
 type StartPaymentRequest struct {
-	Preparation      PrepareRequest
-	OrderNumber      string
-	CustomerID       *uuid.UUID
-	CustomerPhone    string
-	DeliveryProvider string
-	Delivery         *DeliveryDetails
-	ReturnURL        string
-	CancelURL        string
+	Preparation        PrepareRequest
+	CartID             uuid.UUID
+	OrderNumber        string
+	CustomerID         *uuid.UUID
+	CustomerPhone      string
+	DeliveryProvider   string
+	DeliveryOptionCode string
+	Delivery           *DeliveryDetails
+	ReturnURL          string
+	CancelURL          string
 }
 
 type DeliveryDetails struct {
@@ -62,9 +66,25 @@ type StartedCheckout struct {
 	Session  paymentsDomain.PaymentSession
 }
 
+// DeliveryQuoteRequest is a read-only checkout operation. Lines are assembled
+// by the HTTP adapter from the active Cart; callers must never trust browser
+// supplied weight, price, or warehouse data.
+type DeliveryQuoteRequest struct {
+	Locale           string
+	Lines            []Line
+	DeliveryProvider string
+	Delivery         DeliveryDetails
+}
+
+type DeliveryQuote struct {
+	Provider string
+	Options  []deliveryDomain.ShippingOption
+}
+
 type Service interface {
 	PreparePayment(context.Context, PrepareRequest) (*PreparedCheckout, error)
 	StartPayment(context.Context, StartPaymentRequest) (*StartedCheckout, error)
+	QuoteDelivery(context.Context, DeliveryQuoteRequest) (*DeliveryQuote, error)
 	ConfirmPayment(context.Context, workflowDomain.PaymentConfirmation) error
 	CancelPayment(context.Context, uuid.UUID) error
 }

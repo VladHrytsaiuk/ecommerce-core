@@ -30,7 +30,10 @@ func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {
 	if strings.TrimSpace(draft.Number) == "" || len(draft.Items) == 0 {
 		return nil, fmt.Errorf("invalid order draft")
 	}
-	if draft.Subtotal.Currency == "" || draft.Subtotal.Currency != draft.Tax.Currency || draft.Subtotal.Currency != draft.Total.Currency || draft.Subtotal.Amount+draft.Tax.Amount != draft.Total.Amount {
+	if draft.Shipping.Currency == "" && draft.Shipping.Amount == 0 {
+		draft.Shipping.Currency = draft.Subtotal.Currency
+	}
+	if draft.Subtotal.Currency == "" || draft.Subtotal.Currency != draft.Tax.Currency || draft.Subtotal.Currency != draft.Shipping.Currency || draft.Subtotal.Currency != draft.Total.Currency || draft.Shipping.Amount < 0 || draft.Subtotal.Amount+draft.Tax.Amount+draft.Shipping.Amount != draft.Total.Amount {
 		return nil, fmt.Errorf("invalid order totals")
 	}
 	var sum int64
@@ -43,5 +46,5 @@ func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {
 	if sum != draft.Subtotal.Amount {
 		return nil, fmt.Errorf("order subtotal does not match items")
 	}
-	return &domain.Order{ID: uuid.New(), Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Delivery: draft.Delivery, Items: draft.Items}, nil
+	return &domain.Order{ID: uuid.New(), CartID: draft.CartID, Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Shipping: draft.Shipping, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Delivery: draft.Delivery, Items: draft.Items}, nil
 }

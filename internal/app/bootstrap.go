@@ -52,8 +52,10 @@ type Application struct {
 	CatalogVariantService  catalogDomain.VariantService
 	CartService            cartDomain.Service
 	CheckoutService        checkoutDomain.Service
+	CheckoutRecovery       *checkoutApp.RecoveryService
 	OrderWorkflowService   orderWorkflowDomain.Service
 	InventoryService       inventoryDomain.Service
+	InventoryCleanup       *inventoryApp.Cleanup
 	OrderService           ordersDomain.Service
 	PaymentGateways        *paymentsApp.Registry
 	PaymentWebhookService  *paymentsApp.WebhookService
@@ -114,7 +116,8 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
-	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryPostgres.NewRepository(db))
+	inventoryRepository := inventoryPostgres.NewRepository(db)
+	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
 	// Inventory repository implementation.
@@ -133,9 +136,11 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			OrderNumberPrefix:          storeConfig.Code,
 			SupportedDeliveryProviders: storeConfig.ShippingProviders,
 			DefaultDeliveryProvider:    storeConfig.ShippingDefault,
-		}, orderWorkflowService, paymentGateways.Default()),
+		}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers),
+		CheckoutRecovery:      checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
 		OrderWorkflowService:  orderWorkflowService,
 		InventoryService:      inventoryService,
+		InventoryCleanup:      inventoryApp.NewCleanup(inventoryRepository),
 		OrderService:          ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		PaymentGateways:       paymentGateways,
 		PaymentWebhookService: paymentWebhookService,

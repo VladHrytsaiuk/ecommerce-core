@@ -83,6 +83,12 @@ Gin is a delivery adapter only. HTTP handlers authenticate, validate and map
 requests to application use cases; they do not choose a provider or implement
 commercial rules.
 
+Every state-changing checkout request carries an `Idempotency-Key`. The HTTP
+adapter derives a stable checkout identity from it, so browser retries cannot
+create a second order, reservation, or payment attempt. If a response is lost
+after the provider call, the same key replays the provider checkout and returns
+a new browser session without persisting redirect fields or client secrets.
+
 ## 4. Composition Root and configuration
 
 `internal/app/bootstrap.go` is the sole Composition Root. It is responsible
@@ -114,6 +120,7 @@ SHIPPING_DEFAULT=correos
 
 INVENTORY_MODE=external_1c
 ENABLED_MODULES=inventory,sync,reviews,promos
+DEFAULT_WAREHOUSE_ID=11111111-1111-4111-8111-111111111111
 CHECKOUT_ALLOW_GUEST=true
 CHECKOUT_REQUIRE_PHONE=true
 ```
@@ -122,6 +129,11 @@ Environment variables carry deployment configuration and secrets; values are
 parsed into typed structures such as `StoreConfig`, `PaymentsConfig`,
 `DeliveryConfig`, `InventoryConfig`, and `CheckoutPolicy`. Application services
 receive only the narrow policy or port they need, never a giant global config.
+
+`DEFAULT_WAREHOUSE_ID` is the initial inventory-allocation policy: the UUID of
+an active local warehouse from which checkout reserves stock. It is not a
+carrier sender address. Carrier-specific sender references remain adapter
+configuration (for example, `NP_SENDER_*`) and never leak into Core or Orders.
 
 Provider factories select only enabled adapters:
 

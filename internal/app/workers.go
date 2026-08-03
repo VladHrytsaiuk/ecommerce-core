@@ -9,15 +9,28 @@ import (
 func (a *Application) Start(ctx context.Context) {
 	a.workerMu.Lock()
 	defer a.workerMu.Unlock()
-	if a.workerCancel != nil || a.DeliveryDispatcher == nil || a.DeliveryTracker == nil || a.DeliveryCarriers == nil || a.DeliveryCarriers.Default() == nil {
+	if a.workerCancel != nil {
 		return
 	}
 	workerCtx, cancel := context.WithCancel(ctx)
 	a.workerCancel = cancel
-	a.workerWG.Add(1)
-	go func() { defer a.workerWG.Done(); a.DeliveryDispatcher.Run(workerCtx, 5*time.Second) }()
-	a.workerWG.Add(1)
-	go func() { defer a.workerWG.Done(); a.DeliveryTracker.Run(workerCtx, 5*time.Minute) }()
+	if a.DeliveryDispatcher != nil && a.DeliveryTracker != nil && a.DeliveryCarriers != nil && a.DeliveryCarriers.Default() != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.DeliveryDispatcher.Run(workerCtx, 5*time.Second) }()
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.DeliveryTracker.Run(workerCtx, 5*time.Minute) }()
+	}
+	if a.CheckoutRecovery != nil {
+		a.workerWG.Add(1)
+		go func() {
+			defer a.workerWG.Done()
+			a.CheckoutRecovery.Run(workerCtx, 5*time.Second, time.Minute, time.Minute)
+		}()
+	}
+	if a.InventoryCleanup != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.InventoryCleanup.Run(workerCtx, time.Minute) }()
+	}
 }
 
 func (a *Application) Stop() { _ = a.StopContext(context.Background()) }

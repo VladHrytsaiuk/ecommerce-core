@@ -13,6 +13,7 @@ import (
 
 var (
 	ErrGatewayNotEnabled       = errors.New("payment gateway is not enabled")
+	ErrGatewayRejected         = errors.New("payment gateway rejected the request")
 	ErrUnsupportedEvent        = errors.New("unsupported payment event status")
 	ErrInvalidWebhookSignature = errors.New("invalid payment webhook signature")
 )

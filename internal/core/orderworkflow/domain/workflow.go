@@ -4,6 +4,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -16,6 +17,29 @@ var (
 	ErrInvalidOrderTransition = errors.New("invalid order workflow transition")
 	ErrPaymentMismatch        = errors.New("payment confirmation does not match pending order")
 )
+
+// CheckoutAttemptRequest represents a request to durably record that an order
+// is about to start the checkout process with a provider.
+type CheckoutAttemptRequest struct {
+	OrderID        uuid.UUID
+	Provider       string
+	IdempotencyKey string
+	Amount         money.Money
+}
+
+// CheckoutAttempt represents an existing durable record of an attempt to
+// start the checkout process.
+type CheckoutAttempt struct {
+	OrderID        uuid.UUID
+	OrderNumber    string
+	OrderStatus    string
+	Provider       string
+	IdempotencyKey string
+	Amount         money.Money
+	Status         string
+	Attempts       int
+	CreatedAt      time.Time
+}
 
 // PaymentAttempt is the durable, provider-neutral snapshot created after a
 // gateway returns its reference. Client secrets and redirect form fields are
@@ -37,16 +61,28 @@ type PaymentConfirmation struct {
 
 type Repository interface {
 	CreatePending(context.Context, *ordersDomain.Order, []uuid.UUID) error
+	CreatePendingCheckout(context.Context, *ordersDomain.Order, []uuid.UUID, CheckoutAttemptRequest) error
+	RecordCheckoutAttempt(context.Context, CheckoutAttemptRequest) error
+	FindCheckoutAttempt(context.Context, string) (*CheckoutAttempt, error)
+	ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*CheckoutAttempt, error)
 	RegisterPayment(context.Context, PaymentAttempt) error
 	CancelPending(context.Context, uuid.UUID) error
+	MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error
+	RetryCheckoutAttempt(context.Context, uuid.UUID, error) error
 	MarkPaid(context.Context, PaymentConfirmation) error
 	MarkFailed(context.Context, PaymentConfirmation) error
 }
 
 type Service interface {
 	CreatePending(context.Context, ordersDomain.Draft, []uuid.UUID) (*ordersDomain.Order, error)
+	CreatePendingCheckout(context.Context, ordersDomain.Draft, []uuid.UUID, CheckoutAttemptRequest) (*ordersDomain.Order, error)
+	RecordCheckoutAttempt(context.Context, CheckoutAttemptRequest) error
+	FindCheckoutAttempt(context.Context, string) (*CheckoutAttempt, error)
+	ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*CheckoutAttempt, error)
 	RegisterPayment(context.Context, PaymentAttempt) error
 	CancelPending(context.Context, uuid.UUID) error
+	MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error
+	RetryCheckoutAttempt(context.Context, uuid.UUID, error) error
 	MarkPaid(context.Context, PaymentConfirmation) error
 	MarkFailed(context.Context, PaymentConfirmation) error
 }

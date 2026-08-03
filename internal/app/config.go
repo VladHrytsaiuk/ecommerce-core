@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
@@ -36,11 +38,16 @@ type StoreConfig struct {
 	CheckoutAllowGuest     bool
 	CheckoutRequirePhone   bool
 	CheckoutReservationTTL time.Duration
+	DefaultWarehouseID     uuid.UUID
 }
 
 // NewStoreConfig maps environment-loaded configuration into the typed
 // application configuration and validates only capabilities implemented today.
 func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
+	defaultWarehouseID, err := uuid.Parse(strings.TrimSpace(cfg.DefaultWarehouseID))
+	if err != nil || defaultWarehouseID == uuid.Nil {
+		return StoreConfig{}, fmt.Errorf("DEFAULT_WAREHOUSE_ID must be a non-empty UUID")
+	}
 	storeConfig := StoreConfig{
 		Code: normalize(cfg.StoreCode), Name: strings.TrimSpace(cfg.StoreName),
 		DefaultLocale:    normalize(cfg.DefaultLocale),
@@ -57,6 +64,7 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		CheckoutAllowGuest:     cfg.CheckoutAllowGuest,
 		CheckoutRequirePhone:   cfg.CheckoutRequirePhone,
 		CheckoutReservationTTL: cfg.CheckoutReservationTTL,
+		DefaultWarehouseID:     defaultWarehouseID,
 	}
 	if err := storeConfig.Validate(); err != nil {
 		return StoreConfig{}, err
@@ -151,14 +159,23 @@ func (c StoreConfig) Validate() error {
 	if len(c.ShippingProviders) > 0 && !contains(c.ShippingProviders, c.ShippingDefault) {
 		return fmt.Errorf("SHIPPING_DEFAULT %q is not enabled", c.ShippingDefault)
 	}
+	if contains(c.ShippingProviders, "novaposhta") && c.Currency != "UAH" {
+		return fmt.Errorf("novaposhta requires CURRENCY=UAH")
+	}
 	if len(c.ShippingProviders) == 0 && c.ShippingDefault != "" {
 		return fmt.Errorf("SHIPPING_DEFAULT requires an enabled shipping provider")
 	}
 	if c.InventoryMode != "internal" {
 		return fmt.Errorf("INVENTORY_MODE %q is not implemented yet", c.InventoryMode)
 	}
+	if !contains(c.EnabledModules, "inventory") {
+		return fmt.Errorf("ENABLED_MODULES must include inventory because checkout reservations require it")
+	}
 	if c.CheckoutReservationTTL <= 0 || c.CheckoutReservationTTL > 24*time.Hour {
 		return fmt.Errorf("CHECKOUT_RESERVATION_TTL must be between 1ns and 24h")
+	}
+	if c.DefaultWarehouseID == uuid.Nil {
+		return fmt.Errorf("DEFAULT_WAREHOUSE_ID must be a non-empty UUID")
 	}
 	return nil
 }

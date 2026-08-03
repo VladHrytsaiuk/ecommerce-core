@@ -7,9 +7,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/cartowner"
 )
-
-const sessionCookie = "cart_session"
 
 type Handler struct{ service domain.Service }
 
@@ -58,7 +57,7 @@ func (h *Handler) Remove(c *gin.Context) {
 	h.respond(c, func(owner domain.Owner) (*domain.Cart, error) { return h.service.Remove(c, owner, variantID) })
 }
 func (h *Handler) respond(c *gin.Context, action func(domain.Owner) (*domain.Cart, error)) {
-	owner, created, err := ownerFor(c)
+	owner, created, err := cartowner.FromContext(c)
 	if err != nil {
 		c.JSON(stdhttp.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -73,22 +72,7 @@ func (h *Handler) respond(c *gin.Context, action func(domain.Owner) (*domain.Car
 		return
 	}
 	if created {
-		c.SetCookie(sessionCookie, owner.SessionID.String(), 60*60*24*30, "/", "", false, true)
+		cartowner.SetSessionCookie(c, *owner.SessionID)
 	}
 	c.JSON(stdhttp.StatusOK, cart)
-}
-func ownerFor(c *gin.Context) (domain.Owner, bool, error) {
-	if raw, ok := c.Get("user_id"); ok {
-		if id, ok := raw.(uuid.UUID); ok && id != uuid.Nil {
-			return domain.Owner{CustomerID: &id}, false, nil
-		}
-	}
-	if raw, err := c.Cookie(sessionCookie); err == nil {
-		id, parseErr := uuid.Parse(raw)
-		if parseErr == nil {
-			return domain.Owner{SessionID: &id}, false, nil
-		}
-	}
-	id := uuid.New()
-	return domain.Owner{SessionID: &id}, true, nil
 }

@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -73,6 +74,18 @@ type fakeRepository struct {
 	registered     workflowDomain.PaymentAttempt
 }
 
+func (*fakeRepository) RecordCheckoutAttempt(context.Context, workflowDomain.CheckoutAttemptRequest) error {
+	return nil
+}
+func (*fakeRepository) FindCheckoutAttempt(context.Context, string) (*workflowDomain.CheckoutAttempt, error) {
+	return nil, nil
+}
+func (*fakeRepository) ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*workflowDomain.CheckoutAttempt, error) {
+	return nil, nil
+}
+func (*fakeRepository) MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error   { return nil }
+func (*fakeRepository) RetryCheckoutAttempt(context.Context, uuid.UUID, error) error { return nil }
+
 func (r *fakeRepository) RegisterPayment(_ context.Context, attempt workflowDomain.PaymentAttempt) error {
 	r.registered = attempt
 	return nil
@@ -82,6 +95,9 @@ func (r *fakeRepository) CreatePending(_ context.Context, order *ordersDomain.Or
 	r.created = order
 	r.reservationIDs = reservationIDs
 	return nil
+}
+func (r *fakeRepository) CreatePendingCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, _ workflowDomain.CheckoutAttemptRequest) error {
+	return r.CreatePending(ctx, order, reservationIDs)
 }
 func (r *fakeRepository) CancelPending(_ context.Context, orderID uuid.UUID) error {
 	r.cancelled = orderID

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -114,4 +115,34 @@ func (r *Repository) Adjust(ctx context.Context, variantID, warehouseID uuid.UUI
 		return domain.ErrInsufficientStock
 	}
 	return nil
+}
+
+// ReleaseExpiredUnattached only releases reservations that never reached an
+// order workflow. Attached pending orders require provider cancellation first.
+func (r *Repository) ReleaseExpiredUnattached(ctx context.Context, now time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	count := 0
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rows []domain.Reservation
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status = ? AND order_id IS NULL AND expires_at <= ?", "active", now).Order("expires_at").Limit(limit).Find(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			result := tx.Exec(`UPDATE stock_items SET quantity_reserved = quantity_reserved - ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_reserved >= ?`, row.Quantity, row.VariantID, row.WarehouseID, row.Quantity)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return domain.ErrInsufficientStock
+			}
+			if err := tx.Model(&row).Updates(map[string]any{"status": "expired", "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+				return err
+			}
+			count++
+		}
+		return nil
+	})
+	return count, err
 }

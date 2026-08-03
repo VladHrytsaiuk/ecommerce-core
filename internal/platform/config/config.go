@@ -122,6 +122,7 @@ type Config struct {
 	CheckoutAllowGuest     bool
 	CheckoutRequirePhone   bool
 	CheckoutReservationTTL time.Duration
+	DefaultWarehouseID     string
 }
 
 // Load читає файл .env (якщо він існує) та повертає готову структуру Config.
@@ -399,6 +400,7 @@ func Load() *Config {
 	enabledModules := getEnvList("ENABLED_MODULES", nil)
 	checkoutAllowGuest := getEnvBool("CHECKOUT_ALLOW_GUEST", true)
 	checkoutRequirePhone := getEnvBool("CHECKOUT_REQUIRE_PHONE", true)
+	defaultWarehouseID := getEnvString("DEFAULT_WAREHOUSE_ID", "")
 	checkoutReservationTTL := 15 * time.Minute
 	if value := os.Getenv("CHECKOUT_RESERVATION_TTL"); value != "" {
 		parsed, err := time.ParseDuration(value)
@@ -486,6 +488,7 @@ func Load() *Config {
 		CheckoutAllowGuest:        checkoutAllowGuest,
 		CheckoutRequirePhone:      checkoutRequirePhone,
 		CheckoutReservationTTL:    checkoutReservationTTL,
+		DefaultWarehouseID:        defaultWarehouseID,
 	}
 }
 
