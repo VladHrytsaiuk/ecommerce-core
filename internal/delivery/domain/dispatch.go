@@ -26,3 +26,15 @@ type JobStore interface {
 	Retry(context.Context, uuid.UUID, error, time.Time) error
 	Fail(context.Context, uuid.UUID, error) error
 }
+
+type TrackingDelivery struct {
+	ID             uuid.UUID
+	Provider       string
+	TrackingNumber string
+	RecipientPhone string
+}
+
+type TrackingStore interface {
+	ListActive(context.Context, int) ([]TrackingDelivery, error)
+	UpdateStatus(context.Context, uuid.UUID, TrackingResult) error
+}

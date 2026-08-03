@@ -55,6 +55,7 @@ type Application struct {
 	PaymentWebhookService  *paymentsApp.WebhookService
 	DeliveryCarriers       *deliveryApp.Registry
 	DeliveryDispatcher     *deliveryApp.Dispatcher
+	DeliveryTracker        *deliveryApp.Tracker
 	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
 	workerMu               sync.Mutex
@@ -133,6 +134,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		PaymentWebhookService: paymentWebhookService,
 		DeliveryCarriers:      deliveryCarriers,
 		DeliveryDispatcher:    deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
+		DeliveryTracker:       deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers),
 		TaxPolicy:             taxPolicy,
 		HTTP:                  httpDependencies,
 	}, nil
