@@ -70,6 +70,8 @@ type Config struct {
 	LiqPayPublicKey        string
 	LiqPayPrivateKey       string
 	LiqPayCallbackURL      string
+	StripeSecretKey        string
+	StripeWebhookSecret    string
 
 	// Nova Poshta Sender (for TTN creation)
 	NPSenderRef               string
@@ -291,6 +293,8 @@ func Load() *Config {
 	liqPayPublicKey := os.Getenv("LIQPAY_PUBLIC_KEY")
 	liqPayPrivateKey := os.Getenv("LIQPAY_PRIVATE_KEY")
 	liqPayCallbackURL := os.Getenv("LIQPAY_CALLBACK_URL")
+	stripeSecretKey := os.Getenv("STRIPE_SECRET_KEY")
+	stripeWebhookSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	if liqPayPublicKey == "" || liqPayPrivateKey == "" {
 		log.Println("Warning: LIQPAY_PUBLIC_KEY / LIQPAY_PRIVATE_KEY not set. Payment will not work.")
 	}
@@ -429,6 +433,8 @@ func Load() *Config {
 		LiqPayPublicKey:           liqPayPublicKey,
 		LiqPayPrivateKey:          liqPayPrivateKey,
 		LiqPayCallbackURL:         liqPayCallbackURL,
+		StripeSecretKey:           stripeSecretKey,
+		StripeWebhookSecret:       stripeWebhookSecret,
 		NPSenderRef:               npSenderRef,
 		NPSenderCityRef:           npSenderCityRef,
 		NPSenderAddressRef:        npSenderAddressRef,

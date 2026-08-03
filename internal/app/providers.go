@@ -5,6 +5,7 @@ import (
 
 	novaposhtaAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/novaposhta"
 	liqpayAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/liqpay"
+	stripeAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/stripe"
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
 	deliveryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
 	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
@@ -21,6 +22,12 @@ func newPaymentRegistry(cfg *config.Config, storeConfig StoreConfig) (*paymentsA
 		switch code {
 		case "liqpay":
 			gateway, err := liqpayAdapter.New(liqpayAdapter.Config{PublicKey: cfg.LiqPayPublicKey, PrivateKey: cfg.LiqPayPrivateKey, CallbackURL: cfg.LiqPayCallbackURL, PriceScale: storeConfig.PriceScale})
+			if err != nil {
+				return nil, err
+			}
+			gateways = append(gateways, gateway)
+		case "stripe":
+			gateway, err := stripeAdapter.New(stripeAdapter.Config{SecretKey: cfg.StripeSecretKey, WebhookSecret: cfg.StripeWebhookSecret})
 			if err != nil {
 				return nil, err
 			}

@@ -20,9 +20,9 @@ not business logic embedded in the order flow.
 ## Features
 
 - **Pluggable payments and delivery** — provider-neutral ports for LiqPay,
-  Stripe, Redsys, Nova Poshta, Correos, and future adapters. LiqPay and Nova
-  Poshta are the first implemented clean adapters; other providers remain
-  planned.
+  Stripe, Redsys, Nova Poshta, Correos, and future adapters. LiqPay, Stripe,
+  and Nova Poshta are the first implemented clean adapters; other providers
+  remain planned.
 - **Flexible inventory** — run autonomously with internal inventory, or use a
   Master-Slave storefront-cache model synchronized with 1C or another ERP.
 - **Database-level i18n** — normalized translation tables make product,
@@ -92,6 +92,14 @@ The first clean payment adapter is LiqPay. To enable it locally, set
 `https://api.example.com/api/webhooks/payments/liqpay`). The checkout endpoint
 is `POST /api/:lang/checkout/payment`; verified callbacks use the generic route
 `POST /api/webhooks/payments/liqpay`.
+
+### Stripe development configuration
+
+Set `PAYMENT_PROVIDERS=stripe`, `PAYMENT_DEFAULT=stripe`,
+`STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET`. Stripe creates a Payment
+Intent and the checkout response returns its short-lived `client_secret`; the
+storefront completes that flow using Stripe.js. Verified callbacks use
+`POST /api/webhooks/payments/stripe`.
 
 To verify the clean-slate database path, including the enabled Inventory module,
 three-locale Catalog persistence, and atomic order/reservation workflow:

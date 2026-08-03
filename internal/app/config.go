@@ -81,6 +81,10 @@ func validateEnabledAdapters(cfg *config.Config, storeConfig StoreConfig) error 
 			if strings.TrimSpace(cfg.LiqPayCallbackURL) == "" {
 				return fmt.Errorf("LIQPAY_CALLBACK_URL is required when liqpay is enabled")
 			}
+		case "stripe":
+			if strings.TrimSpace(cfg.StripeSecretKey) == "" || strings.TrimSpace(cfg.StripeWebhookSecret) == "" {
+				return fmt.Errorf("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required when stripe is enabled")
+			}
 		default:
 			return fmt.Errorf("PAYMENT_PROVIDERS contains unsupported provider %q", provider)
 		}

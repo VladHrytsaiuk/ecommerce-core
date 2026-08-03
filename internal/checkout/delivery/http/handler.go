@@ -42,6 +42,7 @@ type StartPaymentResponse struct {
 	PaymentProvider   string    `json:"payment_provider"`
 	ProviderReference string    `json:"provider_reference"`
 	RedirectURL       string    `json:"redirect_url"`
+	ClientSecret      string    `json:"client_secret,omitempty"`
 	ExpiresAt         time.Time `json:"expires_at"`
 }
 
@@ -63,5 +64,5 @@ func (h *Handler) StartPayment(c *gin.Context) {
 		c.JSON(stdhttp.StatusUnprocessableEntity, gin.H{"error": "checkout could not be started", "message": err.Error()})
 		return
 	}
-	c.JSON(stdhttp.StatusCreated, StartPaymentResponse{OrderID: started.Order.ID, OrderNumber: started.Order.Number, PaymentProvider: started.Order.PaymentProvider, ProviderReference: started.Session.ProviderReference, RedirectURL: started.Session.RedirectURL, ExpiresAt: started.Prepared.ExpiresAt})
+	c.JSON(stdhttp.StatusCreated, StartPaymentResponse{OrderID: started.Order.ID, OrderNumber: started.Order.Number, PaymentProvider: started.Order.PaymentProvider, ProviderReference: started.Session.ProviderReference, RedirectURL: started.Session.RedirectURL, ClientSecret: started.Session.ClientSecret, ExpiresAt: started.Prepared.ExpiresAt})
 }

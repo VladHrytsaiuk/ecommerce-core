@@ -37,7 +37,11 @@ type CheckoutPayment struct {
 type PaymentSession struct {
 	ProviderReference string
 	RedirectURL       string
-	ExpiresAt         *time.Time
+	// ClientSecret is returned by providers that require the storefront to
+	// complete an in-page payment flow (for example, Stripe Payment Intents).
+	// It is intentionally not persisted in the order and must never be logged.
+	ClientSecret string
+	ExpiresAt    *time.Time
 }
 
 // WebhookRequest intentionally has no net/http dependency. The HTTP adapter

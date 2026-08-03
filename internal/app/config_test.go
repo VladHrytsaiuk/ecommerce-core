@@ -42,6 +42,13 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want: "LIQPAY_PUBLIC_KEY",
 		},
 		{
+			name: "enabled stripe has no credentials",
+			mutate: func(cfg *config.Config) {
+				cfg.PaymentProviders, cfg.PaymentDefault = []string{"stripe"}, "stripe"
+			},
+			want: "STRIPE_SECRET_KEY",
+		},
+		{
 			name: "enabled novaposhta has no credentials",
 			mutate: func(cfg *config.Config) {
 				cfg.ShippingProviders, cfg.ShippingDefault = []string{"novaposhta"}, "novaposhta"
@@ -91,6 +98,34 @@ func TestNewStoreConfigAcceptsConfiguredLiqPay(t *testing.T) {
 
 	if _, err := NewStoreConfig(cfg); err != nil {
 		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
+func TestNewStoreConfigAcceptsConfiguredStripe(t *testing.T) {
+	cfg := validConfig()
+	cfg.PaymentProviders, cfg.PaymentDefault = []string{"stripe"}, "stripe"
+	cfg.StripeSecretKey, cfg.StripeWebhookSecret = "sk_test", "whsec_test"
+
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
+func TestNewPaymentRegistryBuildsOnlyEnabledStripeAdapter(t *testing.T) {
+	cfg := validConfig()
+	cfg.PaymentProviders, cfg.PaymentDefault = []string{"stripe"}, "stripe"
+	cfg.StripeSecretKey, cfg.StripeWebhookSecret = "sk_test", "whsec_test"
+	storeConfig, err := NewStoreConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry, err := newPaymentRegistry(cfg, storeConfig)
+	if err != nil {
+		t.Fatalf("newPaymentRegistry() error = %v", err)
+	}
+	if registry.Default() == nil || registry.Default().Code() != "stripe" {
+		t.Fatalf("default gateway = %v", registry.Default())
 	}
 }
 

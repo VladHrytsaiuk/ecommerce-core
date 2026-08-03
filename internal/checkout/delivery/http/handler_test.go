@@ -38,8 +38,26 @@ func TestStartPaymentGeneratesServerCheckoutIDAndMapsRedirect(t *testing.T) {
 	}
 }
 
+func TestStartPaymentReturnsClientSecretOnlyWhenGatewayProvidesOne(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeCheckout{clientSecret: "pi_test_secret"}
+	router := gin.New()
+	localized := router.Group("/api/:lang")
+	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
+	RegisterRoutes(localized, service, 15*time.Minute)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{"customer_phone":"+34123456789","lines":[{"variant_id":"`+uuid.New().String()+`","warehouse_id":"`+uuid.New().String()+`","quantity":1}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated || !strings.Contains(recorder.Body.String(), `"client_secret":"pi_test_secret"`) {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 type fakeCheckout struct {
-	request checkoutDomain.StartPaymentRequest
+	request      checkoutDomain.StartPaymentRequest
+	clientSecret string
 }
 
 func (s *fakeCheckout) PreparePayment(context.Context, checkoutDomain.PrepareRequest) (*checkoutDomain.PreparedCheckout, error) {
@@ -49,7 +67,7 @@ func (s *fakeCheckout) StartPayment(_ context.Context, request checkoutDomain.St
 	s.request = request
 	amount, _ := money.New(100, "EUR")
 	order := &ordersDomain.Order{ID: uuid.New(), Number: "STORE-1", PaymentProvider: "liqpay"}
-	return &checkoutDomain.StartedCheckout{Prepared: &checkoutDomain.PreparedCheckout{ExpiresAt: request.Preparation.ExpiresAt, Total: amount}, Order: order, Session: paymentsDomain.PaymentSession{ProviderReference: "payment-1", RedirectURL: "https://pay.example"}}, nil
+	return &checkoutDomain.StartedCheckout{Prepared: &checkoutDomain.PreparedCheckout{ExpiresAt: request.Preparation.ExpiresAt, Total: amount}, Order: order, Session: paymentsDomain.PaymentSession{ProviderReference: "payment-1", RedirectURL: "https://pay.example", ClientSecret: s.clientSecret}}, nil
 }
 func (*fakeCheckout) ConfirmPayment(context.Context, uuid.UUID) error { return nil }
 func (*fakeCheckout) CancelPayment(context.Context, uuid.UUID) error  { return nil }
