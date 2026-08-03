@@ -117,7 +117,11 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request paymentsDomain.Webhoo
 	if err != nil {
 		return paymentsDomain.PaymentEvent{}, fmt.Errorf("stripe webhook order metadata: %w", err)
 	}
-	amount, err := money.New(event.Data.Object.AmountReceived, event.Data.Object.Currency)
+	amountValue := event.Data.Object.Amount
+	if event.Type == "payment_intent.succeeded" {
+		amountValue = event.Data.Object.AmountReceived
+	}
+	amount, err := money.New(amountValue, event.Data.Object.Currency)
 	if err != nil {
 		return paymentsDomain.PaymentEvent{}, fmt.Errorf("stripe webhook amount: %w", err)
 	}
@@ -137,7 +141,7 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request paymentsDomain.Webhoo
 	if strings.TrimSpace(event.ID) == "" || strings.TrimSpace(event.Data.Object.ID) == "" {
 		return paymentsDomain.PaymentEvent{}, fmt.Errorf("stripe webhook event identity is required")
 	}
-	return paymentsDomain.PaymentEvent{EventID: event.ID, OrderID: orderID, ProviderReference: event.Data.Object.ID, Status: status, Amount: amount, OccurredAt: occurredAt}, nil
+	return paymentsDomain.PaymentEvent{EventID: event.ID, Provider: code, OrderID: orderID, ProviderReference: event.Data.Object.ID, Status: status, Amount: amount, OccurredAt: occurredAt}, nil
 }
 
 func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundRequest) error {
@@ -238,6 +242,7 @@ type stripeEvent struct {
 	Data    struct {
 		Object struct {
 			ID             string `json:"id"`
+			Amount         int64  `json:"amount"`
 			AmountReceived int64  `json:"amount_received"`
 			Currency       string `json:"currency"`
 			Metadata       struct {

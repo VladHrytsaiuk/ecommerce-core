@@ -34,6 +34,10 @@ func (s *WebhookService) Handle(ctx context.Context, provider string, request pa
 	if err != nil {
 		return err
 	}
+	if event.Provider != "" && event.Provider != provider {
+		return fmt.Errorf("verified payment event provider %q does not match route provider %q", event.Provider, provider)
+	}
+	event.Provider = provider
 	claimed, err := s.events.Claim(ctx, provider, event)
 	if err != nil || !claimed {
 		return err
@@ -49,11 +53,12 @@ func (s *WebhookService) Handle(ctx context.Context, provider string, request pa
 }
 
 func (s *WebhookService) apply(ctx context.Context, event paymentsDomain.PaymentEvent) error {
+	confirmation := workflowDomain.PaymentConfirmation{PaymentAttempt: workflowDomain.PaymentAttempt{OrderID: event.OrderID, Provider: event.Provider, ProviderReference: event.ProviderReference, Amount: event.Amount}, Status: event.Status}
 	switch event.Status {
 	case "paid":
-		return s.workflow.MarkPaid(ctx, event.OrderID)
+		return s.workflow.MarkPaid(ctx, confirmation)
 	case "failed":
-		return s.workflow.CancelPending(ctx, event.OrderID)
+		return s.workflow.MarkFailed(ctx, confirmation)
 	case "pending":
 		return nil
 	default:

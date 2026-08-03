@@ -54,7 +54,13 @@ type httpWorkflow struct{}
 func (*httpWorkflow) CreatePending(context.Context, ordersDomain.Draft, []uuid.UUID) (*ordersDomain.Order, error) {
 	return nil, nil
 }
-func (*httpWorkflow) MarkPaid(context.Context, uuid.UUID) error      { return nil }
+func (*httpWorkflow) RegisterPayment(context.Context, workflowDomain.PaymentAttempt) error {
+	return nil
+}
+func (*httpWorkflow) MarkPaid(context.Context, workflowDomain.PaymentConfirmation) error { return nil }
+func (*httpWorkflow) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
+	return nil
+}
 func (*httpWorkflow) CancelPending(context.Context, uuid.UUID) error { return nil }
 
 var _ workflowDomain.Service = (*httpWorkflow)(nil)

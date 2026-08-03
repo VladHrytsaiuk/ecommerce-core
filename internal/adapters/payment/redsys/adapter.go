@@ -151,7 +151,7 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request paymentsDomain.Webhoo
 		status = "paid"
 	}
 	eventID := orderRef + ":" + value(params, "DS_RESPONSE") + ":" + value(params, "DS_AUTHORISATIONCODE")
-	return paymentsDomain.PaymentEvent{EventID: eventID, OrderID: orderID, ProviderReference: orderRef, Status: status, Amount: amount}, nil
+	return paymentsDomain.PaymentEvent{EventID: eventID, Provider: code, OrderID: orderID, ProviderReference: orderRef, Status: status, Amount: amount}, nil
 }
 
 func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundRequest) error {

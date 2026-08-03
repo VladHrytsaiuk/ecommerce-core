@@ -22,6 +22,7 @@ import (
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
+	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 )
 
@@ -60,25 +61,30 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	price, _ := money.New(1000, "EUR")
 	service := workflowApp.NewService(NewRepository(db))
 	order, err := service.CreatePending(ctx, ordersDomain.Draft{
-		Number: "ES-300", Subtotal: price, Tax: money.Money{Currency: "EUR"}, Total: price, DeliveryProvider: "novaposhta",
+		Number: "ES-300", Subtotal: price, Tax: money.Money{Currency: "EUR"}, Total: price, PaymentProvider: "fake", DeliveryProvider: "novaposhta",
 		Delivery: &ordersDomain.DeliveryDetails{RecipientName: "Iryna Customer", RecipientPhone: "+34123456789", CountryCode: "ES", City: "Madrid", LocalityID: "madrid", ServicePointID: "branch-1"},
 		Items:    []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "CREAM-50", Quantity: 1, UnitPrice: price, Total: price, UnitWeightGrams: 275}},
 	}, []uuid.UUID{reservationID})
 	if err != nil {
 		t.Fatalf("CreatePending() error = %v", err)
 	}
+	confirmation := workflowDomain.PaymentConfirmation{PaymentAttempt: workflowDomain.PaymentAttempt{OrderID: order.ID, Provider: "fake", ProviderReference: "payment-300", Amount: price}, Status: "paid"}
+	if err := service.RegisterPayment(ctx, confirmation.PaymentAttempt); err != nil {
+		t.Fatalf("RegisterPayment() error = %v", err)
+	}
 	assertOrderAndReservation(t, db, order.ID, reservationID, "pending_payment", "active", 5, 1)
 
-	if err := service.MarkPaid(ctx, order.ID); err != nil {
+	if err := service.MarkPaid(ctx, confirmation); err != nil {
 		t.Fatalf("MarkPaid() error = %v", err)
 	}
-	if err := service.MarkPaid(ctx, order.ID); err != nil {
+	if err := service.MarkPaid(ctx, confirmation); err != nil {
 		t.Fatalf("idempotent MarkPaid() error = %v", err)
 	}
 	assertOrderAndReservation(t, db, order.ID, reservationID, "paid", "committed", 4, 0)
 	var jobs int
 	var recipient string
 	var unitWeightGrams int
+	var paymentStatus, paymentReference string
 	if err := db.Raw(`SELECT COUNT(*) FROM delivery_jobs WHERE order_id = ? AND provider = 'novaposhta' AND status = 'pending'`, order.ID).Scan(&jobs).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -88,8 +94,11 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	if err := db.Raw(`SELECT unit_weight_grams FROM order_items WHERE order_id = ?`, order.ID).Scan(&unitWeightGrams).Error; err != nil {
 		t.Fatal(err)
 	}
-	if jobs != 1 || recipient != "Iryna Customer" || unitWeightGrams != 275 {
-		t.Fatalf("delivery snapshot/jobs/weight = %q/%d/%d", recipient, jobs, unitWeightGrams)
+	if err := db.Raw(`SELECT status, provider_reference FROM payments WHERE order_id = ?`, order.ID).Row().Scan(&paymentStatus, &paymentReference); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 || recipient != "Iryna Customer" || unitWeightGrams != 275 || paymentStatus != "paid" || paymentReference != "payment-300" {
+		t.Fatalf("delivery snapshot/jobs/weight/payment = %q/%d/%d/%s/%s", recipient, jobs, unitWeightGrams, paymentStatus, paymentReference)
 	}
 }
 

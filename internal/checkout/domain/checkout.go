@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
+	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 )
@@ -64,6 +65,6 @@ type StartedCheckout struct {
 type Service interface {
 	PreparePayment(context.Context, PrepareRequest) (*PreparedCheckout, error)
 	StartPayment(context.Context, StartPaymentRequest) (*StartedCheckout, error)
-	ConfirmPayment(context.Context, uuid.UUID) error
+	ConfirmPayment(context.Context, workflowDomain.PaymentConfirmation) error
 	CancelPayment(context.Context, uuid.UUID) error
 }

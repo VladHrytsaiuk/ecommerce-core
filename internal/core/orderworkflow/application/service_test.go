@@ -36,15 +36,24 @@ func TestTransitionDelegatesByOrderID(t *testing.T) {
 	repo := &fakeRepository{}
 	service := NewService(repo)
 	orderID := uuid.New()
-	if err := service.MarkPaid(context.Background(), orderID); err != nil {
+	confirmation := paymentConfirmation(orderID)
+	if err := service.RegisterPayment(context.Background(), confirmation.PaymentAttempt); err != nil {
+		t.Fatalf("RegisterPayment() error = %v", err)
+	}
+	if err := service.MarkPaid(context.Background(), confirmation); err != nil {
 		t.Fatalf("MarkPaid() error = %v", err)
 	}
 	if err := service.CancelPending(context.Background(), orderID); err != nil {
 		t.Fatalf("CancelPending() error = %v", err)
 	}
-	if repo.paid != orderID || repo.cancelled != orderID {
+	if repo.paid.OrderID != orderID || repo.registered.OrderID != orderID || repo.cancelled != orderID {
 		t.Fatalf("workflow transitions = %+v", repo)
 	}
+}
+
+func paymentConfirmation(orderID uuid.UUID) workflowDomain.PaymentConfirmation {
+	amount, _ := money.New(1000, "EUR")
+	return workflowDomain.PaymentConfirmation{PaymentAttempt: workflowDomain.PaymentAttempt{OrderID: orderID, Provider: "fake", ProviderReference: "payment-1", Amount: amount}, Status: "paid"}
 }
 
 func validDraft(t *testing.T) ordersDomain.Draft {
@@ -60,7 +69,13 @@ type fakeRepository struct {
 	created        *ordersDomain.Order
 	reservationIDs []uuid.UUID
 	cancelled      uuid.UUID
-	paid           uuid.UUID
+	paid           workflowDomain.PaymentConfirmation
+	registered     workflowDomain.PaymentAttempt
+}
+
+func (r *fakeRepository) RegisterPayment(_ context.Context, attempt workflowDomain.PaymentAttempt) error {
+	r.registered = attempt
+	return nil
 }
 
 func (r *fakeRepository) CreatePending(_ context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID) error {
@@ -72,8 +87,11 @@ func (r *fakeRepository) CancelPending(_ context.Context, orderID uuid.UUID) err
 	r.cancelled = orderID
 	return nil
 }
-func (r *fakeRepository) MarkPaid(_ context.Context, orderID uuid.UUID) error {
-	r.paid = orderID
+func (r *fakeRepository) MarkPaid(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	r.paid = confirmation
+	return nil
+}
+func (*fakeRepository) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil
 }
 

@@ -193,10 +193,16 @@ func (f *fakeInventory) Commit(context.Context, uuid.UUID, uuid.UUID) error     
 func (f *fakeInventory) Adjust(context.Context, uuid.UUID, uuid.UUID, int) error { return nil }
 
 type fakeWorkflow struct {
-	created   *ordersDomain.Order
-	cancelled uuid.UUID
-	paid      uuid.UUID
-	err       error
+	created    *ordersDomain.Order
+	cancelled  uuid.UUID
+	paid       workflowDomain.PaymentConfirmation
+	registered workflowDomain.PaymentAttempt
+	err        error
+}
+
+func (f *fakeWorkflow) RegisterPayment(_ context.Context, attempt workflowDomain.PaymentAttempt) error {
+	f.registered = attempt
+	return f.err
 }
 
 func (f *fakeWorkflow) CreatePending(_ context.Context, draft ordersDomain.Draft, _ []uuid.UUID) (*ordersDomain.Order, error) {
@@ -210,8 +216,11 @@ func (f *fakeWorkflow) CancelPending(_ context.Context, orderID uuid.UUID) error
 	f.cancelled = orderID
 	return nil
 }
-func (f *fakeWorkflow) MarkPaid(_ context.Context, orderID uuid.UUID) error {
-	f.paid = orderID
+func (f *fakeWorkflow) MarkPaid(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	f.paid = confirmation
+	return nil
+}
+func (*fakeWorkflow) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil
 }
 

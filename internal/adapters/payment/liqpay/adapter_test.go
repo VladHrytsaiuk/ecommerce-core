@@ -53,7 +53,7 @@ func TestVerifyWebhookValidatesSignatureAndMapsPaidEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyWebhook() error = %v", err)
 	}
-	if event.EventID != "42:paid" || event.OrderID != orderID || event.ProviderReference != "42" || event.Status != "paid" || event.Amount.Amount != 12345 || event.Amount.Currency != "EUR" || event.OccurredAt.IsZero() {
+	if event.EventID != "42:paid" || event.OrderID != orderID || event.ProviderReference != orderID.String() || event.Status != "paid" || event.Amount.Amount != 12345 || event.Amount.Currency != "EUR" || event.OccurredAt.IsZero() {
 		t.Fatalf("event = %+v", event)
 	}
 

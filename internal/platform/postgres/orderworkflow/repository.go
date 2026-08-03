@@ -36,6 +36,9 @@ func (reservationRecord) TableName() string { return "inventory_reservations" }
 type orderStateRecord struct {
 	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Status           string
+	Currency         string
+	TotalAmount      int64
+	PaymentProvider  string
 	DeliveryProvider string
 }
 
@@ -94,6 +97,18 @@ type deliveryJobRecord struct {
 	Status         string
 }
 
+type paymentRecord struct {
+	ID                uuid.UUID `gorm:"type:uuid;primaryKey"`
+	OrderID           uuid.UUID
+	Provider          string
+	ProviderReference string
+	Status            string
+	Amount            int64
+	Currency          string
+}
+
+func (paymentRecord) TableName() string { return "payments" }
+
 func (deliveryJobRecord) TableName() string { return "delivery_jobs" }
 
 func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID) error {
@@ -124,14 +139,42 @@ func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Orde
 }
 
 func (r *Repository) CancelPending(ctx context.Context, orderID uuid.UUID) error {
-	return r.transition(ctx, orderID, ordersDomain.StatusCancelled)
+	return r.transition(ctx, orderID, nil, ordersDomain.StatusCancelled)
 }
 
-func (r *Repository) MarkPaid(ctx context.Context, orderID uuid.UUID) error {
-	return r.transition(ctx, orderID, ordersDomain.StatusPaid)
+func (r *Repository) RegisterPayment(ctx context.Context, attempt workflowDomain.PaymentAttempt) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var order orderStateRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", attempt.OrderID).Error; err != nil {
+			return workflowDomain.ErrPaymentMismatch
+		}
+		if order.Status != ordersDomain.StatusPendingPayment || order.PaymentProvider != attempt.Provider || order.TotalAmount != attempt.Amount.Amount || order.Currency != attempt.Amount.Currency {
+			return workflowDomain.ErrPaymentMismatch
+		}
+		var existing paymentRecord
+		err := tx.First(&existing, "order_id = ? AND provider = ?", attempt.OrderID, attempt.Provider).Error
+		if err == nil {
+			if existing.ProviderReference == attempt.ProviderReference && existing.Amount == attempt.Amount.Amount && existing.Currency == attempt.Amount.Currency {
+				return nil
+			}
+			return workflowDomain.ErrPaymentMismatch
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		return tx.Create(&paymentRecord{ID: uuid.New(), OrderID: attempt.OrderID, Provider: attempt.Provider, ProviderReference: attempt.ProviderReference, Status: "pending", Amount: attempt.Amount.Amount, Currency: attempt.Amount.Currency}).Error
+	})
 }
 
-func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, targetStatus string) error {
+func (r *Repository) MarkPaid(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	return r.transition(ctx, confirmation.OrderID, &confirmation, ordersDomain.StatusPaid)
+}
+
+func (r *Repository) MarkFailed(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	return r.transition(ctx, confirmation.OrderID, &confirmation, ordersDomain.StatusCancelled)
+}
+
+func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirmation *workflowDomain.PaymentConfirmation, targetStatus string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var order orderStateRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", orderID).Error; err != nil {
@@ -140,8 +183,17 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, targetSt
 			}
 			return err
 		}
-		if order.Status == targetStatus {
-			return nil
+		var payment paymentRecord
+		if confirmation != nil {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&payment, "order_id = ? AND provider = ?", orderID, confirmation.Provider).Error; err != nil {
+				return workflowDomain.ErrPaymentMismatch
+			}
+			if order.PaymentProvider != confirmation.Provider || payment.ProviderReference != confirmation.ProviderReference || payment.Amount != confirmation.Amount.Amount || payment.Currency != confirmation.Amount.Currency {
+				return workflowDomain.ErrPaymentMismatch
+			}
+			if order.Status == targetStatus && ((targetStatus == ordersDomain.StatusPaid && payment.Status == "paid") || (targetStatus == ordersDomain.StatusCancelled && (payment.Status == "failed" || payment.Status == "cancelled"))) {
+				return nil
+			}
 		}
 		if order.Status != ordersDomain.StatusPendingPayment {
 			return workflowDomain.ErrInvalidOrderTransition
@@ -180,6 +232,15 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, targetSt
 		}
 		if err := tx.Model(&order).Update("status", targetStatus).Error; err != nil {
 			return err
+		}
+		if confirmation != nil {
+			paymentStatus := "failed"
+			if targetStatus == ordersDomain.StatusPaid {
+				paymentStatus = "paid"
+			}
+			if err := tx.Model(&payment).Update("status", paymentStatus).Error; err != nil {
+				return err
+			}
 		}
 		if targetStatus == ordersDomain.StatusPaid && order.DeliveryProvider != "" {
 			var details deliveryDetailsRecord

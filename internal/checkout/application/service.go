@@ -138,6 +138,12 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		}
 		return nil, fmt.Errorf("create payment checkout: %w", err)
 	}
+	if err := s.workflow.RegisterPayment(ctx, workflowDomain.PaymentAttempt{OrderID: order.ID, Provider: s.gateway.Code(), ProviderReference: session.ProviderReference, Amount: prepared.Total}); err != nil {
+		if cancelErr := s.workflow.CancelPending(context.WithoutCancel(ctx), order.ID); cancelErr != nil {
+			return nil, fmt.Errorf("record payment checkout: %w; cancel pending order: %v", err, cancelErr)
+		}
+		return nil, fmt.Errorf("record payment checkout: %w", err)
+	}
 	return &checkoutDomain.StartedCheckout{Prepared: prepared, Order: order, Session: session}, nil
 }
 
@@ -148,11 +154,11 @@ func mapDelivery(details *checkoutDomain.DeliveryDetails) *ordersDomain.Delivery
 	return &ordersDomain.DeliveryDetails{RecipientName: details.RecipientName, RecipientPhone: details.RecipientPhone, CountryCode: details.CountryCode, PostalCode: details.PostalCode, City: details.City, Line1: details.Line1, Line2: details.Line2, LocalityID: details.LocalityID, ServicePointID: details.ServicePointID}
 }
 
-func (s *Service) ConfirmPayment(ctx context.Context, orderID uuid.UUID) error {
+func (s *Service) ConfirmPayment(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
 	if s.workflow == nil {
 		return fmt.Errorf("checkout payment workflow is not configured")
 	}
-	return s.workflow.MarkPaid(ctx, orderID)
+	return s.workflow.MarkPaid(ctx, confirmation)
 }
 
 func (s *Service) CancelPayment(ctx context.Context, orderID uuid.UUID) error {

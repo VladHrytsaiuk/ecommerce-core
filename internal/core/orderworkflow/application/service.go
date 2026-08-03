@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -40,11 +41,25 @@ func (s *Service) CancelPending(ctx context.Context, orderID uuid.UUID) error {
 	return s.repo.CancelPending(ctx, orderID)
 }
 
-func (s *Service) MarkPaid(ctx context.Context, orderID uuid.UUID) error {
-	if orderID == uuid.Nil {
-		return fmt.Errorf("invalid order id")
+func (s *Service) RegisterPayment(ctx context.Context, attempt workflowDomain.PaymentAttempt) error {
+	if err := validatePaymentAttempt(attempt); err != nil {
+		return err
 	}
-	return s.repo.MarkPaid(ctx, orderID)
+	return s.repo.RegisterPayment(ctx, attempt)
+}
+
+func (s *Service) MarkPaid(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	if err := validatePaymentConfirmation(confirmation, "paid"); err != nil {
+		return err
+	}
+	return s.repo.MarkPaid(ctx, confirmation)
+}
+
+func (s *Service) MarkFailed(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	if err := validatePaymentConfirmation(confirmation, "failed"); err != nil {
+		return err
+	}
+	return s.repo.MarkFailed(ctx, confirmation)
 }
 
 func validateReservationIDs(reservationIDs []uuid.UUID) error {
@@ -62,6 +77,20 @@ func validateReservationIDs(reservationIDs []uuid.UUID) error {
 		seen[reservationID] = struct{}{}
 	}
 	return nil
+}
+
+func validatePaymentAttempt(attempt workflowDomain.PaymentAttempt) error {
+	if attempt.OrderID == uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.ProviderReference) == "" || attempt.Amount.Amount <= 0 || attempt.Amount.Currency == "" {
+		return fmt.Errorf("invalid payment attempt")
+	}
+	return nil
+}
+
+func validatePaymentConfirmation(confirmation workflowDomain.PaymentConfirmation, expectedStatus string) error {
+	if confirmation.Status != expectedStatus {
+		return fmt.Errorf("invalid payment confirmation status")
+	}
+	return validatePaymentAttempt(confirmation.PaymentAttempt)
 }
 
 var _ workflowDomain.Service = (*Service)(nil)

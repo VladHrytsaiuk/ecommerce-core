@@ -57,6 +57,7 @@ type WebhookRequest struct {
 
 type PaymentEvent struct {
 	EventID           string
+	Provider          string
 	OrderID           uuid.UUID
 	ProviderReference string
 	Status            string

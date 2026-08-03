@@ -149,16 +149,21 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request paymentsDomain.Webhoo
 	if err != nil {
 		return paymentsDomain.PaymentEvent{}, fmt.Errorf("%w: amount: %v", ErrInvalidPayload, err)
 	}
-	providerReference := strings.TrimSpace(payload.PaymentID.String())
-	if providerReference == "" {
+	eventReference := strings.TrimSpace(payload.PaymentID.String())
+	if eventReference == "" {
 		hash := sha256.Sum256([]byte(data))
-		providerReference = fmt.Sprintf("payload-%x", hash[:])
+		eventReference = fmt.Sprintf("payload-%x", hash[:])
 	}
+	// LiqPay's payment_id can change between callback states, whereas its
+	// merchant order_id is the reference supplied when checkout was created.
+	// Persist that stable reference so webhook verification can match the
+	// pending payment attempt deterministically.
+	providerReference := payload.OrderID
 	status := mapStatus(payload.Status)
 	// A provider can report one payment first as pending and later as paid. The
 	// status is part of the durable event identity, while payment_id remains the
 	// provider reference shared by those events.
-	return paymentsDomain.PaymentEvent{EventID: providerReference + ":" + status, OrderID: orderID, ProviderReference: providerReference, Status: status, Amount: amount, OccurredAt: time.Now().UTC()}, nil
+	return paymentsDomain.PaymentEvent{EventID: eventReference + ":" + status, Provider: code, OrderID: orderID, ProviderReference: providerReference, Status: status, Amount: amount, OccurredAt: time.Now().UTC()}, nil
 }
 
 func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundRequest) error {

@@ -13,6 +13,7 @@ import (
 
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
+	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
@@ -69,5 +70,7 @@ func (s *fakeCheckout) StartPayment(_ context.Context, request checkoutDomain.St
 	order := &ordersDomain.Order{ID: uuid.New(), Number: "STORE-1", PaymentProvider: "liqpay"}
 	return &checkoutDomain.StartedCheckout{Prepared: &checkoutDomain.PreparedCheckout{ExpiresAt: request.Preparation.ExpiresAt, Total: amount}, Order: order, Session: paymentsDomain.PaymentSession{ProviderReference: "payment-1", RedirectURL: "https://pay.example", ClientSecret: s.clientSecret}}, nil
 }
-func (*fakeCheckout) ConfirmPayment(context.Context, uuid.UUID) error { return nil }
-func (*fakeCheckout) CancelPayment(context.Context, uuid.UUID) error  { return nil }
+func (*fakeCheckout) ConfirmPayment(context.Context, workflowDomain.PaymentConfirmation) error {
+	return nil
+}
+func (*fakeCheckout) CancelPayment(context.Context, uuid.UUID) error { return nil }

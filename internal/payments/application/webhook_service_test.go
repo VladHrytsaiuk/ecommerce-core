@@ -26,7 +26,7 @@ func TestWebhookServiceProcessesPaidEventExactlyOnce(t *testing.T) {
 	if err := service.Handle(context.Background(), "fake", paymentsDomain.WebhookRequest{Payload: []byte("callback")}); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-	if workflow.paid != orderID || !events.processed {
+	if workflow.paid.OrderID != orderID || !events.processed {
 		t.Fatalf("workflow=%+v events=%+v", workflow, events)
 	}
 
@@ -86,17 +86,27 @@ func (s *fakeEventStore) Abandon(context.Context, string, string) error {
 }
 
 type fakeWorkflow struct {
-	paid, cancelled uuid.UUID
-	calls           int
-	err             error
+	paid      workflowDomain.PaymentConfirmation
+	failed    workflowDomain.PaymentConfirmation
+	cancelled uuid.UUID
+	calls     int
+	err       error
 }
 
 func (w *fakeWorkflow) CreatePending(context.Context, ordersDomain.Draft, []uuid.UUID) (*ordersDomain.Order, error) {
 	panic("unused")
 }
-func (w *fakeWorkflow) MarkPaid(_ context.Context, orderID uuid.UUID) error {
+func (*fakeWorkflow) RegisterPayment(context.Context, workflowDomain.PaymentAttempt) error {
+	return nil
+}
+func (w *fakeWorkflow) MarkPaid(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {
 	w.calls++
-	w.paid = orderID
+	w.paid = confirmation
+	return w.err
+}
+func (w *fakeWorkflow) MarkFailed(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	w.calls++
+	w.failed = confirmation
 	return w.err
 }
 func (w *fakeWorkflow) CancelPending(_ context.Context, orderID uuid.UUID) error {

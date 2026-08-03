@@ -34,7 +34,18 @@ func (s *WebhookEventStore) Claim(ctx context.Context, provider string, event pa
 	if result.Error != nil {
 		return false, result.Error
 	}
-	return result.RowsAffected == 1, nil
+	if result.RowsAffected == 1 {
+		return true, nil
+	}
+	// A previous process may have committed the order workflow and crashed
+	// before MarkProcessed. Replaying a durable "processing" event is safe:
+	// the workflow validates the payment snapshot and makes its transitions
+	// idempotent. A fully processed event remains a no-op.
+	var existing webhookEventRecord
+	if err := s.db.WithContext(ctx).Select("processing_status").First(&existing, "provider = ? AND event_id = ?", provider, event.EventID).Error; err != nil {
+		return false, err
+	}
+	return existing.ProcessingStatus == "processing", nil
 }
 
 func (s *WebhookEventStore) MarkProcessed(ctx context.Context, provider, eventID string) error {

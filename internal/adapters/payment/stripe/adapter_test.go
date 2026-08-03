@@ -73,6 +73,21 @@ func TestVerifyWebhookChecksRawPayloadSignatureAndMapsPaidEvent(t *testing.T) {
 	}
 }
 
+func TestVerifyWebhookUsesIntentAmountForFailedPayment(t *testing.T) {
+	adapter := newAdapter(t, "https://api.example.test")
+	now := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
+	adapter.now = func() time.Time { return now }
+	orderID := uuid.New()
+	payload := []byte(fmt.Sprintf(`{"id":"evt_failed","type":"payment_intent.payment_failed","created":%d,"data":{"object":{"id":"pi_123","amount":12345,"amount_received":0,"currency":"eur","metadata":{"order_id":"%s"}}}}`, now.Unix(), orderID))
+	event, err := adapter.VerifyWebhook(context.Background(), paymentsDomain.WebhookRequest{Headers: map[string]string{"Stripe-Signature": signature("whsec_test", now.Unix(), payload)}, Payload: payload})
+	if err != nil {
+		t.Fatalf("VerifyWebhook() error = %v", err)
+	}
+	if event.Status != "failed" || event.Amount.Amount != 12345 || event.Amount.Currency != "EUR" {
+		t.Fatalf("event = %+v", event)
+	}
+}
+
 func TestRefundUsesPaymentIntentAndIdempotencyKey(t *testing.T) {
 	var form url.Values
 	var idempotencyKey string
