@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
+	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
@@ -27,6 +28,9 @@ func InitRouter(application *app.Application) *gin.Engine {
 	admin := api.Group("/admin")
 	localized := api.Group("/:lang")
 	localized.Use(application.HTTP.LocaleMiddleware)
+	cart := localized.Group("")
+	cart.Use(application.HTTP.OptionalAuth)
+	cartHTTP.RegisterRoutes(cart, application.CartService)
 	checkoutHTTP.RegisterRoutes(localized, application.CheckoutService, application.StoreConfig.CheckoutReservationTTL)
 	catalogHTTP.RegisterCategoryRoutes(localized, admin, application.CatalogCategoryService)
 	catalogHTTP.RegisterProductRoutes(localized, admin, application.CatalogProductService)

@@ -12,6 +12,9 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gorm.io/gorm"
 
+	cartApp "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/application"
+	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
+	cartPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/repository/postgres"
 	catalogApp "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/application"
 	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
@@ -47,6 +50,7 @@ type Application struct {
 	CatalogCategoryService catalogDomain.CategoryService
 	CatalogProductService  catalogDomain.ProductService
 	CatalogVariantService  catalogDomain.VariantService
+	CartService            cartDomain.Service
 	CheckoutService        checkoutDomain.Service
 	OrderWorkflowService   orderWorkflowDomain.Service
 	InventoryService       inventoryDomain.Service
@@ -71,6 +75,7 @@ type HTTPDependencies struct {
 	Swagger          gin.HandlerFunc
 	Health           gin.HandlerFunc
 	LocaleMiddleware gin.HandlerFunc
+	OptionalAuth     gin.HandlerFunc
 }
 
 // Bootstrap is the sole Composition Root for the active clean-slate modules.
@@ -105,6 +110,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		Swagger:          ginSwagger.WrapHandler(swaggerFiles.Handler),
 		Health:           func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) },
 		LocaleMiddleware: middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: storeConfig.DefaultLocale, FallbackLocale: storeConfig.FallbackLocale, SupportedLocales: storeConfig.SupportedLocales}),
+		OptionalAuth:     middleware.OptionalAuthMiddleware(tokenMaker),
 	}
 
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
@@ -120,6 +126,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
 		CatalogVariantService:  variantService,
+		CartService:            cartApp.NewService(cartPostgres.NewRepository(db)),
 		CheckoutService: checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
 			AllowGuest:                 storeConfig.CheckoutAllowGuest,
 			RequirePhone:               storeConfig.CheckoutRequirePhone,
