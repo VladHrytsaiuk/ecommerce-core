@@ -34,6 +34,13 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want:   "PAYMENT_DEFAULT",
 		},
 		{
+			name: "enabled liqpay has no credentials",
+			mutate: func(cfg *config.Config) {
+				cfg.PaymentProviders, cfg.PaymentDefault = []string{"liqpay"}, "liqpay"
+			},
+			want: "LIQPAY_PUBLIC_KEY",
+		},
+		{
 			name: "invalid locale",
 			mutate: func(cfg *config.Config) {
 				cfg.SupportedLocales = []string{"es$"}
@@ -65,6 +72,17 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 				t.Fatalf("NewStoreConfig() error = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewStoreConfigAcceptsConfiguredLiqPay(t *testing.T) {
+	cfg := validConfig()
+	cfg.PaymentProviders, cfg.PaymentDefault = []string{"liqpay"}, "liqpay"
+	cfg.LiqPayPublicKey, cfg.LiqPayPrivateKey = "public", "private"
+	cfg.LiqPayCallbackURL = "https://api.example.test/api/webhooks/payments/liqpay"
+
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
 	}
 }
 

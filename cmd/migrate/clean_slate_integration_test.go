@@ -62,6 +62,7 @@ func TestCleanSlateSchema(t *testing.T) {
 	}
 	assertTablesExist(t, db,
 		"locales", "categories", "category_translations", "products", "product_translations", "product_variants",
+		"payment_webhook_events",
 		"warehouses", "stock_items", "inventory_reservations", "schema_migrations", "schema_migrations_module_inventory",
 	)
 

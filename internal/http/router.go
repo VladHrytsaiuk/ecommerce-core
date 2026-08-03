@@ -5,6 +5,7 @@ import (
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
+	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 )
 
@@ -19,6 +20,9 @@ func InitRouter(application *app.Application) *gin.Engine {
 
 	api := r.Group("/api")
 	api.GET("/ping", application.HTTP.Health)
+	if application.PaymentGateways != nil && application.PaymentGateways.Default() != nil {
+		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
+	}
 	admin := api.Group("/admin")
 	localized := api.Group("/:lang")
 	localized.Use(application.HTTP.LocaleMiddleware)

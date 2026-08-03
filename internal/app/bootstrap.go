@@ -27,6 +27,8 @@ import (
 	ordersApp "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/application"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	ordersPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/repository/postgres"
+	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
+	paymentsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	workflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/orderworkflow"
@@ -45,6 +47,8 @@ type Application struct {
 	OrderWorkflowService   orderWorkflowDomain.Service
 	InventoryService       inventoryDomain.Service
 	OrderService           ordersDomain.Service
+	PaymentGateways        *paymentsApp.Registry
+	PaymentWebhookService  *paymentsApp.WebhookService
 	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
 }
@@ -65,6 +69,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		return nil, err
 	}
 	taxPolicy, err := tax.NewPolicy(tax.Mode(storeConfig.TaxMode), storeConfig.VATRate)
+	if err != nil {
+		return nil, err
+	}
+	paymentGateways, err := newPaymentRegistry(cfg, storeConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -91,16 +99,19 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// outside core so core/application code does not depend on an Orders or
 	// Inventory repository implementation.
 	orderWorkflowService := orderWorkflowApp.NewService(workflowPostgres.NewRepository(db))
+	paymentWebhookService := paymentsApp.NewWebhookService(paymentGateways, paymentsPostgres.NewWebhookEventStore(db), orderWorkflowService)
 
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
 		CatalogVariantService:  variantService,
-		CheckoutService:        checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{AllowGuest: storeConfig.CheckoutAllowGuest, RequirePhone: storeConfig.CheckoutRequirePhone}, orderWorkflowService, nil),
+		CheckoutService:        checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{AllowGuest: storeConfig.CheckoutAllowGuest, RequirePhone: storeConfig.CheckoutRequirePhone}, orderWorkflowService, paymentGateways.Default()),
 		OrderWorkflowService:   orderWorkflowService,
 		InventoryService:       inventoryService,
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
+		PaymentGateways:        paymentGateways,
+		PaymentWebhookService:  paymentWebhookService,
 		TaxPolicy:              taxPolicy,
 		HTTP:                   httpDependencies,
 	}, nil

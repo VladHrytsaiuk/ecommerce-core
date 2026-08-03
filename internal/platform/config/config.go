@@ -69,6 +69,7 @@ type Config struct {
 	AdminNotificationEmail string
 	LiqPayPublicKey        string
 	LiqPayPrivateKey       string
+	LiqPayCallbackURL      string
 
 	// Nova Poshta Sender (for TTN creation)
 	NPSenderRef               string
@@ -287,6 +288,7 @@ func Load() *Config {
 	}
 	liqPayPublicKey := os.Getenv("LIQPAY_PUBLIC_KEY")
 	liqPayPrivateKey := os.Getenv("LIQPAY_PRIVATE_KEY")
+	liqPayCallbackURL := os.Getenv("LIQPAY_CALLBACK_URL")
 	if liqPayPublicKey == "" || liqPayPrivateKey == "" {
 		log.Println("Warning: LIQPAY_PUBLIC_KEY / LIQPAY_PRIVATE_KEY not set. Payment will not work.")
 	}
@@ -372,10 +374,10 @@ func Load() *Config {
 	priceScale := getEnvInt("PRICE_SCALE", 2)
 	taxMode := getEnvString("TAX_MODE", "none")
 	vatRate := getEnvInt("VAT_RATE", 0)
-	paymentProviders := getEnvList("PAYMENT_PROVIDERS", []string{"liqpay"})
-	paymentDefault := getEnvString("PAYMENT_DEFAULT", "liqpay")
-	shippingProviders := getEnvList("SHIPPING_PROVIDERS", []string{"novaposhta"})
-	shippingDefault := getEnvString("SHIPPING_DEFAULT", "novaposhta")
+	paymentProviders := getEnvList("PAYMENT_PROVIDERS", nil)
+	paymentDefault := getEnvString("PAYMENT_DEFAULT", "")
+	shippingProviders := getEnvList("SHIPPING_PROVIDERS", nil)
+	shippingDefault := getEnvString("SHIPPING_DEFAULT", "")
 	inventoryMode := getEnvString("INVENTORY_MODE", "internal")
 	enabledModules := getEnvList("ENABLED_MODULES", nil)
 	checkoutAllowGuest := getEnvBool("CHECKOUT_ALLOW_GUEST", true)
@@ -414,6 +416,7 @@ func Load() *Config {
 		AdminNotificationEmail:    adminNotificationEmail,
 		LiqPayPublicKey:           liqPayPublicKey,
 		LiqPayPrivateKey:          liqPayPrivateKey,
+		LiqPayCallbackURL:         liqPayCallbackURL,
 		NPSenderRef:               npSenderRef,
 		NPSenderAddressRef:        npSenderAddressRef,
 		NPContactSenderRef:        npContactSenderRef,

@@ -55,7 +55,37 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		CheckoutAllowGuest:   cfg.CheckoutAllowGuest,
 		CheckoutRequirePhone: cfg.CheckoutRequirePhone,
 	}
-	return storeConfig, storeConfig.Validate()
+	if err := storeConfig.Validate(); err != nil {
+		return StoreConfig{}, err
+	}
+	if err := validateEnabledAdapters(cfg, storeConfig); err != nil {
+		return StoreConfig{}, err
+	}
+	return storeConfig, nil
+}
+
+// validateEnabledAdapters is intentionally kept at the typed-config boundary:
+// a deployment with an enabled provider but missing credentials fails before
+// database connection or HTTP startup. Adapter construction remains in
+// Bootstrap.
+func validateEnabledAdapters(cfg *config.Config, storeConfig StoreConfig) error {
+	for _, provider := range storeConfig.PaymentProviders {
+		switch provider {
+		case "liqpay":
+			if strings.TrimSpace(cfg.LiqPayPublicKey) == "" || strings.TrimSpace(cfg.LiqPayPrivateKey) == "" {
+				return fmt.Errorf("LIQPAY_PUBLIC_KEY and LIQPAY_PRIVATE_KEY are required when liqpay is enabled")
+			}
+			if strings.TrimSpace(cfg.LiqPayCallbackURL) == "" {
+				return fmt.Errorf("LIQPAY_CALLBACK_URL is required when liqpay is enabled")
+			}
+		default:
+			return fmt.Errorf("PAYMENT_PROVIDERS contains unsupported provider %q", provider)
+		}
+	}
+	for _, provider := range storeConfig.ShippingProviders {
+		return fmt.Errorf("SHIPPING_PROVIDERS contains unsupported provider %q", provider)
+	}
+	return nil
 }
 
 // Validate fails before the HTTP server starts. The allow-lists deliberately
