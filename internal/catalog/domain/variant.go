@@ -20,8 +20,11 @@ type ProductVariant struct {
 	Barcode   string
 	Status    string
 	Price     money.Money
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// WeightGrams is zero only when the merchant has not supplied a shipping
+	// weight yet. It is copied to an order snapshot at checkout.
+	WeightGrams int
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // CheckoutVariant is the immutable catalog snapshot data that Checkout needs
@@ -32,6 +35,7 @@ type CheckoutVariant struct {
 	SKU         string
 	ProductName string
 	UnitPrice   money.Money
+	WeightGrams int
 }
 
 type VariantRepository interface {

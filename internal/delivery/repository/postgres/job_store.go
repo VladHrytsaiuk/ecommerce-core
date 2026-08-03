@@ -42,8 +42,9 @@ type detailsRecord struct {
 func (detailsRecord) TableName() string { return "order_delivery_details" }
 
 type itemRecord struct {
-	VariantID *uuid.UUID
-	Quantity  int
+	VariantID       *uuid.UUID
+	Quantity        int
+	UnitWeightGrams int
 }
 
 func (itemRecord) TableName() string { return "order_items" }
@@ -82,7 +83,7 @@ func (s *JobStore) Claim(ctx context.Context, now time.Time) (*domain.DispatchJo
 		shipmentItems := make([]domain.ShipmentItem, 0, len(items))
 		for _, item := range items {
 			if item.VariantID != nil {
-				shipmentItems = append(shipmentItems, domain.ShipmentItem{VariantID: *item.VariantID, Quantity: item.Quantity})
+				shipmentItems = append(shipmentItems, domain.ShipmentItem{VariantID: *item.VariantID, Quantity: item.Quantity, WeightGrams: item.UnitWeightGrams})
 			}
 		}
 		claimed = &domain.DispatchJob{ID: job.ID, OrderID: job.OrderID, Provider: job.Provider, IdempotencyKey: job.IdempotencyKey, Destination: domain.Address{RecipientName: details.RecipientName, RecipientPhone: details.RecipientPhone, CountryCode: details.CountryCode, PostalCode: details.PostalCode, City: details.City, Line1: details.Line1, Line2: details.Line2, LocalityID: details.LocalityID, ServicePointID: details.ServicePointID}, Items: shipmentItems, DeclaredValue: amount}

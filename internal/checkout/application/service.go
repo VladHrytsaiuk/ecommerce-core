@@ -195,7 +195,7 @@ func (s *Service) snapshotItems(ctx context.Context, quantities map[uuid.UUID]in
 		} else if subtotal, err = subtotal.Add(lineTotal); err != nil {
 			return nil, money.Money{}, err
 		}
-		items = append(items, ordersDomain.Item{VariantID: &variant.VariantID, ProductName: variant.ProductName, SKU: variant.SKU, Quantity: quantity, UnitPrice: variant.UnitPrice, Total: lineTotal})
+		items = append(items, ordersDomain.Item{VariantID: &variant.VariantID, ProductName: variant.ProductName, SKU: variant.SKU, Quantity: quantity, UnitPrice: variant.UnitPrice, Total: lineTotal, UnitWeightGrams: variant.WeightGrams})
 	}
 	return items, subtotal, nil
 }

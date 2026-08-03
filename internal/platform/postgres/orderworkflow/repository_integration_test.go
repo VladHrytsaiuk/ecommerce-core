@@ -62,7 +62,7 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	order, err := service.CreatePending(ctx, ordersDomain.Draft{
 		Number: "ES-300", Subtotal: price, Tax: money.Money{Currency: "EUR"}, Total: price, DeliveryProvider: "novaposhta",
 		Delivery: &ordersDomain.DeliveryDetails{RecipientName: "Iryna Customer", RecipientPhone: "+34123456789", CountryCode: "ES", City: "Madrid", LocalityID: "madrid", ServicePointID: "branch-1"},
-		Items:    []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "CREAM-50", Quantity: 1, UnitPrice: price, Total: price}},
+		Items:    []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "CREAM-50", Quantity: 1, UnitPrice: price, Total: price, UnitWeightGrams: 275}},
 	}, []uuid.UUID{reservationID})
 	if err != nil {
 		t.Fatalf("CreatePending() error = %v", err)
@@ -78,14 +78,18 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	assertOrderAndReservation(t, db, order.ID, reservationID, "paid", "committed", 4, 0)
 	var jobs int
 	var recipient string
+	var unitWeightGrams int
 	if err := db.Raw(`SELECT COUNT(*) FROM delivery_jobs WHERE order_id = ? AND provider = 'novaposhta' AND status = 'pending'`, order.ID).Scan(&jobs).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Raw(`SELECT recipient_name FROM order_delivery_details WHERE order_id = ?`, order.ID).Scan(&recipient).Error; err != nil {
 		t.Fatal(err)
 	}
-	if jobs != 1 || recipient != "Iryna Customer" {
-		t.Fatalf("delivery snapshot/jobs = %q/%d", recipient, jobs)
+	if err := db.Raw(`SELECT unit_weight_grams FROM order_items WHERE order_id = ?`, order.ID).Scan(&unitWeightGrams).Error; err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 || recipient != "Iryna Customer" || unitWeightGrams != 275 {
+		t.Fatalf("delivery snapshot/jobs/weight = %q/%d/%d", recipient, jobs, unitWeightGrams)
 	}
 }
 

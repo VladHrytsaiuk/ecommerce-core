@@ -44,6 +44,7 @@ type itemRecord struct {
 	UnitPriceAmount int64
 	TotalAmount     int64
 	Currency        string
+	UnitWeightGrams int
 }
 
 func (itemRecord) TableName() string {
@@ -85,6 +86,7 @@ func createInTransaction(tx *gorm.DB, order *domain.Order) error {
 			UnitPriceAmount: item.UnitPrice.Amount,
 			TotalAmount:     item.Total.Amount,
 			Currency:        item.Total.Currency,
+			UnitWeightGrams: item.UnitWeightGrams,
 		})
 	}
 	return tx.Create(&items).Error

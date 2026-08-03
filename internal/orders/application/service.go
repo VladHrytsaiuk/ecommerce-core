@@ -35,7 +35,7 @@ func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {
 	}
 	var sum int64
 	for _, item := range draft.Items {
-		if item.Quantity <= 0 || item.ProductName == "" || item.UnitPrice.Currency != draft.Total.Currency || item.Total.Currency != draft.Total.Currency || item.UnitPrice.Amount*int64(item.Quantity) != item.Total.Amount {
+		if item.Quantity <= 0 || item.ProductName == "" || item.UnitWeightGrams < 0 || item.UnitPrice.Currency != draft.Total.Currency || item.Total.Currency != draft.Total.Currency || item.UnitPrice.Amount*int64(item.Quantity) != item.Total.Amount {
 			return nil, fmt.Errorf("invalid order item")
 		}
 		sum += item.Total.Amount

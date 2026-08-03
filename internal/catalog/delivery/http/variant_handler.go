@@ -24,6 +24,7 @@ type CreateVariantRequest struct {
 	Barcode     string    `json:"barcode,omitempty"`
 	Status      string    `json:"status,omitempty"`
 	PriceAmount int64     `json:"price_amount" binding:"gte=0"`
+	WeightGrams int       `json:"weight_grams" binding:"gte=0"`
 }
 
 type VariantResponse struct {
@@ -34,6 +35,7 @@ type VariantResponse struct {
 	Status      string    `json:"status"`
 	PriceAmount int64     `json:"price_amount"`
 	Currency    string    `json:"currency"`
+	WeightGrams int       `json:"weight_grams"`
 }
 
 func (h *VariantHandler) Create(c *gin.Context) {
@@ -43,11 +45,12 @@ func (h *VariantHandler) Create(c *gin.Context) {
 		return
 	}
 	variant := &domain.ProductVariant{
-		ProductID: request.ProductID,
-		SKU:       request.SKU,
-		Barcode:   request.Barcode,
-		Status:    request.Status,
-		Price:     money.Money{Amount: request.PriceAmount, Currency: ""},
+		ProductID:   request.ProductID,
+		SKU:         request.SKU,
+		Barcode:     request.Barcode,
+		Status:      request.Status,
+		Price:       money.Money{Amount: request.PriceAmount, Currency: ""},
+		WeightGrams: request.WeightGrams,
 	}
 	if err := h.service.Create(c.Request.Context(), variant); err != nil {
 		handleProductError(c, err)
@@ -57,5 +60,5 @@ func (h *VariantHandler) Create(c *gin.Context) {
 }
 
 func mapVariant(variant *domain.ProductVariant) VariantResponse {
-	return VariantResponse{ID: variant.ID, ProductID: variant.ProductID, SKU: variant.SKU, Barcode: variant.Barcode, Status: variant.Status, PriceAmount: variant.Price.Amount, Currency: variant.Price.Currency}
+	return VariantResponse{ID: variant.ID, ProductID: variant.ProductID, SKU: variant.SKU, Barcode: variant.Barcode, Status: variant.Status, PriceAmount: variant.Price.Amount, Currency: variant.Price.Currency, WeightGrams: variant.WeightGrams}
 }

@@ -66,6 +66,7 @@ type itemRecord struct {
 	UnitPriceAmount int64
 	TotalAmount     int64
 	Currency        string
+	UnitWeightGrams int
 }
 
 func (itemRecord) TableName() string { return "order_items" }
@@ -204,7 +205,7 @@ func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
 	}
 	items := make([]itemRecord, 0, len(order.Items))
 	for _, item := range order.Items {
-		items = append(items, itemRecord{ID: uuid.New(), OrderID: order.ID, VariantID: item.VariantID, ProductName: item.ProductName, SKU: item.SKU, Quantity: item.Quantity, UnitPriceAmount: item.UnitPrice.Amount, TotalAmount: item.Total.Amount, Currency: item.Total.Currency})
+		items = append(items, itemRecord{ID: uuid.New(), OrderID: order.ID, VariantID: item.VariantID, ProductName: item.ProductName, SKU: item.SKU, Quantity: item.Quantity, UnitPriceAmount: item.UnitPrice.Amount, TotalAmount: item.Total.Amount, Currency: item.Total.Currency, UnitWeightGrams: item.UnitWeightGrams})
 	}
 	return tx.Create(&items).Error
 }

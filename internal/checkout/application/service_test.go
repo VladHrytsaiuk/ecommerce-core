@@ -27,7 +27,7 @@ func TestPreparePaymentAggregatesDuplicateLinesIntoOneAtomicBatch(t *testing.T) 
 	if err != nil {
 		t.Fatalf("PreparePayment() error = %v", err)
 	}
-	if len(inventory.batch) != 1 || inventory.batch[0].Quantity != 3 || len(prepared.ReservationIDs) != 1 || len(prepared.Items) != 1 || prepared.Subtotal.Amount != 3000 || prepared.Tax.Amount != 600 || prepared.Total.Amount != 3600 {
+	if len(inventory.batch) != 1 || inventory.batch[0].Quantity != 3 || len(prepared.ReservationIDs) != 1 || len(prepared.Items) != 1 || prepared.Items[0].UnitWeightGrams != 250 || prepared.Subtotal.Amount != 3000 || prepared.Tax.Amount != 600 || prepared.Total.Amount != 3600 {
 		t.Fatalf("batch = %+v, prepared = %+v", inventory.batch, prepared)
 	}
 }
@@ -157,7 +157,7 @@ func (f *fakeVariantFinder) FindActiveForCheckout(_ context.Context, variantID u
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &catalogDomain.CheckoutVariant{VariantID: variantID, ProductID: uuid.New(), ProductName: "Cream", SKU: "CREAM-50", UnitPrice: f.price}, nil
+	return &catalogDomain.CheckoutVariant{VariantID: variantID, ProductID: uuid.New(), ProductName: "Cream", SKU: "CREAM-50", UnitPrice: f.price, WeightGrams: 250}, nil
 }
 
 func mustTaxPolicy(t *testing.T, mode tax.Mode, rate int) tax.Calculator {

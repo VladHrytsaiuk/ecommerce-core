@@ -60,6 +60,9 @@ func (s *VariantService) validate(variant *domain.ProductVariant) error {
 	if err != nil || price.Currency != s.currency {
 		return fmt.Errorf("%w: variant price must use configured currency %q", domain.ErrInvalidProduct, s.currency)
 	}
+	if variant.WeightGrams < 0 {
+		return fmt.Errorf("%w: variant weight must not be negative", domain.ErrInvalidProduct)
+	}
 	variant.Price = price
 	return nil
 }

@@ -15,12 +15,13 @@ const (
 )
 
 type Item struct {
-	VariantID   *uuid.UUID
-	ProductName string
-	SKU         string
-	Quantity    int
-	UnitPrice   money.Money
-	Total       money.Money
+	VariantID       *uuid.UUID
+	ProductName     string
+	SKU             string
+	Quantity        int
+	UnitPrice       money.Money
+	Total           money.Money
+	UnitWeightGrams int
 }
 type Draft struct {
 	Number           string

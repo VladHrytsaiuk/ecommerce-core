@@ -51,6 +51,15 @@ func TestVariantServiceRejectsUnsupportedStatus(t *testing.T) {
 	}
 }
 
+func TestVariantServiceRejectsNegativeWeight(t *testing.T) {
+	service := NewVariantService(&fakeVariantRepository{}, []string{"es"}, "EUR")
+	price, _ := money.New(100, "EUR")
+	err := service.Create(context.Background(), &domain.ProductVariant{ProductID: uuid.New(), Price: price, WeightGrams: -1})
+	if !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Create() error = %v, want ErrInvalidProduct", err)
+	}
+}
+
 type fakeVariantRepository struct {
 	created bool
 }
