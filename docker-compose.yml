@@ -40,5 +40,18 @@ services:
         condition: service_completed_successfully
     restart: always
 
+  # Maintenance commands run on the same internal network as PostgreSQL and
+  # are opt-in, so a normal `docker compose up` never starts this container.
+  cli:
+    build:
+      context: .
+      target: cli
+    env_file:
+      - ${ENV_FILE:-.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["tools"]
+
 volumes:
   postgres-data:

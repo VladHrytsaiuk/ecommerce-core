@@ -70,13 +70,18 @@ After the Inventory migration, create an active warehouse and put its UUID in
 initial checkout policy; it is separate from a carrier's sender address.
 
 Create the first store owner after migrations, before using the protected
-admin catalog endpoints:
+admin catalog endpoints. In the Docker starter use the CLI container, which
+has access to the internal PostgreSQL hostname:
 
 ```bash
-go run ./cmd/cli create-owner \
-  -email owner@example.com \
-  -password 'use-a-long-unique-password'
+docker compose run --rm \
+  -e OWNER_EMAIL=owner@example.com \
+  -e OWNER_PASSWORD='use-a-long-unique-password' \
+  cli create-owner
 ```
+
+For a locally managed PostgreSQL instance, the equivalent is
+`go run ./cmd/cli create-owner -email ... -password ...`.
 
 Then obtain a JWT through `POST /api/auth/login` and use it as
 `Authorization: Bearer <access_token>` for `/api/admin/...` routes.

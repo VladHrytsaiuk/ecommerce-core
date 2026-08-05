@@ -30,6 +30,15 @@ RUN CGO_ENABLED=0 \
     -o /out/ecommerce-migrate \
     ./cmd/migrate/main.go
 
+RUN CGO_ENABLED=0 \
+    GOOS=$TARGETOS \
+    GOARCH=$TARGETARCH \
+    go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/ecommerce-cli \
+    ./cmd/cli/main.go
+
 
 # Сертифікати генеруються на архітектурі GitLab Runner,
 # бо сам файл сертифікатів не залежить від CPU.
@@ -70,3 +79,11 @@ COPY --from=builder --chown=10001:10001 \
     ./migrations
 
 CMD ["./ecommerce-migrate", "up"]
+
+FROM runner AS cli
+
+COPY --from=builder --chown=10001:10001 \
+    /out/ecommerce-cli \
+    ./ecommerce-cli
+
+ENTRYPOINT ["./ecommerce-cli"]
