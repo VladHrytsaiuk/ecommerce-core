@@ -11,20 +11,24 @@ import (
 // Dispatcher delivers durable order events outside the transaction which
 // created them. It never performs a remote call while holding a DB lock.
 type Dispatcher struct {
-	outbox     domain.OutboxStore
-	exporter   domain.OrderExporter
-	retryDelay time.Duration
-	lease      time.Duration
+	outbox      domain.OutboxStore
+	exporter    domain.OrderExporter
+	retryDelay  time.Duration
+	lease       time.Duration
+	maxAttempts int
 }
 
-func NewDispatcher(outbox domain.OutboxStore, exporter domain.OrderExporter, retryDelay, lease time.Duration) *Dispatcher {
+func NewDispatcher(outbox domain.OutboxStore, exporter domain.OrderExporter, retryDelay, lease time.Duration, maxAttempts int) *Dispatcher {
 	if retryDelay <= 0 {
 		retryDelay = time.Minute
 	}
 	if lease <= 0 {
 		lease = time.Minute
 	}
-	return &Dispatcher{outbox: outbox, exporter: exporter, retryDelay: retryDelay, lease: lease}
+	if maxAttempts <= 0 {
+		maxAttempts = 10
+	}
+	return &Dispatcher{outbox: outbox, exporter: exporter, retryDelay: retryDelay, lease: lease, maxAttempts: maxAttempts}
 }
 
 func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
@@ -37,12 +41,19 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
 		return err
 	}
 	if event.Topic != domain.TopicOrderCreated {
-		return d.outbox.Retry(context.WithoutCancel(ctx), event.ID, fmt.Errorf("unsupported sync topic %q", event.Topic), now.Add(d.retryDelay))
+		return d.fail(context.WithoutCancel(ctx), event, fmt.Errorf("unsupported sync topic %q", event.Topic), now)
 	}
 	if err := d.exporter.ExportOrder(ctx, *event); err != nil {
-		return d.outbox.Retry(context.WithoutCancel(ctx), event.ID, err, now.Add(d.retryDelay))
+		return d.fail(context.WithoutCancel(ctx), event, err, now)
 	}
 	return d.outbox.Complete(context.WithoutCancel(ctx), event.ID, time.Now().UTC())
+}
+
+func (d *Dispatcher) fail(ctx context.Context, event *domain.OutboxEvent, cause error, now time.Time) error {
+	if event.Attempts >= d.maxAttempts {
+		return d.outbox.DeadLetter(ctx, event.ID, cause, now)
+	}
+	return d.outbox.Retry(ctx, event.ID, cause, now.Add(d.retryDelay))
 }
 
 func (d *Dispatcher) Run(ctx context.Context, interval time.Duration) {

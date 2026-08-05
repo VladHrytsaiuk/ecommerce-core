@@ -1,9 +1,44 @@
 services:
-  aquawheel-api:
-    build: .
-    container_name: aquawheel-backend
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce_core}
+      POSTGRES_USER: ${POSTGRES_USER:-ecommerce_core}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    env_file:
+      - ${ENV_FILE:-.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      target: api
+    environment:
+      APP_ENV: production
     ports:
       - "127.0.0.1:8080:8080"
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: always
+
+volumes:
+  postgres-data:

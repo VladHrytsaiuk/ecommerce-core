@@ -3,6 +3,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/joho/godotenv"
 )
+
+const insecureDefaultJWTSecret = "very_secret_key_change_me_in_prod"
 
 // Config містить основні налаштування для запуску сервера та підключення до БД.
 type Config struct {
@@ -23,6 +26,9 @@ type Config struct {
 	GoogleClientID       string
 	MaxSessions          int
 	Env                  string
+	CookieSecure         bool
+	APIRateLimitPerMin   int
+	SensitiveRatePerMin  int
 
 	// HTTP server
 	// RequestTimeout — верхня межа тривалості обробки HTTP-запиту (context deadline).
@@ -142,11 +148,7 @@ func Load() *Config {
 		log.Fatal("Fatal: DB_URL environment variable is not set")
 	}
 
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Println("Warning: JWT_SECRET environment variable is not set, using default for development")
-		jwtSecret = "very_secret_key_change_me_in_prod"
-	}
+	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 
 	accessTokenDurationStr := os.Getenv("ACCESS_TOKEN_DURATION")
 	if accessTokenDurationStr == "" {
@@ -186,7 +188,7 @@ func Load() *Config {
 		maxSessions = 10
 	}
 
-	appEnv := os.Getenv("APP_ENV")
+	appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
 	if appEnv == "" {
 		appEnv = "production"
 	}
@@ -369,18 +371,16 @@ func Load() *Config {
 	}
 
 	corsOriginsStr := os.Getenv("CORS_ALLOW_ORIGINS")
+	if err := validateStartupSecurity(appEnv, jwtSecret, corsOriginsStr); err != nil {
+		log.Fatal("Fatal: " + err.Error())
+	}
 	var corsAllowOrigins []string
 	if corsOriginsStr != "" {
 		// Remove spaces and split by comma
 		corsOriginsStr = strings.ReplaceAll(corsOriginsStr, " ", "")
 		corsAllowOrigins = strings.Split(corsOriginsStr, ",")
 	} else {
-		corsAllowOrigins = []string{
-			"http://localhost:3000",
-			"https://aquawheel-store.vercel.app",
-			"https://138.68.69.86.nip.io",
-			"http://138.68.69.86.nip.io",
-		}
+		corsAllowOrigins = []string{"http://localhost:3000"}
 	}
 
 	storeCode := getEnvString("STORE_CODE", "default-store")
@@ -410,6 +410,11 @@ func Load() *Config {
 			checkoutReservationTTL = parsed
 		}
 	}
+	apiRateLimitPerMin := getEnvInt("API_RATE_LIMIT_PER_MINUTE", 100)
+	sensitiveRatePerMin := getEnvInt("SENSITIVE_RATE_LIMIT_PER_MINUTE", 10)
+	if apiRateLimitPerMin <= 0 || sensitiveRatePerMin <= 0 {
+		log.Fatal("Fatal: API_RATE_LIMIT_PER_MINUTE and SENSITIVE_RATE_LIMIT_PER_MINUTE must be positive")
+	}
 
 	return &Config{
 		Port:                      port,
@@ -421,6 +426,9 @@ func Load() *Config {
 		GoogleClientID:            googleClientID,
 		MaxSessions:               maxSessions,
 		Env:                       appEnv,
+		CookieSecure:              appEnv == "production",
+		APIRateLimitPerMin:        apiRateLimitPerMin,
+		SensitiveRatePerMin:       sensitiveRatePerMin,
 		RequestTimeout:            requestTimeout,
 		SMTPHost:                  smtpHost,
 		SMTPPort:                  smtpPort,
@@ -490,6 +498,18 @@ func Load() *Config {
 		CheckoutReservationTTL:    checkoutReservationTTL,
 		DefaultWarehouseID:        defaultWarehouseID,
 	}
+}
+
+// validateStartupSecurity rejects insecure deployment defaults before a
+// database connection or HTTP listener can be created.
+func validateStartupSecurity(appEnv, jwtSecret, corsOrigins string) error {
+	if jwtSecret == "" || jwtSecret == insecureDefaultJWTSecret {
+		return fmt.Errorf("JWT_SECRET must be explicitly configured and must not use the insecure default")
+	}
+	if appEnv == "production" && strings.TrimSpace(corsOrigins) == "" {
+		return fmt.Errorf("CORS_ALLOW_ORIGINS is required when APP_ENV=production")
+	}
+	return nil
 }
 
 func getEnvInt(key string, defaultValue int) int {

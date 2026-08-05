@@ -21,10 +21,11 @@ type Handler struct {
 	carts          cartDomain.Service
 	reservationTTL time.Duration
 	warehouseID    uuid.UUID
+	secureCookies  bool
 }
 
-func NewHandler(service checkoutDomain.Service, carts cartDomain.Service, reservationTTL time.Duration, warehouseID uuid.UUID) *Handler {
-	return &Handler{service: service, carts: carts, reservationTTL: reservationTTL, warehouseID: warehouseID}
+func NewHandler(service checkoutDomain.Service, carts cartDomain.Service, reservationTTL time.Duration, warehouseID uuid.UUID, secureCookies bool) *Handler {
+	return &Handler{service: service, carts: carts, reservationTTL: reservationTTL, warehouseID: warehouseID, secureCookies: secureCookies}
 }
 
 type StartPaymentRequest struct {
@@ -133,7 +134,7 @@ func (h *Handler) ownerCartAndLines(c *gin.Context) (cartDomain.Owner, *cartDoma
 		return cartDomain.Owner{}, nil, nil, false
 	}
 	if created {
-		cartowner.SetSessionCookie(c, *owner.SessionID)
+		cartowner.SetSessionCookie(c, *owner.SessionID, h.secureCookies)
 	}
 	cart, err := h.carts.GetOrCreate(c.Request.Context(), owner)
 	if err != nil {

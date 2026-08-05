@@ -32,6 +32,7 @@ type OutboxStore interface {
 	Claim(context.Context, time.Time, time.Duration) (*OutboxEvent, error)
 	Complete(context.Context, uuid.UUID, time.Time) error
 	Retry(context.Context, uuid.UUID, error, time.Time) error
+	DeadLetter(context.Context, uuid.UUID, error, time.Time) error
 }
 
 // OrderExporter is implemented by an ERP adapter. Its implementation must

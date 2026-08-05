@@ -2,12 +2,14 @@ package http
 
 import (
 	"github.com/gin-gonic/gin"
+	"golang.org/x/time/rate"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
 	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
+	identityHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 )
@@ -22,7 +24,10 @@ func InitRouter(application *app.Application) *gin.Engine {
 	r.GET("/swagger/*any", application.HTTP.Swagger)
 
 	api := r.Group("/api")
+	api.Use(middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(perMinute(application.Config.APIRateLimitPerMin), application.Config.APIRateLimitPerMin)))
 	api.GET("/ping", application.HTTP.Health)
+	sensitiveLimit := middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(perMinute(application.Config.SensitiveRatePerMin), application.Config.SensitiveRatePerMin))
+	identityHTTP.RegisterRoutes(api, application.IdentityService, sensitiveLimit)
 	if application.PaymentGateways != nil && application.PaymentGateways.Default() != nil {
 		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
 	}
@@ -32,10 +37,14 @@ func InitRouter(application *app.Application) *gin.Engine {
 	localized.Use(application.HTTP.LocaleMiddleware)
 	cart := localized.Group("")
 	cart.Use(application.HTTP.OptionalAuth)
-	cartHTTP.RegisterRoutes(cart, application.CartService)
-	checkoutHTTP.RegisterRoutes(cart, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID)
+	cartHTTP.RegisterRoutes(cart, application.CartService, application.Config.CookieSecure)
+	checkoutHTTP.RegisterRoutes(cart, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID, application.Config.CookieSecure, sensitiveLimit)
 	catalogHTTP.RegisterCategoryRoutes(localized, admin, application.CatalogCategoryService)
 	catalogHTTP.RegisterProductRoutes(localized, admin, application.CatalogProductService)
 	catalogHTTP.RegisterVariantRoutes(admin, application.CatalogVariantService)
 	return r
+}
+
+func perMinute(limit int) rate.Limit {
+	return rate.Limit(float64(limit) / 60)
 }

@@ -5,8 +5,8 @@ that existed before the clean-slate Catalog removal. It is **not** imported by
 the running application. Before retiring another legacy package, record its
 behaviour here and port its tests or scenarios to the owning clean module.
 
-Some unported files are deliberately guarded by the `legacy` build constraint,
-so the default build contains only the clean application graph. They are not a
+Unported files are intentionally ignored by dependency resolution, so the
+default build contains only the clean application graph. They are not a
 supported mixed-mode runtime: inspect or run the complete predecessor through
 the `legacy-monolith-baseline` Git tag instead.
 

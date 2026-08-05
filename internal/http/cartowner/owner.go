@@ -5,6 +5,7 @@ package cartowner
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -35,6 +36,14 @@ func FromContext(c *gin.Context) (domain.Owner, bool, error) {
 	return domain.Owner{SessionID: &id}, true, nil
 }
 
-func SetSessionCookie(c *gin.Context, sessionID uuid.UUID) {
-	c.SetCookie(SessionCookie, sessionID.String(), 60*60*24*30, "/", "", false, true)
+func SetSessionCookie(c *gin.Context, sessionID uuid.UUID, secure bool) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     SessionCookie,
+		Value:    sessionID.String(),
+		Path:     "/",
+		MaxAge:   60 * 60 * 24 * 30,
+		Secure:   secure,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

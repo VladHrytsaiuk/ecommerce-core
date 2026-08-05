@@ -1,5 +1,5 @@
-//go:build legacy
-// +build legacy
+//go:build legacy && ignore
+// +build legacy,ignore
 
 package postgres
 

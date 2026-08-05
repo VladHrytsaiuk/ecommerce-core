@@ -1,4 +1,4 @@
-//go:build legacy
+//go:build legacy && ignore
 
 package http
 

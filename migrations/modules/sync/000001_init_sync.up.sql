@@ -9,12 +9,13 @@ CREATE TABLE sync_outbox (
     idempotency_key UUID NOT NULL,
     payload TEXT NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'processing', 'delivered', 'failed')),
+        CHECK (status IN ('pending', 'processing', 'delivered', 'failed', 'dead')),
     attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     locked_at TIMESTAMPTZ,
     last_error TEXT,
     delivered_at TIMESTAMPTZ,
+    dead_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (topic, idempotency_key)

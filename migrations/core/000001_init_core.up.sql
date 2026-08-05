@@ -75,6 +75,7 @@ CREATE TABLE product_variants (
         CHECK (status IN ('active', 'archived')),
     price_amount BIGINT NOT NULL CHECK (price_amount >= 0),
     currency CHAR(3) NOT NULL,
+    weight_grams INTEGER NOT NULL DEFAULT 0 CHECK (weight_grams >= 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -82,13 +83,15 @@ CREATE TABLE product_variants (
 CREATE TABLE carts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     customer_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    session_id UUID UNIQUE,
+    session_id UUID,
     status VARCHAR(32) NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'converted', 'abandoned')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (customer_id IS NOT NULL OR session_id IS NOT NULL)
 );
+CREATE UNIQUE INDEX carts_active_customer_unique ON carts(customer_id) WHERE status = 'active' AND customer_id IS NOT NULL;
+CREATE UNIQUE INDEX carts_active_session_unique ON carts(session_id) WHERE status = 'active' AND session_id IS NOT NULL;
 
 CREATE TABLE cart_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,11 +105,13 @@ CREATE TABLE orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     number VARCHAR(64) NOT NULL UNIQUE,
     customer_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    cart_id UUID REFERENCES carts(id) ON DELETE SET NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'pending_payment'
         CHECK (status IN ('pending_payment', 'paid', 'fulfillment_pending', 'shipped', 'delivered', 'cancelled', 'refunded')),
     currency CHAR(3) NOT NULL,
     subtotal_amount BIGINT NOT NULL CHECK (subtotal_amount >= 0),
     tax_amount BIGINT NOT NULL DEFAULT 0 CHECK (tax_amount >= 0),
+    shipping_amount BIGINT NOT NULL DEFAULT 0 CHECK (shipping_amount >= 0),
     total_amount BIGINT NOT NULL CHECK (total_amount >= 0),
     payment_provider VARCHAR(64),
     delivery_provider VARCHAR(64),
@@ -114,6 +119,7 @@ CREATE TABLE orders (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX orders_status_created_idx ON orders(status, created_at);
+CREATE INDEX orders_cart_id_idx ON orders(cart_id) WHERE cart_id IS NOT NULL;
 
 CREATE TABLE order_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -124,7 +130,8 @@ CREATE TABLE order_items (
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     unit_price_amount BIGINT NOT NULL CHECK (unit_price_amount >= 0),
     total_amount BIGINT NOT NULL CHECK (total_amount >= 0),
-    currency CHAR(3) NOT NULL
+    currency CHAR(3) NOT NULL,
+    unit_weight_grams INTEGER NOT NULL DEFAULT 0 CHECK (unit_weight_grams >= 0)
 );
 
 CREATE TABLE payments (
@@ -140,6 +147,27 @@ CREATE TABLE payments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX payments_provider_reference_unique ON payments(provider, provider_reference) WHERE provider_reference IS NOT NULL;
+CREATE UNIQUE INDEX payments_order_provider_unique ON payments(order_id, provider);
+
+CREATE TABLE payment_checkout_attempts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id UUID NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+    provider VARCHAR(64) NOT NULL, idempotency_key VARCHAR(255) NOT NULL UNIQUE,
+    amount BIGINT NOT NULL CHECK (amount >= 0), currency CHAR(3) NOT NULL, provider_reference VARCHAR(255),
+    status VARCHAR(32) NOT NULL DEFAULT 'creating' CHECK (status IN ('creating', 'processing', 'created', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0), last_error TEXT, locked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX payment_checkout_attempts_recovery_idx ON payment_checkout_attempts(status, updated_at) WHERE status = 'creating';
+CREATE INDEX payment_checkout_attempts_processing_idx ON payment_checkout_attempts(status, locked_at) WHERE status = 'processing';
+
+CREATE TABLE payment_webhook_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), provider VARCHAR(64) NOT NULL, event_id VARCHAR(255) NOT NULL,
+    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE, provider_reference VARCHAR(255),
+    event_status VARCHAR(32) NOT NULL CHECK (event_status IN ('pending', 'paid', 'failed')), amount BIGINT NOT NULL CHECK (amount >= 0), currency CHAR(3) NOT NULL,
+    processing_status VARCHAR(32) NOT NULL DEFAULT 'processing' CHECK (processing_status IN ('processing', 'processed')),
+    received_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, processed_at TIMESTAMPTZ, UNIQUE (provider, event_id)
+);
+CREATE INDEX payment_webhook_events_order_received_idx ON payment_webhook_events(order_id, received_at);
 
 CREATE TABLE deliveries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -152,3 +180,15 @@ CREATE TABLE deliveries (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX deliveries_provider_tracking_unique ON deliveries(provider, tracking_number) WHERE tracking_number IS NOT NULL;
+
+CREATE TABLE order_delivery_details (
+    order_id UUID PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE, recipient_name TEXT NOT NULL, recipient_phone VARCHAR(32) NOT NULL,
+    country_code CHAR(2), postal_code VARCHAR(32), city TEXT, line1 TEXT, line2 TEXT, locality_id VARCHAR(255), service_point_id VARCHAR(255), created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE delivery_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), order_id UUID NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE, provider VARCHAR(64) NOT NULL, idempotency_key UUID NOT NULL UNIQUE,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'retrying', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0), available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, locked_at TIMESTAMPTZ, last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX delivery_jobs_ready_idx ON delivery_jobs(status, available_at) WHERE status IN ('pending', 'retrying');

@@ -1,5 +1,5 @@
-//go:build legacy && integration
-// +build legacy,integration
+//go:build legacy && integration && ignore
+// +build legacy,integration,ignore
 
 package service
 

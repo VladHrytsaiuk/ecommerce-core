@@ -56,6 +56,7 @@ store deployment is a compatibility target.
 git clone <repository-url>
 cd ecommerce-core
 cp .env.example .env
+# Set strong JWT_SECRET and POSTGRES_PASSWORD in .env first.
 go mod tidy
 go run ./cmd/migrate up
 go run ./cmd/api
@@ -67,6 +68,18 @@ Never commit `.env`; use `.env.example` for safe placeholders.
 After the Inventory migration, create an active warehouse and put its UUID in
 `DEFAULT_WAREHOUSE_ID`. This selects the stock-reservation warehouse for the
 initial checkout policy; it is separate from a carrier's sender address.
+
+Create the first store owner after migrations, before using the protected
+admin catalog endpoints:
+
+```bash
+go run ./cmd/cli create-owner \
+  -email owner@example.com \
+  -password 'use-a-long-unique-password'
+```
+
+Then obtain a JWT through `POST /api/auth/login` and use it as
+`Authorization: Bearer <access_token>` for `/api/admin/...` routes.
 
 ### Checkout contract
 
@@ -95,8 +108,12 @@ persists its amount in the immutable order snapshot; the payment amount is
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up -d --build
 ```
+
+The starter Compose stack creates PostgreSQL, runs the one-shot migration
+container, then starts the API only after migration succeeds. It binds the API
+to `127.0.0.1:8080`; put a TLS reverse proxy in front of it for production.
 
 See the Docker Compose configuration and the migration command for the
 environment-specific service names and database settings.
@@ -145,8 +162,8 @@ go test -tags=integration ./cmd/migrate ./internal/platform/postgres/orderworkfl
 
 ### Legacy reference
 
-Unported monolith packages are excluded from the default build with a `legacy`
-build constraint. They are retained only as migration reference; use the
+Unported monolith files are excluded from dependency resolution and the default
+build. They are retained only as migration reference; use the
 `legacy-monolith-baseline` Git tag when the complete predecessor behaviour must
 be inspected or run.
 

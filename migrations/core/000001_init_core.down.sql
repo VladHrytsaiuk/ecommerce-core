@@ -1,4 +1,8 @@
+DROP TABLE IF EXISTS delivery_jobs;
+DROP TABLE IF EXISTS order_delivery_details;
 DROP TABLE IF EXISTS deliveries;
+DROP TABLE IF EXISTS payment_webhook_events;
+DROP TABLE IF EXISTS payment_checkout_attempts;
 DROP TABLE IF EXISTS payments;
 DROP TABLE IF EXISTS order_items;
 DROP TABLE IF EXISTS orders;

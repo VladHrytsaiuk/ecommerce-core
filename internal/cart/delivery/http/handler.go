@@ -10,9 +10,14 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/cartowner"
 )
 
-type Handler struct{ service domain.Service }
+type Handler struct {
+	service       domain.Service
+	secureCookies bool
+}
 
-func NewHandler(service domain.Service) *Handler { return &Handler{service: service} }
+func NewHandler(service domain.Service, secureCookies bool) *Handler {
+	return &Handler{service: service, secureCookies: secureCookies}
+}
 
 type itemRequest struct {
 	VariantID uuid.UUID `json:"variant_id" binding:"required"`
@@ -72,7 +77,7 @@ func (h *Handler) respond(c *gin.Context, action func(domain.Owner) (*domain.Car
 		return
 	}
 	if created {
-		cartowner.SetSessionCookie(c, *owner.SessionID)
+		cartowner.SetSessionCookie(c, *owner.SessionID, h.secureCookies)
 	}
 	c.JSON(stdhttp.StatusOK, cart)
 }

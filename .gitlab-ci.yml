@@ -30,7 +30,7 @@ variables:
 # Docker-in-Docker потрібний для testcontainers-go/PostgreSQL.
 test:
   stage: test
-  image: golang:1.25.4-alpine
+  image: golang:1.25.12-alpine
   interruptible: true
   tags:
     - local-docker

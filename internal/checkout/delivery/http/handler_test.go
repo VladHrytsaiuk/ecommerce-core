@@ -28,7 +28,7 @@ func TestStartPaymentGeneratesServerCheckoutIDAndMapsRedirect(t *testing.T) {
 	router := gin.New()
 	localized := router.Group("/api/:lang")
 	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, carts, 15*time.Minute, warehouseID)
+	RegisterRoutes(localized, service, carts, 15*time.Minute, warehouseID, false, nil)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{"customer_phone":"+34123456789","return_url":"https://store.example/return"}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -49,7 +49,7 @@ func TestStartPaymentReturnsClientSecretOnlyWhenGatewayProvidesOne(t *testing.T)
 	router := gin.New()
 	localized := router.Group("/api/:lang")
 	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, carts, 15*time.Minute, uuid.New())
+	RegisterRoutes(localized, service, carts, 15*time.Minute, uuid.New(), false, nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{"customer_phone":"+34123456789"}`))
@@ -66,7 +66,7 @@ func TestStartPaymentRejectsEmptyCart(t *testing.T) {
 	router := gin.New()
 	localized := router.Group("/api/:lang")
 	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, &fakeCheckout{}, &fakeCart{cart: &cartDomain.Cart{}}, 15*time.Minute, uuid.New())
+	RegisterRoutes(localized, &fakeCheckout{}, &fakeCart{cart: &cartDomain.Cart{}}, 15*time.Minute, uuid.New(), false, nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{}`))
@@ -84,7 +84,7 @@ func TestStartPaymentRequiresStableIdempotencyKey(t *testing.T) {
 	router := gin.New()
 	localized := router.Group("/api/:lang")
 	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}, 15*time.Minute, uuid.New())
+	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}, 15*time.Minute, uuid.New(), false, nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{}`))
@@ -101,7 +101,7 @@ func TestStartPaymentDerivesSameCheckoutIDForRetryKey(t *testing.T) {
 	router := gin.New()
 	localized := router.Group("/api/:lang")
 	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}, 15*time.Minute, uuid.New())
+	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}, 15*time.Minute, uuid.New(), false, nil)
 
 	var first uuid.UUID
 	for range 2 {
@@ -128,7 +128,7 @@ func TestQuoteDeliveryUsesActiveCart(t *testing.T) {
 	router := gin.New()
 	localized := router.Group("/api/:lang")
 	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: variantID, Quantity: 3}}}}, 15*time.Minute, warehouseID)
+	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: variantID, Quantity: 3}}}}, 15*time.Minute, warehouseID, false, nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/delivery-options", strings.NewReader(`{"delivery_provider":"novaposhta","delivery":{"locality_id":"city"}}`))

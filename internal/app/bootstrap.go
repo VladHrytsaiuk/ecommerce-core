@@ -28,6 +28,9 @@ import (
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
 	deliveryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
+	identityApp "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/application"
+	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
+	identityPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/repository/postgres"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	inventoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/repository/postgres"
@@ -57,6 +60,7 @@ type Application struct {
 	InventoryService       inventoryDomain.Service
 	InventoryCleanup       *inventoryApp.Cleanup
 	OrderService           ordersDomain.Service
+	IdentityService        identityDomain.Service
 	PaymentGateways        *paymentsApp.Registry
 	PaymentWebhookService  *paymentsApp.WebhookService
 	DeliveryCarriers       *deliveryApp.Registry
@@ -142,6 +146,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		InventoryService:      inventoryService,
 		InventoryCleanup:      inventoryApp.NewCleanup(inventoryRepository),
 		OrderService:          ordersApp.NewService(ordersPostgres.NewRepository(db)),
+		IdentityService:       identityApp.NewService(identityPostgres.NewUserReader(db), tokenMaker, cfg.AccessTokenDuration),
 		PaymentGateways:       paymentGateways,
 		PaymentWebhookService: paymentWebhookService,
 		DeliveryCarriers:      deliveryCarriers,

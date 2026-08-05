@@ -7,11 +7,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func RegisterRoutes(group *gin.RouterGroup, service domain.Service) {
+func RegisterRoutes(group *gin.RouterGroup, service domain.Service, secureCookies bool) {
 	if service == nil {
 		return
 	}
-	h := NewHandler(service)
+	h := NewHandler(service, secureCookies)
 	group.GET("/cart", h.Get)
 	group.POST("/cart/items", h.Add)
 	group.PATCH("/cart/items/:variantID", h.SetQuantity)

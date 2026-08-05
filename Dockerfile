@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM --platform=$BUILDPLATFORM golang:1.25.4-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.12-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -21,6 +21,15 @@ RUN CGO_ENABLED=0 \
     -o /out/aquawheel-api \
     ./cmd/api/main.go
 
+RUN CGO_ENABLED=0 \
+    GOOS=$TARGETOS \
+    GOARCH=$TARGETARCH \
+    go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/ecommerce-migrate \
+    ./cmd/migrate/main.go
+
 
 # Сертифікати генеруються на архітектурі GitLab Runner,
 # бо сам файл сертифікатів не залежить від CPU.
@@ -37,6 +46,8 @@ COPY --from=certificates \
     /etc/ssl/certs/ca-certificates.crt \
     /etc/ssl/certs/ca-certificates.crt
 
+FROM runner AS api
+
 COPY --from=builder --chown=10001:10001 \
     /out/aquawheel-api \
     ./aquawheel-api
@@ -48,3 +59,14 @@ USER 10001:10001
 EXPOSE 8080
 
 CMD ["./aquawheel-api"]
+
+FROM runner AS migrate
+
+COPY --from=builder --chown=10001:10001 \
+    /out/ecommerce-migrate \
+    ./ecommerce-migrate
+COPY --from=builder --chown=10001:10001 \
+    /app/migrations \
+    ./migrations
+
+CMD ["./ecommerce-migrate", "up"]

@@ -89,3 +89,17 @@ func (s *OutboxStore) Retry(ctx context.Context, eventID uuid.UUID, cause error,
 	}
 	return nil
 }
+
+func (s *OutboxStore) DeadLetter(ctx context.Context, eventID uuid.UUID, cause error, deadAt time.Time) error {
+	if cause == nil {
+		return fmt.Errorf("sync outbox dead-letter requires a cause")
+	}
+	result := s.db.WithContext(ctx).Exec(`UPDATE sync_outbox SET status = 'dead', dead_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'processing'`, deadAt, cause.Error(), eventID)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("sync outbox event %s is not claimed", eventID)
+	}
+	return nil
+}
