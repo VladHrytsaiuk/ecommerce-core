@@ -50,6 +50,22 @@ type Config struct {
 	NovaPoshtaAPIKey string
 	NovaPoshtaURL    string
 
+	// DHL Express (MyDHL API)
+	DHLExpressBaseURL       string
+	DHLExpressUsername      string
+	DHLExpressPassword      string
+	DHLExpressAccountNumber string
+	DHLExpressProductCode   string
+	DHLExpressSenderName    string
+	DHLExpressSenderPhone   string
+	DHLExpressSenderCountry string
+	DHLExpressSenderPostal  string
+	DHLExpressSenderCity    string
+	DHLExpressSenderLine1   string
+	DHLExpressPackageLength float64
+	DHLExpressPackageWidth  float64
+	DHLExpressPackageHeight float64
+
 	// Media Storage
 	CloudinaryURL string
 	StoreLogoURL  string
@@ -232,6 +248,23 @@ func Load() *Config {
 	if novaPoshtaURL == "" {
 		novaPoshtaURL = "https://api.novaposhta.ua/v2.0/json/"
 	}
+
+	// DHL Express (MyDHL API). The default deliberately targets DHL's test
+	// environment; production deployments must opt in to the live URL.
+	dhlExpressBaseURL := getEnvString("DHL_EXPRESS_BASE_URL", "https://express.api.dhl.com/mydhlapi/test")
+	dhlExpressUsername := os.Getenv("DHL_EXPRESS_USERNAME")
+	dhlExpressPassword := os.Getenv("DHL_EXPRESS_PASSWORD")
+	dhlExpressAccountNumber := os.Getenv("DHL_EXPRESS_ACCOUNT_NUMBER")
+	dhlExpressProductCode := os.Getenv("DHL_EXPRESS_PRODUCT_CODE")
+	dhlExpressSenderName := os.Getenv("DHL_EXPRESS_SENDER_NAME")
+	dhlExpressSenderPhone := os.Getenv("DHL_EXPRESS_SENDER_PHONE")
+	dhlExpressSenderCountry := os.Getenv("DHL_EXPRESS_SENDER_COUNTRY")
+	dhlExpressSenderPostal := os.Getenv("DHL_EXPRESS_SENDER_POSTAL")
+	dhlExpressSenderCity := os.Getenv("DHL_EXPRESS_SENDER_CITY")
+	dhlExpressSenderLine1 := os.Getenv("DHL_EXPRESS_SENDER_LINE1")
+	dhlExpressPackageLength := getEnvFloat("DHL_EXPRESS_PACKAGE_LENGTH_CM", 0)
+	dhlExpressPackageWidth := getEnvFloat("DHL_EXPRESS_PACKAGE_WIDTH_CM", 0)
+	dhlExpressPackageHeight := getEnvFloat("DHL_EXPRESS_PACKAGE_HEIGHT_CM", 0)
 
 	// Cloudinary Config
 	cloudinaryURL := os.Getenv("CLOUDINARY_URL")
@@ -439,6 +472,20 @@ func Load() *Config {
 		EmailFrom:                 emailFrom,
 		NovaPoshtaAPIKey:          novaPoshtaAPIKey,
 		NovaPoshtaURL:             novaPoshtaURL,
+		DHLExpressBaseURL:         dhlExpressBaseURL,
+		DHLExpressUsername:        dhlExpressUsername,
+		DHLExpressPassword:        dhlExpressPassword,
+		DHLExpressAccountNumber:   dhlExpressAccountNumber,
+		DHLExpressProductCode:     dhlExpressProductCode,
+		DHLExpressSenderName:      dhlExpressSenderName,
+		DHLExpressSenderPhone:     dhlExpressSenderPhone,
+		DHLExpressSenderCountry:   dhlExpressSenderCountry,
+		DHLExpressSenderPostal:    dhlExpressSenderPostal,
+		DHLExpressSenderCity:      dhlExpressSenderCity,
+		DHLExpressSenderLine1:     dhlExpressSenderLine1,
+		DHLExpressPackageLength:   dhlExpressPackageLength,
+		DHLExpressPackageWidth:    dhlExpressPackageWidth,
+		DHLExpressPackageHeight:   dhlExpressPackageHeight,
 		CloudinaryURL:             cloudinaryURL,
 		StoreLogoURL:              storeLogoURL,
 		APIHost:                   apiHost,
@@ -522,6 +569,19 @@ func getEnvInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	return val
+}
+
+func getEnvFloat(key string, defaultValue float64) float64 {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		log.Printf("Warning: Invalid %s: %v. Using default: %g", key, err, defaultValue)
+		return defaultValue
+	}
+	return parsed
 }
 
 func getEnvString(key, defaultValue string) string {

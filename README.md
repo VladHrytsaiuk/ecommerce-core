@@ -20,9 +20,10 @@ not business logic embedded in the order flow.
 ## Features
 
 - **Pluggable payments and delivery** — provider-neutral ports for LiqPay,
-  Stripe, Redsys, Nova Poshta, Correos, and future adapters. LiqPay, Stripe,
-  Redsys, and Nova Poshta are implemented clean adapters. Correos remains
-  deferred until its deployment-specific contract is available.
+  Stripe, Redsys, Nova Poshta, DHL Express, Correos, and future adapters.
+  LiqPay, Stripe, Redsys, Nova Poshta and DHL Express are implemented clean
+  adapters. Correos remains deferred until its deployment-specific contract is
+  available.
 - **Flexible inventory** — run autonomously with internal inventory, or use a
   Master-Slave storefront-cache model synchronized with 1C or another ERP.
 - **Database-level i18n** — normalized translation tables make product,
@@ -157,6 +158,16 @@ terminal, signing key, callback URL, and numeric ISO currency code (for
 example, `978` for EUR). Checkout returns a provider-hosted redirect URL and
 the signed `payment_form` fields that the storefront must POST unchanged.
 Verified callbacks use `POST /api/webhooks/payments/redsys`.
+
+### DHL Express development configuration
+
+Set `SHIPPING_PROVIDERS=dhlexpress` and `SHIPPING_DEFAULT=dhlexpress`, then
+provide the `DHL_EXPRESS_*` account, sender-address, product-code and standard
+parcel-dimension values shown in `.env.example`. The MyDHL adapter uses DHL's
+test URL by default; set the live base URL only with production credentials.
+An active DHL Express customer account is required. This initial adapter
+accepts domestic shipments only: international labels remain blocked until the
+core has a customs-item module (commodity description, origin and HS data).
 
 To verify the clean-slate database path, including the enabled Inventory module,
 three-locale Catalog persistence, and atomic order/reservation workflow:

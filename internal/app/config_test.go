@@ -61,6 +61,13 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want: "NOVA_POSHTA_API_KEY",
 		},
 		{
+			name: "enabled DHL Express has no credentials",
+			mutate: func(cfg *config.Config) {
+				cfg.ShippingProviders, cfg.ShippingDefault = []string{"dhlexpress"}, "dhlexpress"
+			},
+			want: "DHL_EXPRESS_USERNAME",
+		},
+		{
 			name: "invalid locale",
 			mutate: func(cfg *config.Config) {
 				cfg.SupportedLocales = []string{"es$"}
@@ -187,6 +194,44 @@ func TestNewDeliveryRegistryBuildsOnlyEnabledNovaPoshtaAdapter(t *testing.T) {
 		t.Fatalf("newDeliveryRegistry() error = %v", err)
 	}
 	if registry.Default() == nil || registry.Default().Code() != "novaposhta" {
+		t.Fatalf("default carrier = %v", registry.Default())
+	}
+}
+
+func TestNewStoreConfigAcceptsConfiguredDHLExpress(t *testing.T) {
+	cfg := validConfig()
+	cfg.Currency, cfg.PriceScale = "EUR", 2
+	cfg.ShippingProviders, cfg.ShippingDefault = []string{"dhlexpress"}, "dhlexpress"
+	cfg.DHLExpressUsername, cfg.DHLExpressPassword = "user", "password"
+	cfg.DHLExpressAccountNumber, cfg.DHLExpressProductCode = "123456789", "P"
+	cfg.DHLExpressSenderName, cfg.DHLExpressSenderPhone = "Store", "+34910000000"
+	cfg.DHLExpressSenderCountry, cfg.DHLExpressSenderPostal, cfg.DHLExpressSenderCity, cfg.DHLExpressSenderLine1 = "ES", "28001", "Madrid", "Calle Example 1"
+	cfg.DHLExpressPackageLength, cfg.DHLExpressPackageWidth, cfg.DHLExpressPackageHeight = 20, 15, 10
+
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
+func TestNewDeliveryRegistryBuildsOnlyEnabledDHLExpressAdapter(t *testing.T) {
+	cfg := validConfig()
+	cfg.ShippingProviders, cfg.ShippingDefault = []string{"dhlexpress"}, "dhlexpress"
+	cfg.DHLExpressBaseURL = "https://api.example.test/mydhlapi/test"
+	cfg.DHLExpressUsername, cfg.DHLExpressPassword = "user", "password"
+	cfg.DHLExpressAccountNumber, cfg.DHLExpressProductCode = "123456789", "P"
+	cfg.DHLExpressSenderName, cfg.DHLExpressSenderPhone = "Store", "+34910000000"
+	cfg.DHLExpressSenderCountry, cfg.DHLExpressSenderPostal, cfg.DHLExpressSenderCity, cfg.DHLExpressSenderLine1 = "ES", "28001", "Madrid", "Calle Example 1"
+	cfg.DHLExpressPackageLength, cfg.DHLExpressPackageWidth, cfg.DHLExpressPackageHeight = 20, 15, 10
+	storeConfig, err := NewStoreConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registry, err := newDeliveryRegistry(cfg, storeConfig)
+	if err != nil {
+		t.Fatalf("newDeliveryRegistry() error = %v", err)
+	}
+	if registry.Default() == nil || registry.Default().Code() != "dhlexpress" {
 		t.Fatalf("default carrier = %v", registry.Default())
 	}
 }

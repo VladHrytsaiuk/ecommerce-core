@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 
+	dhlExpressAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/dhlexpress"
 	novaposhtaAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/novaposhta"
 	liqpayAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/liqpay"
 	redsysAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/redsys"
@@ -52,6 +53,12 @@ func newDeliveryRegistry(cfg *config.Config, storeConfig StoreConfig) (*delivery
 		switch code {
 		case "novaposhta":
 			carrier, err := novaposhtaAdapter.New(novaposhtaAdapter.Config{APIKey: cfg.NovaPoshtaAPIKey, BaseURL: cfg.NovaPoshtaURL, SenderRef: cfg.NPSenderRef, SenderCityRef: cfg.NPSenderCityRef, SenderAddressRef: cfg.NPSenderAddressRef, ContactSenderRef: cfg.NPContactSenderRef, SenderPhone: cfg.NPSenderPhone})
+			if err != nil {
+				return nil, err
+			}
+			carriers = append(carriers, carrier)
+		case "dhlexpress":
+			carrier, err := dhlExpressAdapter.New(dhlExpressAdapter.Config{BaseURL: cfg.DHLExpressBaseURL, Username: cfg.DHLExpressUsername, Password: cfg.DHLExpressPassword, AccountNumber: cfg.DHLExpressAccountNumber, ProductCode: cfg.DHLExpressProductCode, SenderName: cfg.DHLExpressSenderName, SenderPhone: cfg.DHLExpressSenderPhone, SenderCountry: cfg.DHLExpressSenderCountry, SenderPostal: cfg.DHLExpressSenderPostal, SenderCity: cfg.DHLExpressSenderCity, SenderLine1: cfg.DHLExpressSenderLine1, PackageLength: cfg.DHLExpressPackageLength, PackageWidth: cfg.DHLExpressPackageWidth, PackageHeight: cfg.DHLExpressPackageHeight, PriceScale: storeConfig.PriceScale})
 			if err != nil {
 				return nil, err
 			}

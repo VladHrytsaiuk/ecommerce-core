@@ -75,14 +75,14 @@ Concrete SDK adapters and webhook transport are deliberately Phase 4.
 
 ## Phase 4 — Payment and delivery adapters
 
-**Status: complete for LiqPay, Stripe, Redsys and Nova Poshta. Correos is
-explicitly deferred until its customer-specific contract/API documentation is
-available.**
+**Status: complete for LiqPay, Stripe, Redsys, Nova Poshta and DHL Express.
+Correos is explicitly deferred until its customer-specific contract/API
+documentation is available.**
 
 **Goal:** select real integrations only in Bootstrap configuration.
 
 1. Add adapters under `internal/adapters/payment/{liqpay,stripe,redsys}` and
-   `internal/adapters/delivery/{novaposhta,correos}`.
+   `internal/adapters/delivery/{novaposhta,dhlexpress,correos}`.
 2. Register only enabled adapters and their webhook routes.
 3. Make callbacks idempotent and translate payloads to domain events.
 4. Add contract tests using fixtures and `httptest`.
@@ -94,8 +94,8 @@ value. Never add a carrier-named field to Checkout, Orders or Core schema.
 **Definition of Done: complete (implemented adapters).** Bootstrap selects
 only enabled gateways/carriers; clean Checkout creates Cart-derived order,
 reservation, tax and shipping snapshots; gateway callbacks are verified and
-idempotent; payment success creates one durable delivery job; Nova Poshta's
-adapter is covered by HTTP contract tests. `shipping_amount` is a forward-only
+idempotent; payment success creates one durable delivery job; Nova Poshta and
+DHL Express adapters are covered by HTTP contract tests. `shipping_amount` is a forward-only
 core snapshot and the gateway receives the exact immutable total. Checkout
 requires an HTTP `Idempotency-Key`, from which it derives a stable checkout ID
 so a browser retry cannot create a second order or payment attempt.
@@ -109,6 +109,9 @@ so a browser retry cannot create a second order or payment attempt.
   the necessary lookup semantics.
 - Implement the Correos adapter after receiving its production contract,
   sender setup and service-point/location requirements.
+- Add international DHL Express labels only together with a customs-item
+  module; the existing adapter rejects them rather than sending incomplete
+  declarations to the carrier.
 
 ## Phase 5 — Inventory and Sync
 

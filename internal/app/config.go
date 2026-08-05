@@ -107,6 +107,16 @@ func validateEnabledAdapters(cfg *config.Config, storeConfig StoreConfig) error 
 			if strings.TrimSpace(cfg.NovaPoshtaAPIKey) == "" || strings.TrimSpace(cfg.NPSenderRef) == "" || strings.TrimSpace(cfg.NPSenderCityRef) == "" || strings.TrimSpace(cfg.NPSenderAddressRef) == "" || strings.TrimSpace(cfg.NPContactSenderRef) == "" {
 				return fmt.Errorf("NOVA_POSHTA_API_KEY and NP sender references are required when novaposhta is enabled")
 			}
+		case "dhlexpress":
+			if strings.TrimSpace(cfg.DHLExpressUsername) == "" || strings.TrimSpace(cfg.DHLExpressPassword) == "" || strings.TrimSpace(cfg.DHLExpressAccountNumber) == "" || strings.TrimSpace(cfg.DHLExpressProductCode) == "" {
+				return fmt.Errorf("DHL_EXPRESS_USERNAME, DHL_EXPRESS_PASSWORD, DHL_EXPRESS_ACCOUNT_NUMBER and DHL_EXPRESS_PRODUCT_CODE are required when dhlexpress is enabled")
+			}
+			if strings.TrimSpace(cfg.DHLExpressSenderName) == "" || strings.TrimSpace(cfg.DHLExpressSenderPhone) == "" || strings.TrimSpace(cfg.DHLExpressSenderCountry) == "" || strings.TrimSpace(cfg.DHLExpressSenderPostal) == "" || strings.TrimSpace(cfg.DHLExpressSenderCity) == "" || strings.TrimSpace(cfg.DHLExpressSenderLine1) == "" {
+				return fmt.Errorf("complete DHL_EXPRESS_SENDER_* address is required when dhlexpress is enabled")
+			}
+			if cfg.DHLExpressPackageLength <= 0 || cfg.DHLExpressPackageWidth <= 0 || cfg.DHLExpressPackageHeight <= 0 {
+				return fmt.Errorf("DHL_EXPRESS_PACKAGE_LENGTH_CM, DHL_EXPRESS_PACKAGE_WIDTH_CM and DHL_EXPRESS_PACKAGE_HEIGHT_CM must be positive when dhlexpress is enabled")
+			}
 		default:
 			return fmt.Errorf("SHIPPING_PROVIDERS contains unsupported provider %q", provider)
 		}

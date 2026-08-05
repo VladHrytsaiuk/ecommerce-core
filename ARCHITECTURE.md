@@ -68,6 +68,7 @@ flowchart TB
     PaymentsPort --> Stripe[Stripe adapter]
     PaymentsPort --> Redsys[Redsys adapter]
     DeliveryPort --> Nova[Nova Poshta adapter]
+    DeliveryPort --> DHL[DHL Express adapter]
     DeliveryPort --> Correos[Correos adapter]
     SyncPort --> OneC[1C / ERP adapter]
 
