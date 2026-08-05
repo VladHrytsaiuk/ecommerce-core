@@ -3,9 +3,9 @@ package middleware
 import (
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
+	"github.com/gin-gonic/gin"
 )
 
 // OptionalAuthMiddleware працює як AuthMiddleware, але не блокує запит
@@ -45,7 +45,7 @@ func OptionalAuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 
 		// Токен валідний — зберігаємо user_id та role_id в контексті
 		c.Set(authorizationPayloadKey, claims.UserID)
-		c.Set(authorizationRoleKey, claims.RoleID)
+		c.Set(authorizationRoleKey, claims.Role)
 		c.Next()
 	}
 }

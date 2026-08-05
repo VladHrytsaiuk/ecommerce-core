@@ -14,6 +14,7 @@ active_paths=(
   internal/inventory
   internal/orders
   internal/payments
+  internal/sync
   migrations/core
   migrations/modules
 )

@@ -4,16 +4,16 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
+	"github.com/gin-gonic/gin"
 )
 
 const (
 	authorizationHeaderKey  = "Authorization"
 	authorizationTypeBearer = "bearer"
 	authorizationPayloadKey = "user_id"
-	authorizationRoleKey    = "role_id"
+	authorizationRoleKey    = "role"
 )
 
 // AuthMiddleware створює gin-middleware для перевірки JWT токена.
@@ -47,14 +47,18 @@ func AuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 		accessToken := fields[1]
 		claims, err := tokenMaker.VerifyToken(accessToken)
 		if err != nil {
-			logger.Log.Warnw("Failed to verify token", "error", err, "token_prefix", accessToken[:10]+"...")
+			tokenPrefix := accessToken
+			if len(tokenPrefix) > 10 {
+				tokenPrefix = tokenPrefix[:10]
+			}
+			logger.Log.Warnw("Failed to verify token", "error", err, "token_prefix", tokenPrefix+"...")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			return
 		}
 
 		// Зберігаємо userID та roleID в контексті для подальшого використання у хендлерах
 		c.Set(authorizationPayloadKey, claims.UserID)
-		c.Set(authorizationRoleKey, claims.RoleID)
+		c.Set(authorizationRoleKey, claims.Role)
 		c.Next()
 	}
 }

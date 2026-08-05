@@ -114,6 +114,17 @@ so a browser retry cannot create a second order or payment attempt.
 
 **Goal:** support internal inventory and external ERP read-model mode.
 
+**Status: in progress.** The initial Sync module schema is additive and can be
+enabled independently through `ENABLED_MODULES=...,sync`. It stores durable
+outbox delivery state, external entity synchronization state and cursors.
+`order.created` is written atomically with its Order; the outbox dispatcher
+has an exclusive lease/retry lifecycle. The inbound StockChange application
+workflow persists source/version/hash state and only accepts authoritative
+absolute quantities in external inventory mode. A concrete authenticated ERP
+transport, catalog identity/upsert policy and exporter adapter still require
+the provider's contract and remain to be connected before `external_1c` can
+be enabled.
+
 1. Add module-owned `inventory` migrations and transactional reservations.
 2. Add `sync` module migrations: outbox, external entity state and cursors.
 3. In `external_1c` mode, block stock edits in the application layer and use

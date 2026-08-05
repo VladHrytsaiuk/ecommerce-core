@@ -4,9 +4,11 @@ package orderworkflow
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +26,8 @@ import (
 	workflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
+	syncDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/domain"
+	syncPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/repository/postgres"
 )
 
 func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
@@ -52,6 +56,9 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	if err := applyMigrations(filepath.Join(root, "migrations", "modules", "inventory"), databaseURL, "schema_migrations_module_inventory"); err != nil {
 		t.Fatalf("migrate inventory: %v", err)
 	}
+	if err := applyMigrations(filepath.Join(root, "migrations", "modules", "sync"), databaseURL, "schema_migrations_module_sync"); err != nil {
+		t.Fatalf("migrate sync: %v", err)
+	}
 
 	db, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{})
 	if err != nil {
@@ -59,12 +66,12 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	}
 	variantID, _, reservationID := seedReservation(t, db)
 	price, _ := money.New(1000, "EUR")
-	service := workflowApp.NewService(NewRepository(db))
-	order, err := service.CreatePending(ctx, ordersDomain.Draft{
+	service := workflowApp.NewService(NewRepository(db, true))
+	order, err := service.CreatePendingCheckout(ctx, ordersDomain.Draft{
 		Number: "ES-300", Subtotal: price, Tax: money.Money{Currency: "EUR"}, Total: price, PaymentProvider: "fake", DeliveryProvider: "novaposhta",
 		Delivery: &ordersDomain.DeliveryDetails{RecipientName: "Iryna Customer", RecipientPhone: "+34123456789", CountryCode: "ES", City: "Madrid", LocalityID: "madrid", ServicePointID: "branch-1"},
 		Items:    []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "CREAM-50", Quantity: 1, UnitPrice: price, Total: price, UnitWeightGrams: 275}},
-	}, []uuid.UUID{reservationID})
+	}, []uuid.UUID{reservationID}, workflowDomain.CheckoutAttemptRequest{Provider: "fake", IdempotencyKey: "checkout-300", Amount: price})
 	if err != nil {
 		t.Fatalf("CreatePending() error = %v", err)
 	}
@@ -99,6 +106,66 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	}
 	if jobs != 1 || recipient != "Iryna Customer" || unitWeightGrams != 275 || paymentStatus != "paid" || paymentReference != "payment-300" {
 		t.Fatalf("delivery snapshot/jobs/weight/payment = %q/%d/%d/%s/%s", recipient, jobs, unitWeightGrams, paymentStatus, paymentReference)
+	}
+	assertOrderCreatedOutbox(t, db, order.ID)
+	assertSyncPersistence(t, ctx, db, order.ID)
+}
+
+func assertOrderCreatedOutbox(t *testing.T, db *gorm.DB, orderID uuid.UUID) {
+	t.Helper()
+	var topic, status, payload string
+	if err := db.Raw(`SELECT topic, status, payload FROM sync_outbox WHERE aggregate_id = ?`, orderID).Row().Scan(&topic, &status, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if topic != "order.created" || status != "pending" || !strings.Contains(payload, `"order_id"`) || strings.Contains(payload, "Iryna Customer") {
+		t.Fatalf("sync outbox = %q/%q/%s, want a PII-free pending order.created event", topic, status, payload)
+	}
+}
+
+func assertSyncPersistence(t *testing.T, ctx context.Context, db *gorm.DB, orderID uuid.UUID) {
+	t.Helper()
+	outbox := syncPostgres.NewOutboxStore(db)
+	event, err := outbox.Claim(ctx, time.Now().UTC(), time.Minute)
+	if err != nil || event == nil || event.AggregateID != orderID || event.Topic != syncDomain.TopicOrderCreated {
+		t.Fatalf("claim order event = (%+v, %v)", event, err)
+	}
+	if duplicate, err := outbox.Claim(ctx, time.Now().UTC(), time.Minute); err != nil || duplicate != nil {
+		t.Fatalf("concurrent claim = (%+v, %v), want no second claim", duplicate, err)
+	}
+	if err := outbox.Complete(ctx, event.ID, time.Now().UTC()); err != nil {
+		t.Fatalf("complete order event: %v", err)
+	}
+
+	crashedID := uuid.New()
+	if err := db.Exec(`INSERT INTO sync_outbox (id, topic, aggregate_id, idempotency_key, payload, status, attempts, locked_at) VALUES (?, 'order.created', ?, ?, '{}', 'processing', 1, ?)`, crashedID, uuid.New(), uuid.New(), time.Now().UTC().Add(-2*time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := outbox.Claim(ctx, time.Now().UTC(), time.Minute); err != nil || recovered == nil || recovered.ID != crashedID || recovered.Attempts != 2 {
+		t.Fatalf("recover expired lease = (%+v, %v)", recovered, err)
+	}
+
+	states := syncPostgres.NewInboundStateStore(db)
+	change := syncDomain.StockChange{Source: "1c", ExternalID: "sku-42", Version: "42", SourceUpdatedAt: time.Now().UTC(), PayloadHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 7}
+	claimed, err := states.ClaimStockChange(ctx, change, time.Now().UTC(), time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim inbound change = (%t, %v)", claimed, err)
+	}
+	if err := states.MarkStockChangeApplied(ctx, change); err != nil {
+		t.Fatalf("mark inbound change applied: %v", err)
+	}
+	if claimed, err := states.ClaimStockChange(ctx, change, time.Now().UTC(), time.Minute); err != nil || claimed {
+		t.Fatalf("duplicate inbound change = (%t, %v), want false, nil", claimed, err)
+	}
+	conflict := change
+	conflict.PayloadHash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	if _, err := states.ClaimStockChange(ctx, conflict, time.Now().UTC(), time.Minute); !errors.Is(err, syncDomain.ErrInboundVersionConflict) {
+		t.Fatalf("version conflict = %v", err)
+	}
+	stale := change
+	stale.Version = "41"
+	stale.SourceUpdatedAt = stale.SourceUpdatedAt.Add(-time.Second)
+	if claimed, err := states.ClaimStockChange(ctx, stale, time.Now().UTC(), time.Minute); err != nil || claimed {
+		t.Fatalf("stale inbound change = (%t, %v), want false, nil", claimed, err)
 	}
 }
 

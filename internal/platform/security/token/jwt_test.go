@@ -78,6 +78,18 @@ func TestCreateToken_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, tokenStr)
 	assert.NotNil(t, claims)
+	assert.Equal(t, "customer", claims.Role)
+}
+
+func TestCreateTokenForRoleStoresStringRole(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+	tokenString, _, err := maker.CreateTokenForRole(uuid.New(), RoleAdmin, time.Minute)
+	require.NoError(t, err)
+	claims, err := maker.VerifyToken(tokenString)
+	require.NoError(t, err)
+	assert.Equal(t, RoleAdmin, claims.Role)
+	assert.Zero(t, claims.RoleID, "legacy integer role must not be serialized")
 }
 
 func TestCreateToken_CorrectClaims(t *testing.T) {

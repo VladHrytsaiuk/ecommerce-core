@@ -9,10 +9,11 @@ import (
 )
 
 var (
-	ErrInsufficientStock   = errors.New("insufficient stock")
-	ErrStockReadOnly       = errors.New("stock is read-only in external inventory mode")
-	ErrReservationNotFound = errors.New("inventory reservation not found")
-	ErrReservationInactive = errors.New("inventory reservation is not active")
+	ErrInsufficientStock      = errors.New("insufficient stock")
+	ErrStockReadOnly          = errors.New("stock is read-only in external inventory mode")
+	ErrReservationNotFound    = errors.New("inventory reservation not found")
+	ErrReservationInactive    = errors.New("inventory reservation is not active")
+	ErrExternalImportDisabled = errors.New("external stock import is disabled in internal inventory mode")
 )
 
 type Mode string
@@ -51,6 +52,14 @@ type Repository interface {
 	Release(context.Context, uuid.UUID) error
 	Commit(context.Context, uuid.UUID, uuid.UUID) error
 	Adjust(context.Context, uuid.UUID, uuid.UUID, int) error
+	ReplaceQuantity(context.Context, uuid.UUID, uuid.UUID, int) error
+}
+
+// ExternalStockImporter is intentionally narrower than Service. Sync is the
+// only application boundary that receives authoritative ERP stock snapshots;
+// browser/admin mutations continue to use Adjust and are blocked externally.
+type ExternalStockImporter interface {
+	ReplaceExternalQuantity(context.Context, uuid.UUID, uuid.UUID, int) error
 }
 
 // Service is the provider-neutral port consumed by Checkout and Orders.

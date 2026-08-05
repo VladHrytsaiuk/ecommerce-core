@@ -6,6 +6,7 @@ package orderworkflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -19,9 +20,17 @@ import (
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 )
 
-type Repository struct{ db *gorm.DB }
+type Repository struct {
+	db          *gorm.DB
+	syncEnabled bool
+}
 
-func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
+// NewRepository constructs the one cross-context PostgreSQL transaction
+// adapter. syncEnabled is derived exclusively from ENABLED_MODULES in
+// Bootstrap, so deployments without the Sync module never touch its tables.
+func NewRepository(db *gorm.DB, syncEnabled bool) *Repository {
+	return &Repository{db: db, syncEnabled: syncEnabled}
+}
 
 type reservationRecord struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -37,7 +46,7 @@ func (reservationRecord) TableName() string { return "inventory_reservations" }
 
 type orderStateRecord struct {
 	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
-	CartID           uuid.UUID
+	CartID           *uuid.UUID
 	Number           string
 	Status           string
 	Currency         string
@@ -50,7 +59,7 @@ func (orderStateRecord) TableName() string { return "orders" }
 
 type orderRecord struct {
 	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
-	CartID           uuid.UUID
+	CartID           *uuid.UUID
 	Number           string
 	CustomerID       *uuid.UUID
 	Status           string
@@ -102,6 +111,17 @@ type deliveryJobRecord struct {
 	IdempotencyKey uuid.UUID
 	Status         string
 }
+
+type syncOutboxRecord struct {
+	ID             uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Topic          string
+	AggregateID    uuid.UUID
+	IdempotencyKey uuid.UUID
+	Payload        string
+	Status         string
+}
+
+func (syncOutboxRecord) TableName() string { return "sync_outbox" }
 
 type paymentRecord struct {
 	ID                uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -157,6 +177,11 @@ func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Orde
 		if err := createOrderSnapshot(tx, order); err != nil {
 			return err
 		}
+		if r.syncEnabled {
+			if err := enqueueOrderCreated(tx, order); err != nil {
+				return err
+			}
+		}
 		result := tx.Model(&reservationRecord{}).Where("id IN ? AND order_id IS NULL AND status = ?", reservationIDs, "active").Updates(map[string]any{"order_id": order.ID, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")})
 		if result.Error != nil {
 			return result.Error
@@ -171,6 +196,47 @@ func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Orde
 		}
 		return nil
 	})
+}
+
+// orderCreatedEvent is intentionally a narrow, versioned transport contract.
+// The ERP adapter may load its own projection later, but this durable event is
+// enough to request an idempotent export without persisting customer PII,
+// browser payment credentials or localized catalog text in Sync.
+type orderCreatedEvent struct {
+	Version  int                `json:"version"`
+	OrderID  uuid.UUID          `json:"order_id"`
+	Number   string             `json:"number"`
+	Currency string             `json:"currency"`
+	Subtotal int64              `json:"subtotal_amount"`
+	Tax      int64              `json:"tax_amount"`
+	Shipping int64              `json:"shipping_amount"`
+	Total    int64              `json:"total_amount"`
+	Items    []orderCreatedItem `json:"items"`
+}
+
+type orderCreatedItem struct {
+	VariantID *uuid.UUID `json:"variant_id,omitempty"`
+	SKU       string     `json:"sku,omitempty"`
+	Quantity  int        `json:"quantity"`
+}
+
+func enqueueOrderCreated(tx *gorm.DB, order *ordersDomain.Order) error {
+	items := make([]orderCreatedItem, 0, len(order.Items))
+	for _, item := range order.Items {
+		items = append(items, orderCreatedItem{VariantID: item.VariantID, SKU: item.SKU, Quantity: item.Quantity})
+	}
+	payload, err := json.Marshal(orderCreatedEvent{
+		Version: 1, OrderID: order.ID, Number: order.Number, Currency: order.Total.Currency,
+		Subtotal: order.Subtotal.Amount, Tax: order.Tax.Amount, Shipping: order.Shipping.Amount,
+		Total: order.Total.Amount, Items: items,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal sync order.created event: %w", err)
+	}
+	return tx.Create(&syncOutboxRecord{
+		ID: uuid.New(), Topic: "order.created", AggregateID: order.ID, IdempotencyKey: order.ID,
+		Payload: string(payload), Status: "pending",
+	}).Error
 }
 
 func (r *Repository) CancelPending(ctx context.Context, orderID uuid.UUID) error {
@@ -397,8 +463,8 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirma
 				return err
 			}
 		}
-		if targetStatus == ordersDomain.StatusPaid && order.CartID != uuid.Nil {
-			if err := tx.Table("carts").Where("id = ? AND status = ?", order.CartID, "active").Updates(map[string]any{"status": "converted", "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+		if targetStatus == ordersDomain.StatusPaid && order.CartID != nil {
+			if err := tx.Table("carts").Where("id = ? AND status = ?", *order.CartID, "active").Updates(map[string]any{"status": "converted", "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
 				return err
 			}
 		}
@@ -407,7 +473,11 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirma
 }
 
 func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
-	record := orderRecord{ID: order.ID, CartID: order.CartID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, ShippingAmount: order.Shipping.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider}
+	var cartID *uuid.UUID
+	if order.CartID != uuid.Nil {
+		cartID = &order.CartID
+	}
+	record := orderRecord{ID: order.ID, CartID: cartID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, ShippingAmount: order.Shipping.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider}
 	if err := tx.Create(&record).Error; err != nil {
 		return err
 	}

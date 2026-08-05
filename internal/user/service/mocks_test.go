@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/mock"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/email"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/user/domain"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
 )
 
@@ -352,6 +352,14 @@ func (m *MockSMSSender) SendVerificationCode(_ context.Context, _, _ string) err
 
 type MockTokenMaker struct {
 	mock.Mock
+}
+
+func (m *MockTokenMaker) CreateTokenForRole(userID uuid.UUID, role string, duration time.Duration) (string, *token.CustomClaims, error) {
+	args := m.Called(userID, role, duration)
+	if args.Get(1) == nil {
+		return args.String(0), nil, args.Error(2)
+	}
+	return args.String(0), args.Get(1).(*token.CustomClaims), args.Error(2)
 }
 
 func (m *MockTokenMaker) CreateToken(userID uuid.UUID, roleID int, duration time.Duration) (string, *token.CustomClaims, error) {

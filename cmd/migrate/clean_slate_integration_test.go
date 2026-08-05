@@ -52,7 +52,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("get PostgreSQL connection string: %v", err)
 	}
 	root := repositoryRoot(t)
-	if err := runMigrations(root, databaseURL, []string{"inventory"}, "up"); err != nil {
+	if err := runMigrations(root, databaseURL, []string{"inventory", "sync"}, "up"); err != nil {
 		t.Fatalf("migrate clean-slate schema: %v", err)
 	}
 
@@ -64,6 +64,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		"locales", "categories", "category_translations", "products", "product_translations", "product_variants",
 		"payment_webhook_events",
 		"warehouses", "stock_items", "inventory_reservations", "schema_migrations", "schema_migrations_module_inventory",
+		"sync_outbox", "sync_external_entity_state", "sync_cursors", "schema_migrations_module_sync",
 	)
 
 	localeService := localeApp.NewService(localePostgres.NewRepository(db))
@@ -97,10 +98,10 @@ func TestCleanSlateSchema(t *testing.T) {
 	if err != nil || len(storedProduct.Translations) != 3 {
 		t.Fatalf("read product translations = (%+v, %v), want three translations", storedProduct, err)
 	}
-	if err := runMigrations(root, databaseURL, []string{"inventory"}, "down"); err != nil {
+	if err := runMigrations(root, databaseURL, []string{"inventory", "sync"}, "down"); err != nil {
 		t.Fatalf("rollback clean-slate schema: %v", err)
 	}
-	assertTablesAbsent(t, db, "locales", "products", "product_variants", "warehouses", "stock_items", "inventory_reservations")
+	assertTablesAbsent(t, db, "locales", "products", "product_variants", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors")
 }
 
 func assertTablesExist(t *testing.T, db *gorm.DB, tables ...string) {

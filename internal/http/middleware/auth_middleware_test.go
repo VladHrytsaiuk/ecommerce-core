@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 )
 
 // TestMain ініціалізує глобальний логер, який використовується в AuthMiddleware
@@ -31,6 +31,14 @@ func TestMain(m *testing.M) {
 
 type MockTokenMaker struct {
 	mock.Mock
+}
+
+func (m *MockTokenMaker) CreateTokenForRole(userID uuid.UUID, role string, duration time.Duration) (string, *token.CustomClaims, error) {
+	args := m.Called(userID, role, duration)
+	if args.Get(1) == nil {
+		return args.String(0), nil, args.Error(2)
+	}
+	return args.String(0), args.Get(1).(*token.CustomClaims), args.Error(2)
 }
 
 func (m *MockTokenMaker) CreateToken(userID uuid.UUID, roleID int, duration time.Duration) (string, *token.CustomClaims, error) {
@@ -171,6 +179,19 @@ func TestAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodGet, "/protected", nil)
 	req.Header.Set("Authorization", "Bearer invalid-token")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthMiddleware_ShortInvalidTokenReturns401WithoutPanic(t *testing.T) {
+	tokenMaker := &MockTokenMaker{}
+	tokenMaker.On("VerifyToken", "a").Return(nil, errors.New("invalid token"))
+	router := newMiddlewareRouter(tokenMaker)
+
+	req, _ := http.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer a")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

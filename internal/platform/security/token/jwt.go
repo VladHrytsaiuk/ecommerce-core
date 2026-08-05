@@ -3,6 +3,7 @@ package token
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -12,12 +13,26 @@ import (
 // CustomClaims містить корисне навантаження для JWT.
 type CustomClaims struct {
 	UserID uuid.UUID `json:"user_id"`
-	RoleID int       `json:"role_id"`
+	Role   string    `json:"role"`
+	// RoleID is retained only for legacy in-process callers. It is deliberately
+	// not serialized into new JWTs; authorization must use the stable role code.
+	RoleID int `json:"-"`
 	jwt.RegisteredClaims
 }
 
+const (
+	RoleCustomer = "customer"
+	RoleManager  = "manager"
+	RoleAdmin    = "admin"
+	RoleOwner    = "owner"
+)
+
 // Maker визначає інтерфейс для створення та перевірки токенів.
 type Maker interface {
+	// CreateTokenForRole is the clean token API. Role codes mirror the Core
+	// users.role vocabulary and are the only values authorization consumes.
+	CreateTokenForRole(userID uuid.UUID, role string, duration time.Duration) (string, *CustomClaims, error)
+	// CreateToken remains only for legacy callers with integer role IDs.
 	CreateToken(userID uuid.UUID, roleID int, duration time.Duration) (string, *CustomClaims, error)
 	VerifyToken(token string) (*CustomClaims, error)
 }
@@ -38,10 +53,18 @@ func NewJWTMaker(secretKey string) (Maker, error) {
 
 // CreateToken генерує новий JWT токен для заданого userID, ролі та терміну.
 func (maker *JWTMaker) CreateToken(userID uuid.UUID, roleID int, duration time.Duration) (string, *CustomClaims, error) {
+	return maker.CreateTokenForRole(userID, roleCode(roleID), duration)
+}
+
+func (maker *JWTMaker) CreateTokenForRole(userID uuid.UUID, role string, duration time.Duration) (string, *CustomClaims, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if !validRole(role) {
+		return "", nil, fmt.Errorf("invalid role %q", role)
+	}
 	now := time.Now()
 	claims := &CustomClaims{
 		UserID: userID,
-		RoleID: roleID,
+		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        uuid.NewString(), // JWT ID, унікальний для кожного токена (практично запобігає reuse-атакам)
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -56,6 +79,28 @@ func (maker *JWTMaker) CreateToken(userID uuid.UUID, roleID int, duration time.D
 	}
 
 	return tokenString, claims, nil
+}
+
+func roleCode(roleID int) string {
+	switch roleID {
+	case 1:
+		return "customer"
+	case 2:
+		return "admin"
+	case 3:
+		return "owner"
+	default:
+		return ""
+	}
+}
+
+func validRole(role string) bool {
+	switch role {
+	case RoleCustomer, RoleManager, RoleAdmin, RoleOwner:
+		return true
+	default:
+		return false
+	}
 }
 
 // VerifyToken перевіряє криптографічний підпис токена та його життєздатність.

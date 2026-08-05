@@ -7,6 +7,7 @@ import (
 	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 )
@@ -26,6 +27,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
 	}
 	admin := api.Group("/admin")
+	admin.Use(middleware.AuthMiddleware(application.TokenMaker), middleware.AdminMiddleware())
 	localized := api.Group("/:lang")
 	localized.Use(application.HTTP.LocaleMiddleware)
 	cart := localized.Group("")

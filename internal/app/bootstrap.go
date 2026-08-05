@@ -121,7 +121,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
 	// Inventory repository implementation.
-	orderWorkflowService := orderWorkflowApp.NewService(workflowPostgres.NewRepository(db))
+	orderWorkflowService := orderWorkflowApp.NewService(workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync")))
 	paymentWebhookService := paymentsApp.NewWebhookService(paymentGateways, paymentsPostgres.NewWebhookEventStore(db), orderWorkflowService)
 
 	return &Application{

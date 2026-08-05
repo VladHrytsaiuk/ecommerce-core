@@ -64,3 +64,18 @@ func (s *Service) Adjust(ctx context.Context, variantID, warehouseID uuid.UUID, 
 	}
 	return s.repo.Adjust(ctx, variantID, warehouseID, delta)
 }
+
+// ReplaceExternalQuantity applies an authoritative ERP snapshot. It is not a
+// general-purpose stock edit: internal mode rejects it and the repository
+// refuses a quantity lower than active local reservations.
+func (s *Service) ReplaceExternalQuantity(ctx context.Context, variantID, warehouseID uuid.UUID, quantity int) error {
+	if s.mode != domain.ModeExternal {
+		return domain.ErrExternalImportDisabled
+	}
+	if variantID == uuid.Nil || warehouseID == uuid.Nil || quantity < 0 {
+		return fmt.Errorf("invalid external stock quantity")
+	}
+	return s.repo.ReplaceQuantity(ctx, variantID, warehouseID, quantity)
+}
+
+var _ domain.ExternalStockImporter = (*Service)(nil)

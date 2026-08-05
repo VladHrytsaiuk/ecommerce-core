@@ -117,6 +117,23 @@ func (r *Repository) Adjust(ctx context.Context, variantID, warehouseID uuid.UUI
 	return nil
 }
 
+// ReplaceQuantity preserves already promised local stock. An ERP snapshot may
+// arrive late, but it may never invalidate an active checkout reservation.
+func (r *Repository) ReplaceQuantity(ctx context.Context, variantID, warehouseID uuid.UUID, quantity int) error {
+	result := r.db.WithContext(ctx).Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (variant_id, warehouse_id) DO UPDATE
+SET quantity_on_hand = EXCLUDED.quantity_on_hand, updated_at = CURRENT_TIMESTAMP
+WHERE stock_items.quantity_reserved <= EXCLUDED.quantity_on_hand`, uuid.New(), variantID, warehouseID, quantity)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return domain.ErrInsufficientStock
+	}
+	return nil
+}
+
 // ReleaseExpiredUnattached only releases reservations that never reached an
 // order workflow. Attached pending orders require provider cancellation first.
 func (r *Repository) ReleaseExpiredUnattached(ctx context.Context, now time.Time, limit int) (int, error) {
