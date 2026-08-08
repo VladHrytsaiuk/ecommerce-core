@@ -47,6 +47,7 @@ type StoreConfig struct {
 	GoogleOAuth            *GoogleOAuthConfig
 	OAuthAttemptTTL        time.Duration
 	ProfilePolicy          *identityDomain.ProfilePolicy
+	ComparisonMaxItems     int
 }
 
 type GoogleOAuthConfig struct {
@@ -85,6 +86,7 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		DefaultWarehouseID:     defaultWarehouseID,
 		OAuthAttemptTTL:        cfg.OAuthAttemptTTL,
 		ProfilePolicy:          profilePolicy,
+		ComparisonMaxItems:     cfg.ComparisonMaxItems,
 	}
 	if strings.TrimSpace(cfg.GoogleClientID) != "" || strings.TrimSpace(cfg.GoogleClientSecret) != "" || strings.TrimSpace(cfg.GoogleRedirectURI) != "" {
 		storeConfig.GoogleOAuth = &GoogleOAuthConfig{ClientID: strings.TrimSpace(cfg.GoogleClientID), ClientSecret: strings.TrimSpace(cfg.GoogleClientSecret), RedirectURI: strings.TrimSpace(cfg.GoogleRedirectURI)}
@@ -223,6 +225,9 @@ func (c StoreConfig) Validate() error {
 	}
 	if !contains(c.EnabledModules, "user_profiles") && c.ProfilePolicy != nil {
 		return fmt.Errorf("PROFILE_POLICY_JSON requires ENABLED_MODULES to include user_profiles")
+	}
+	if contains(c.EnabledModules, "comparison") && (c.ComparisonMaxItems < 1 || c.ComparisonMaxItems > 100) {
+		return fmt.Errorf("COMPARISON_MAX_ITEMS must be between 1 and 100 when comparison is enabled")
 	}
 	return nil
 }

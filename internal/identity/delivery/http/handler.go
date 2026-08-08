@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/cartowner"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
 )
@@ -58,7 +60,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid registration request"})
 		return
 	}
-	session, err := h.service.RegisterPassword(c.Request.Context(), identityDomain.RegisterPasswordCommand{Email: request.Email, Phone: request.Phone, Password: request.Password})
+	guestSessionID := guestSessionID(c)
+	session, err := h.service.RegisterPassword(c.Request.Context(), identityDomain.RegisterPasswordCommand{Email: request.Email, Phone: request.Phone, Password: request.Password, GuestSessionID: guestSessionID})
 	if err != nil {
 		handleAuthError(c, err)
 		return
@@ -76,7 +79,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if login == "" {
 		login = strings.TrimSpace(request.Email)
 	}
-	session, err := h.service.LoginPassword(c.Request.Context(), identityDomain.PasswordLoginCommand{Login: login, Password: request.Password})
+	guestSessionID := guestSessionID(c)
+	session, err := h.service.LoginPassword(c.Request.Context(), identityDomain.PasswordLoginCommand{Login: login, Password: request.Password, GuestSessionID: guestSessionID})
 	if err != nil {
 		handleAuthError(c, err)
 		return
@@ -102,7 +106,8 @@ func (h *AuthHandler) CompleteOAuth(c *gin.Context) {
 		c.AbortWithStatusJSON(stdhttp.StatusNotFound, gin.H{"error": "OAuth provider is not enabled"})
 		return
 	}
-	session, err := h.service.CompleteOAuth(c.Request.Context(), identityDomain.CompleteOAuthCommand{Provider: c.Param("provider"), RedirectURI: h.oauthRedirectURI, Code: c.Query("code"), State: c.Query("state")})
+	guestSessionID := guestSessionID(c)
+	session, err := h.service.CompleteOAuth(c.Request.Context(), identityDomain.CompleteOAuthCommand{Provider: c.Param("provider"), RedirectURI: h.oauthRedirectURI, Code: c.Query("code"), State: c.Query("state"), GuestSessionID: guestSessionID})
 	if err != nil {
 		handleAuthError(c, err)
 		return
@@ -207,4 +212,12 @@ func writeSession(c *gin.Context, status int, session identityDomain.Session) {
 
 func profileResponse(profile *identityDomain.Profile) gin.H {
 	return gin.H{"schema_version": profile.SchemaVersion, "revision": profile.Revision, "attributes": profile.Attributes, "updated_at": profile.UpdatedAt}
+}
+
+func guestSessionID(c *gin.Context) *uuid.UUID {
+	sessionID, err := cartowner.GuestSessionID(c)
+	if err != nil {
+		return nil
+	}
+	return sessionID
 }

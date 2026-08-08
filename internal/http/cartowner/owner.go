@@ -47,3 +47,17 @@ func SetSessionCookie(c *gin.Context, sessionID uuid.UUID, secure bool) {
 		SameSite: http.SameSiteLaxMode,
 	})
 }
+
+// GuestSessionID reads an existing anonymous session without creating a new
+// one. Login flows use it to merge a pre-login wishlist into the user owner.
+func GuestSessionID(c *gin.Context) (*uuid.UUID, error) {
+	raw, err := c.Cookie(SessionCookie)
+	if err != nil {
+		return nil, nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil || id == uuid.Nil {
+		return nil, fmt.Errorf("cart session is invalid")
+	}
+	return &id, nil
+}

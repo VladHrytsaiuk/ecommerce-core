@@ -21,6 +21,9 @@ import (
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
 	checkoutApp "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/application"
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
+	comparisonDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/domain"
+	comparisonPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/repository/postgres"
+	comparisonService "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/service"
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
 	orderWorkflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
@@ -44,6 +47,12 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	workflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/orderworkflow"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
+	reviewsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/domain"
+	reviewsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/repository/postgres"
+	reviewsService "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/service"
+	wishlistDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
+	wishlistPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/repository/postgres"
+	wishlistService "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/service"
 )
 
 // Application exposes only services that belong to the active clean-slate graph.
@@ -63,6 +72,9 @@ type Application struct {
 	OrderService           ordersDomain.Service
 	IdentityAuthService    identityDomain.AuthService
 	IdentityProfileService identityDomain.ProfileService
+	WishlistService        wishlistDomain.Service
+	ComparisonService      comparisonDomain.Service
+	ReviewsService         reviewsDomain.Service
 	PaymentGateways        *paymentsApp.Registry
 	PaymentWebhookService  *paymentsApp.WebhookService
 	DeliveryCarriers       *deliveryApp.Registry
@@ -129,6 +141,21 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// Inventory repository implementation.
 	orderWorkflowService := orderWorkflowApp.NewService(workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync")))
 	paymentWebhookService := paymentsApp.NewWebhookService(paymentGateways, paymentsPostgres.NewWebhookEventStore(db), orderWorkflowService)
+	var enabledWishlist wishlistDomain.Service
+	if contains(storeConfig.EnabledModules, "wishlist") {
+		enabledWishlist = wishlistService.New(wishlistPostgres.NewRepository(db))
+	}
+	var enabledComparison comparisonDomain.Service
+	if contains(storeConfig.EnabledModules, "comparison") {
+		enabledComparison = comparisonService.New(comparisonPostgres.NewRepository(db), storeConfig.ComparisonMaxItems)
+	}
+	productService := catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales)
+	var enabledReviews reviewsDomain.Service
+	if contains(storeConfig.EnabledModules, "reviews") {
+		repository := reviewsPostgres.NewRepository(db)
+		enabledReviews = reviewsService.New(repository)
+		productService.WithRatingReader(repository)
+	}
 	oauthProviders := make([]identityDomain.OAuthProvider, 0, 1)
 	if storeConfig.GoogleOAuth != nil {
 		googleProvider, err := googleAuthAdapter.New(googleAuthAdapter.Config{
@@ -151,6 +178,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		cfg.AccessTokenDuration,
 		storeConfig.OAuthAttemptTTL,
 	)
+	if observer := newUserLoginObserver(newWishlistLoginObserver(enabledWishlist), newComparisonLoginObserver(enabledComparison)); observer != nil {
+		identityAuthService.WithUserLoginObserver(observer)
+	}
 	var identityProfileService identityDomain.ProfileService
 	if contains(storeConfig.EnabledModules, "user_profiles") {
 		identityProfileService = identityService.NewProfileService(*storeConfig.ProfilePolicy, identityPostgres.NewProfileRepository(db))
@@ -159,7 +189,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
-		CatalogProductService:  catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales),
+		CatalogProductService:  productService,
 		CatalogVariantService:  variantService,
 		CartService:            cartApp.NewService(cartPostgres.NewRepository(db)),
 		CheckoutService: checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
@@ -176,6 +206,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		IdentityAuthService:    identityAuthService,
 		IdentityProfileService: identityProfileService,
+		WishlistService:        enabledWishlist,
+		ComparisonService:      enabledComparison,
+		ReviewsService:         enabledReviews,
 		PaymentGateways:        paymentGateways,
 		PaymentWebhookService:  paymentWebhookService,
 		DeliveryCarriers:       deliveryCarriers,

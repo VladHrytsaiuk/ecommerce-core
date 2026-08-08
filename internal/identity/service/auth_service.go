@@ -28,7 +28,15 @@ type AuthService struct {
 	tokens      token.Maker
 	accessTTL   time.Duration
 	attemptTTL  time.Duration
+	observer    domain.UserLoginObserver
 	now         func() time.Time
+}
+
+// WithUserLoginObserver attaches an optional module subscriber assembled by
+// Bootstrap. It preserves the core constructor for deployments without it.
+func (s *AuthService) WithUserLoginObserver(observer domain.UserLoginObserver) *AuthService {
+	s.observer = observer
+	return s
 }
 
 func NewAuthService(users domain.UserRepository, identities domain.OAuthIdentityRepository, attempts domain.OAuthAttemptStore, transaction domain.AuthTransaction, providers domain.OAuthProviderRegistry, tokens token.Maker, accessTTL, attemptTTL time.Duration) *AuthService {
@@ -54,7 +62,7 @@ func (s *AuthService) RegisterPassword(ctx context.Context, command domain.Regis
 	if err != nil {
 		return domain.Session{}, err
 	}
-	return s.issue(user)
+	return s.finishLogin(ctx, user, command.GuestSessionID)
 }
 
 func (s *AuthService) LoginPassword(ctx context.Context, command domain.PasswordLoginCommand) (domain.Session, error) {
@@ -68,7 +76,7 @@ func (s *AuthService) LoginPassword(ctx context.Context, command domain.Password
 	if err := password.CheckPassword(command.Password, user.PasswordHash); err != nil {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}
-	return s.issue(user)
+	return s.finishLogin(ctx, user, command.GuestSessionID)
 }
 
 func (s *AuthService) BeginOAuth(ctx context.Context, command domain.BeginOAuthCommand) (domain.OAuthAuthorization, error) {
@@ -122,7 +130,7 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 		if findErr != nil || user.Status != domain.UserStatusActive {
 			return domain.Session{}, domain.ErrInvalidCredentials
 		}
-		return s.issue(user)
+		return s.finishLogin(ctx, user, command.GuestSessionID)
 	}
 	if err != nil && !errors.Is(err, domain.ErrOAuthIdentityNotFound) {
 		return domain.Session{}, err
@@ -156,6 +164,15 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 	})
 	if err != nil {
 		return domain.Session{}, err
+	}
+	return s.finishLogin(ctx, user, command.GuestSessionID)
+}
+
+func (s *AuthService) finishLogin(ctx context.Context, user *domain.User, guestSessionID *uuid.UUID) (domain.Session, error) {
+	if s.observer != nil {
+		if err := s.observer.OnUserLogin(ctx, user.ID, guestSessionID); err != nil {
+			return domain.Session{}, err
+		}
 	}
 	return s.issue(user)
 }

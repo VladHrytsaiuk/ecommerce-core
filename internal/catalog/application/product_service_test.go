@@ -33,6 +33,23 @@ func TestProductServiceCreateNormalizesThreeTranslations(t *testing.T) {
 	}
 }
 
+func TestProductServiceReadsOptionalRatingProjection(t *testing.T) {
+	productID := uuid.New()
+	repository := &fakeProductRepository{product: &domain.Product{ID: productID}}
+	service := NewProductService(repository, []string{"en"}).WithRatingReader(ratingReaderFake{rating: &domain.ProductRating{ReviewCount: 2, AverageHundredths: 450}})
+
+	product, err := service.FindBySlug(context.Background(), "en", "product")
+	if err != nil || product.Rating == nil || product.Rating.ReviewCount != 2 || product.Rating.AverageHundredths != 450 {
+		t.Fatalf("FindBySlug() = (%+v, %v), want rating projection", product, err)
+	}
+}
+
+type ratingReaderFake struct{ rating *domain.ProductRating }
+
+func (reader ratingReaderFake) RatingForProduct(context.Context, uuid.UUID) (*domain.ProductRating, error) {
+	return reader.rating, nil
+}
+
 func TestProductServiceCreateRejectsDuplicateLocale(t *testing.T) {
 	service := NewProductService(&fakeProductRepository{}, []string{"es", "en"})
 	err := service.Create(context.Background(), &domain.Product{Translations: []domain.ProductTranslation{

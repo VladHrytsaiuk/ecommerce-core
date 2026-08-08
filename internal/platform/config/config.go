@@ -28,6 +28,7 @@ type Config struct {
 	GoogleRedirectURI    string
 	OAuthAttemptTTL      time.Duration
 	ProfilePolicyJSON    string
+	ComparisonMaxItems   int
 	MaxSessions          int
 	Env                  string
 	CookieSecure         bool
@@ -455,6 +456,14 @@ func Load() *Config {
 			checkoutReservationTTL = parsed
 		}
 	}
+	comparisonMaxItems := 5
+	if raw := strings.TrimSpace(os.Getenv("COMPARISON_MAX_ITEMS")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil {
+			log.Fatal("Fatal: COMPARISON_MAX_ITEMS must be an integer")
+		}
+		comparisonMaxItems = parsed
+	}
 	apiRateLimitPerMin := getEnvInt("API_RATE_LIMIT_PER_MINUTE", 100)
 	sensitiveRatePerMin := getEnvInt("SENSITIVE_RATE_LIMIT_PER_MINUTE", 10)
 	if apiRateLimitPerMin <= 0 || sensitiveRatePerMin <= 0 {
@@ -473,6 +482,7 @@ func Load() *Config {
 		GoogleRedirectURI:         googleRedirectURI,
 		OAuthAttemptTTL:           oauthAttemptTTL,
 		ProfilePolicyJSON:         profilePolicyJSON,
+		ComparisonMaxItems:        comparisonMaxItems,
 		MaxSessions:               maxSessions,
 		Env:                       appEnv,
 		CookieSecure:              appEnv == "production",

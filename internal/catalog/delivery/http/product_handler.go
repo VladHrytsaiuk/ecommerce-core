@@ -37,6 +37,12 @@ type ProductResponse struct {
 	CategoryID   *uuid.UUID                   `json:"category_id,omitempty"`
 	Status       string                       `json:"status"`
 	Translations []ProductTranslationResponse `json:"translations"`
+	Rating       *ProductRatingResponse       `json:"rating,omitempty"`
+}
+
+type ProductRatingResponse struct {
+	ReviewCount   int     `json:"review_count"`
+	AverageRating float64 `json:"average_rating"`
 }
 
 type ProductTranslationResponse struct {
@@ -92,5 +98,9 @@ func mapProduct(product *domain.Product) ProductResponse {
 			Locale: translation.Locale, Name: translation.Name, Description: translation.Description, Slug: translation.Slug,
 		})
 	}
-	return ProductResponse{ID: product.ID, CategoryID: product.CategoryID, Status: product.Status, Translations: translations}
+	response := ProductResponse{ID: product.ID, CategoryID: product.CategoryID, Status: product.Status, Translations: translations}
+	if product.Rating != nil {
+		response.Rating = &ProductRatingResponse{ReviewCount: product.Rating.ReviewCount, AverageRating: float64(product.Rating.AverageHundredths) / 100}
+	}
+	return response
 }

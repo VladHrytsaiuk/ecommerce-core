@@ -22,16 +22,18 @@ type ProfileService interface {
 }
 
 type RegisterPasswordCommand struct {
-	Email    *string
-	Phone    *string
-	Password string
+	Email          *string
+	Phone          *string
+	Password       string
+	GuestSessionID *uuid.UUID
 }
 
 type PasswordLoginCommand struct {
 	// Login is a normalized email address or phone number. The application
 	// decides which form it is; repositories do not expose provider semantics.
-	Login    string
-	Password string
+	Login          string
+	Password       string
+	GuestSessionID *uuid.UUID
 }
 
 type Session struct {
@@ -50,10 +52,17 @@ type BeginOAuthCommand struct {
 }
 
 type CompleteOAuthCommand struct {
-	Provider    string
-	RedirectURI string
-	Code        string
-	State       string
+	Provider       string
+	RedirectURI    string
+	Code           string
+	State          string
+	GuestSessionID *uuid.UUID
+}
+
+// UserLoginObserver is an optional application event hook. Its implementation
+// is selected in Bootstrap, so Identity never imports optional modules.
+type UserLoginObserver interface {
+	OnUserLogin(context.Context, uuid.UUID, *uuid.UUID) error
 }
 
 type OAuthAuthorizationRequest struct {

@@ -106,6 +106,14 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			mutate: func(cfg *config.Config) { cfg.EnabledModules = []string{"inventory", "user_profiles"} },
 			want:   "PROFILE_POLICY_JSON",
 		},
+		{
+			name: "comparison module requires positive limit",
+			mutate: func(cfg *config.Config) {
+				cfg.EnabledModules = []string{"inventory", "comparison"}
+				cfg.ComparisonMaxItems = 0
+			},
+			want: "COMPARISON_MAX_ITEMS",
+		},
 		{name: "unsupported tax policy", mutate: func(cfg *config.Config) { cfg.TaxMode = "sales_tax" }, want: "TAX_MODE"},
 	}
 
@@ -136,6 +144,17 @@ func TestNewStoreConfigAcceptsGoogleOAuthAndProfilePolicy(t *testing.T) {
 	}
 	if got.GoogleOAuth == nil || got.ProfilePolicy == nil || got.ProfilePolicy.Fields[0].Key != "birth_date" {
 		t.Fatalf("identity configuration = %+v, want Google OAuth and profile policy", got)
+	}
+}
+
+func TestNewStoreConfigAcceptsComparison(t *testing.T) {
+	cfg := validConfig()
+	cfg.EnabledModules = []string{"inventory", "comparison"}
+	cfg.ComparisonMaxItems = 5
+
+	got, err := NewStoreConfig(cfg)
+	if err != nil || got.ComparisonMaxItems != 5 {
+		t.Fatalf("NewStoreConfig() = (%+v, %v), want comparison limit 5", got, err)
 	}
 }
 

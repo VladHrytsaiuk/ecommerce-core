@@ -52,6 +52,10 @@ flowchart TB
     Bootstrap --> Orders[Orders module]
     Bootstrap --> Inventory[Inventory module]
     Bootstrap --> Sync[Sync module]
+    Bootstrap --> Identity[Identity module]
+    Bootstrap --> Wishlist[Wishlist module\noptional]
+    Bootstrap --> Comparison[Comparison module\noptional]
+    Bootstrap --> Reviews[Reviews module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders
@@ -63,6 +67,9 @@ flowchart TB
     Inventory --> SyncPort
     Sync --> Catalog
     Sync --> Inventory
+    Identity -. post-login event .-> Wishlist
+    Identity -. post-login event .-> Comparison
+    Reviews -. rating reader port .-> Catalog
 
     PaymentsPort --> LiqPay[LiqPay adapter]
     PaymentsPort --> Stripe[Stripe adapter]
@@ -83,6 +90,29 @@ flowchart TB
 Gin is a delivery adapter only. HTTP handlers authenticate, validate and map
 requests to application use cases; they do not choose a provider or implement
 commercial rules.
+
+Optional engagement modules follow the same composition rule. For example,
+Wishlist owns only `wishlist_items`, has foreign keys to the stable Core user
+and Catalog variant identities, and is built only when `wishlist` appears in
+`ENABLED_MODULES`. It can resolve either a JWT user or the existing opaque
+`cart_session` owner. The Identity domain exposes a narrow post-login observer
+port; Bootstrap attaches Wishlist's subscriber, which transactionally merges
+guest items into the user list. Identity never imports Wishlist or its
+repository.
+
+Comparison uses the same owner and login-event contract, but owns a
+category-scoped list table. Its configurable per-category maximum is enforced
+in the module repository transaction, after resolving a variant's category by
+querying stable Catalog tables directly; it never imports a Catalog repository.
+On login merge, its explicit policy retains the newest unique items across the
+guest and user group, rather than silently discarding guest items.
+
+Reviews owns moderation records and the `product_review_ratings` projection.
+Approving, rejecting, or deleting a review refreshes that projection in the
+same local transaction. Catalog owns a `ProductRatingReader` port and receives
+the Reviews implementation only from Bootstrap, so product API responses can
+include the aggregate without adding review columns to Core `products` or
+making Catalog import a Reviews repository.
 
 Every state-changing checkout request carries an `Idempotency-Key`. The HTTP
 adapter derives a stable checkout identity from it, so browser retries cannot

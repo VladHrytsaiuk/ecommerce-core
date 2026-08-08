@@ -8,10 +8,13 @@ import (
 	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
+	comparisonHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	identityHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	reviewsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/delivery/http"
+	wishlistHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/delivery/http"
 )
 
 // InitRouter only attaches handlers assembled by app.Bootstrap.
@@ -32,11 +35,24 @@ func InitRouter(application *app.Application) *gin.Engine {
 		oauthRedirectURI = application.StoreConfig.GoogleOAuth.RedirectURI
 	}
 	identityHTTP.RegisterRoutes(api, application.IdentityAuthService, application.IdentityProfileService, oauthRedirectURI, middleware.AuthMiddleware(application.TokenMaker), sensitiveLimit)
+	if application.WishlistService != nil {
+		wishlist := api.Group("/wishlist")
+		wishlist.Use(application.HTTP.OptionalAuth)
+		wishlistHTTP.RegisterRoutes(wishlist, application.WishlistService, application.Config.CookieSecure)
+	}
+	if application.ComparisonService != nil {
+		comparison := api.Group("/comparison")
+		comparison.Use(application.HTTP.OptionalAuth)
+		comparisonHTTP.RegisterRoutes(comparison, application.ComparisonService, application.Config.CookieSecure)
+	}
 	if application.PaymentGateways != nil && application.PaymentGateways.Default() != nil {
 		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
 	}
 	admin := api.Group("/admin")
 	admin.Use(middleware.AuthMiddleware(application.TokenMaker), middleware.AdminMiddleware())
+	if application.ReviewsService != nil {
+		reviewsHTTP.RegisterRoutes(api, admin, application.ReviewsService, middleware.AuthMiddleware(application.TokenMaker))
+	}
 	localized := api.Group("/:lang")
 	localized.Use(application.HTTP.LocaleMiddleware)
 	cart := localized.Group("")

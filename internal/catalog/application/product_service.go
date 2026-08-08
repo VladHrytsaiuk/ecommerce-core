@@ -14,12 +14,18 @@ import (
 // ProductService validates Catalog invariants before delegating persistence to
 // the repository port. It is intentionally independent of Gin and GORM.
 type ProductService struct {
-	repo    domain.ProductRepository
-	locales localePolicy
+	repo         domain.ProductRepository
+	locales      localePolicy
+	ratingReader domain.ProductRatingReader
 }
 
 func NewProductService(repo domain.ProductRepository, allowedLocales []string) *ProductService {
 	return &ProductService{repo: repo, locales: newLocalePolicy(allowedLocales)}
+}
+
+func (s *ProductService) WithRatingReader(reader domain.ProductRatingReader) *ProductService {
+	s.ratingReader = reader
+	return s
 }
 
 func (s *ProductService) FindBySlug(ctx context.Context, locale, slug string) (*domain.Product, error) {
@@ -31,7 +37,16 @@ func (s *ProductService) FindBySlug(ctx context.Context, locale, slug string) (*
 	if !s.locales.allows(locale) {
 		return nil, fmt.Errorf("%w: locale %q is not enabled for this store", domain.ErrInvalidProduct, locale)
 	}
-	return s.repo.FindBySlug(ctx, locale, slug)
+	product, err := s.repo.FindBySlug(ctx, locale, slug)
+	if err != nil || product == nil || s.ratingReader == nil {
+		return product, err
+	}
+	rating, err := s.ratingReader.RatingForProduct(ctx, product.ID)
+	if err != nil {
+		return nil, err
+	}
+	product.Rating = rating
+	return product, nil
 }
 
 func (s *ProductService) Create(ctx context.Context, product *domain.Product) error {

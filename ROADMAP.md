@@ -133,6 +133,27 @@ be enabled.
 3. In `external_1c` mode, block stock edits in the application layer and use
    authenticated, idempotent import/export ports.
 
+## Phase 6 — Engagement modules
+
+**Status: in progress.** Wishlist and Comparison are implemented optional
+engagement modules.
+
+1. Add a module-owned `wishlist_items` table with strict user/session owner
+   exclusivity, foreign keys to Core users and Catalog variants, and partial
+   unique indexes for idempotent add operations.
+2. Enable its HTTP surface only through `ENABLED_MODULES=...,wishlist`; it
+   serves both JWT users and the existing opaque anonymous cart session.
+3. Subscribe the module to the narrow post-login application event assembled
+   in Bootstrap, so guest items merge transactionally after authentication
+   without Identity importing Wishlist.
+4. Comparison owns category-scoped lists and applies a configured per-category
+   item limit atomically; guest-category groups merge after login with an
+   explicit newest-items retention policy.
+5. Reviews is an opt-in module with authenticated pending submission, admin
+   moderation, and a module-owned approved-rating projection exposed to
+   Catalog through a port; it does not alter Core tables or import a Catalog
+   repository.
+
 ## Global rules
 
 - Do not fork for a store.

@@ -22,6 +22,20 @@ type Product struct {
 	CreatedAt    time.Time            `json:"created_at"`
 	UpdatedAt    time.Time            `json:"updated_at"`
 	Translations []ProductTranslation `gorm:"foreignKey:ProductID;constraint:OnDelete:CASCADE" json:"translations"`
+	Rating       *ProductRating       `gorm:"-" json:"rating,omitempty"`
+}
+
+// ProductRating is a read projection owned by the optional Reviews module;
+// it is deliberately not persisted as a column on Core products.
+type ProductRating struct {
+	ReviewCount       int `json:"review_count"`
+	AverageHundredths int `json:"average_hundredths"`
+}
+
+// ProductRatingReader is a Catalog-owned port. The Reviews PostgreSQL adapter
+// implements it only when the module is enabled and Bootstrap wires it in.
+type ProductRatingReader interface {
+	RatingForProduct(context.Context, uuid.UUID) (*ProductRating, error)
 }
 
 func (Product) TableName() string { return "products" }

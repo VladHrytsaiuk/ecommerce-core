@@ -4,11 +4,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
 	containerPostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -20,6 +23,8 @@ import (
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
+	reviewsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/domain"
+	reviewsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/repository/postgres"
 )
 
 // TestCleanSlateSchema proves the only migration path supported by the active
@@ -52,7 +57,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("get PostgreSQL connection string: %v", err)
 	}
 	root := repositoryRoot(t)
-	if err := runMigrations(root, databaseURL, []string{"inventory", "sync", "user_profiles"}, "up"); err != nil {
+	if err := runMigrations(root, databaseURL, []string{"comparison", "inventory", "reviews", "sync", "user_profiles", "wishlist"}, "up"); err != nil {
 		t.Fatalf("migrate clean-slate schema: %v", err)
 	}
 
@@ -66,6 +71,9 @@ func TestCleanSlateSchema(t *testing.T) {
 		"warehouses", "stock_items", "inventory_reservations", "schema_migrations", "schema_migrations_module_inventory",
 		"sync_outbox", "sync_external_entity_state", "sync_cursors", "schema_migrations_module_sync",
 		"user_profiles", "schema_migrations_module_user_profiles",
+		"wishlist_items", "schema_migrations_module_wishlist",
+		"comparison_lists", "comparison_items", "schema_migrations_module_comparison",
+		"reviews", "product_review_ratings", "schema_migrations_module_reviews",
 	)
 
 	localeService := localeApp.NewService(localePostgres.NewRepository(db))
@@ -99,10 +107,55 @@ func TestCleanSlateSchema(t *testing.T) {
 	if err != nil || len(storedProduct.Translations) != 3 {
 		t.Fatalf("read product translations = (%+v, %v), want three translations", storedProduct, err)
 	}
-	if err := runMigrations(root, databaseURL, []string{"inventory", "sync", "user_profiles"}, "down"); err != nil {
+	assertConcurrentReviewProjection(t, db, product.ID)
+	if err := runMigrations(root, databaseURL, []string{"comparison", "inventory", "reviews", "sync", "user_profiles", "wishlist"}, "down"); err != nil {
 		t.Fatalf("rollback clean-slate schema: %v", err)
 	}
-	assertTablesAbsent(t, db, "locales", "products", "product_variants", "user_oauth_identities", "oauth_authorization_attempts", "user_profiles", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors")
+	assertTablesAbsent(t, db, "locales", "products", "product_variants", "user_oauth_identities", "oauth_authorization_attempts", "user_profiles", "wishlist_items", "comparison_lists", "comparison_items", "reviews", "product_review_ratings", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors")
+}
+
+func assertConcurrentReviewProjection(t *testing.T, db *gorm.DB, productID uuid.UUID) {
+	t.Helper()
+	userIDs := []uuid.UUID{uuid.New(), uuid.New()}
+	for index, userID := range userIDs {
+		if err := db.Exec(`INSERT INTO users (id, email, role, status) VALUES (?, ?, 'customer', 'active')`, userID, fmt.Sprintf("reviewer%d@example.test", index+1)).Error; err != nil {
+			t.Fatalf("create review user: %v", err)
+		}
+	}
+	repository := reviewsPostgres.NewRepository(db)
+	first, err := repository.Create(context.Background(), reviewsDomain.CreateCommand{ProductID: productID, UserID: userIDs[0], Rating: 5, Comment: "excellent"})
+	if err != nil {
+		t.Fatalf("create first review: %v", err)
+	}
+	second, err := repository.Create(context.Background(), reviewsDomain.CreateCommand{ProductID: productID, UserID: userIDs[1], Rating: 3, Comment: "good"})
+	if err != nil {
+		t.Fatalf("create second review: %v", err)
+	}
+
+	start := make(chan struct{})
+	errorsByUpdate := make(chan error, 2)
+	var waitGroup sync.WaitGroup
+	for _, reviewID := range []uuid.UUID{first.ID, second.ID} {
+		waitGroup.Add(1)
+		go func(id uuid.UUID) {
+			defer waitGroup.Done()
+			<-start
+			_, updateErr := repository.SetStatus(context.Background(), id, reviewsDomain.StatusApproved)
+			errorsByUpdate <- updateErr
+		}(reviewID)
+	}
+	close(start)
+	waitGroup.Wait()
+	close(errorsByUpdate)
+	for updateErr := range errorsByUpdate {
+		if updateErr != nil {
+			t.Fatalf("concurrent review moderation: %v", updateErr)
+		}
+	}
+	rating, err := repository.RatingForProduct(context.Background(), productID)
+	if err != nil || rating == nil || rating.ReviewCount != 2 || rating.AverageHundredths != 400 {
+		t.Fatalf("rating projection = (%+v, %v), want count 2 and average 400", rating, err)
+	}
 }
 
 func assertTablesExist(t *testing.T, db *gorm.DB, tables ...string) {

@@ -108,6 +108,37 @@ customer can read and patch their policy-approved JSON document through
 Concurrent profile edits use optimistic locking: the client receives `409
 Conflict`, reloads the profile and retries its patch.
 
+### Optional wishlist
+
+Add `wishlist` to `ENABLED_MODULES` to enable `GET`, `POST`, and `DELETE`
+at `/api/wishlist`. Each item refers only to a `product_variant_id`; the
+module owns its `wishlist_items` table. Guests use the browser's existing
+opaque `cart_session` cookie, while authenticated users use their JWT
+identity. On successful registration, password login, or OAuth callback, the
+optional module atomically merges that guest list into the user's list and
+removes the source entries. With `wishlist` disabled, neither its routes nor
+its dependencies are registered.
+
+### Optional comparison
+
+Add `comparison` to `ENABLED_MODULES` to enable `GET`, `POST`, and `DELETE`
+at `/api/comparison`. The module uses the same JWT-or-opaque-`cart_session`
+ownership model as Wishlist, and merges guest entries after authentication.
+Comparison groups variants by their Catalog category, so only comparable items
+share one group; `COMPARISON_MAX_ITEMS` is a typed, fail-fast validated limit
+per category group (default `5`). During login merge, the newest unique items
+across the guest and user group are retained deterministically.
+
+### Optional reviews and ratings
+
+Add `reviews` to `ENABLED_MODULES` to enable moderated product reviews. A JWT
+customer creates one pending review per product with `POST /api/reviews/{id}`;
+only approved reviews appear through `GET /api/reviews/{id}`. Admins approve,
+reject, or delete via `/api/admin/reviews/{id}/status` and
+`DELETE /api/admin/reviews/{id}`. The module owns its rating projection, while
+Catalog reads it through a port and exposes `rating` on product responses when
+the module is enabled.
+
 ### Checkout contract
 
 `POST /api/:lang/checkout/payment` starts payment for the caller's active
