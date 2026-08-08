@@ -12,6 +12,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gorm.io/gorm"
 
+	googleAuthAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/auth/google"
 	cartApp "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/application"
 	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	cartPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/repository/postgres"
@@ -28,9 +29,9 @@ import (
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
 	deliveryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
-	identityApp "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/application"
 	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
 	identityPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/repository/postgres"
+	identityService "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/service"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	inventoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/repository/postgres"
@@ -60,7 +61,8 @@ type Application struct {
 	InventoryService       inventoryDomain.Service
 	InventoryCleanup       *inventoryApp.Cleanup
 	OrderService           ordersDomain.Service
-	IdentityService        identityDomain.Service
+	IdentityAuthService    identityDomain.AuthService
+	IdentityProfileService identityDomain.ProfileService
 	PaymentGateways        *paymentsApp.Registry
 	PaymentWebhookService  *paymentsApp.WebhookService
 	DeliveryCarriers       *deliveryApp.Registry
@@ -127,6 +129,32 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// Inventory repository implementation.
 	orderWorkflowService := orderWorkflowApp.NewService(workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync")))
 	paymentWebhookService := paymentsApp.NewWebhookService(paymentGateways, paymentsPostgres.NewWebhookEventStore(db), orderWorkflowService)
+	oauthProviders := make([]identityDomain.OAuthProvider, 0, 1)
+	if storeConfig.GoogleOAuth != nil {
+		googleProvider, err := googleAuthAdapter.New(googleAuthAdapter.Config{
+			ClientID:            storeConfig.GoogleOAuth.ClientID,
+			ClientSecret:        storeConfig.GoogleOAuth.ClientSecret,
+			AllowedRedirectURIs: []string{storeConfig.GoogleOAuth.RedirectURI},
+		})
+		if err != nil {
+			return nil, err
+		}
+		oauthProviders = append(oauthProviders, googleProvider)
+	}
+	identityAuthService := identityService.NewAuthService(
+		identityPostgres.NewUserRepository(db),
+		identityPostgres.NewOAuthIdentityRepository(db),
+		identityPostgres.NewOAuthAttemptStore(db),
+		identityPostgres.NewAuthTransaction(db),
+		identityService.NewOAuthProviderRegistry(oauthProviders...),
+		tokenMaker,
+		cfg.AccessTokenDuration,
+		storeConfig.OAuthAttemptTTL,
+	)
+	var identityProfileService identityDomain.ProfileService
+	if contains(storeConfig.EnabledModules, "user_profiles") {
+		identityProfileService = identityService.NewProfileService(*storeConfig.ProfilePolicy, identityPostgres.NewProfileRepository(db))
+	}
 
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
@@ -141,19 +169,20 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			SupportedDeliveryProviders: storeConfig.ShippingProviders,
 			DefaultDeliveryProvider:    storeConfig.ShippingDefault,
 		}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers),
-		CheckoutRecovery:      checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
-		OrderWorkflowService:  orderWorkflowService,
-		InventoryService:      inventoryService,
-		InventoryCleanup:      inventoryApp.NewCleanup(inventoryRepository),
-		OrderService:          ordersApp.NewService(ordersPostgres.NewRepository(db)),
-		IdentityService:       identityApp.NewService(identityPostgres.NewUserReader(db), tokenMaker, cfg.AccessTokenDuration),
-		PaymentGateways:       paymentGateways,
-		PaymentWebhookService: paymentWebhookService,
-		DeliveryCarriers:      deliveryCarriers,
-		DeliveryDispatcher:    deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
-		DeliveryTracker:       deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers),
-		TaxPolicy:             taxPolicy,
-		HTTP:                  httpDependencies,
+		CheckoutRecovery:       checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
+		OrderWorkflowService:   orderWorkflowService,
+		InventoryService:       inventoryService,
+		InventoryCleanup:       inventoryApp.NewCleanup(inventoryRepository),
+		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
+		IdentityAuthService:    identityAuthService,
+		IdentityProfileService: identityProfileService,
+		PaymentGateways:        paymentGateways,
+		PaymentWebhookService:  paymentWebhookService,
+		DeliveryCarriers:       deliveryCarriers,
+		DeliveryDispatcher:     deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
+		DeliveryTracker:        deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers),
+		TaxPolicy:              taxPolicy,
+		HTTP:                   httpDependencies,
 	}, nil
 }
 

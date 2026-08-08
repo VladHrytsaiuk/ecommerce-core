@@ -96,6 +96,16 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			mutate: func(cfg *config.Config) { cfg.EnabledModules = nil },
 			want:   "ENABLED_MODULES",
 		},
+		{
+			name:   "partial Google OAuth configuration",
+			mutate: func(cfg *config.Config) { cfg.GoogleClientID = "client-id" },
+			want:   "GOOGLE_CLIENT_ID",
+		},
+		{
+			name:   "profile module requires policy",
+			mutate: func(cfg *config.Config) { cfg.EnabledModules = []string{"inventory", "user_profiles"} },
+			want:   "PROFILE_POLICY_JSON",
+		},
 		{name: "unsupported tax policy", mutate: func(cfg *config.Config) { cfg.TaxMode = "sales_tax" }, want: "TAX_MODE"},
 	}
 
@@ -109,6 +119,32 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 				t.Fatalf("NewStoreConfig() error = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewStoreConfigAcceptsGoogleOAuthAndProfilePolicy(t *testing.T) {
+	cfg := validConfig()
+	cfg.GoogleClientID = "client-id"
+	cfg.GoogleClientSecret = "client-secret"
+	cfg.GoogleRedirectURI = "https://api.example.test/api/auth/oauth/google/callback"
+	cfg.EnabledModules = []string{"inventory", "user_profiles"}
+	cfg.ProfilePolicyJSON = `{"schema_version":1,"fields":[{"key":"birth_date","type":"date","customer_writable":true}]}`
+
+	got, err := NewStoreConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+	if got.GoogleOAuth == nil || got.ProfilePolicy == nil || got.ProfilePolicy.Fields[0].Key != "birth_date" {
+		t.Fatalf("identity configuration = %+v, want Google OAuth and profile policy", got)
+	}
+}
+
+func TestNewStoreConfigRejectsTrailingProfilePolicyJSON(t *testing.T) {
+	cfg := validConfig()
+	cfg.EnabledModules = []string{"inventory", "user_profiles"}
+	cfg.ProfilePolicyJSON = `{"schema_version":1,"fields":[]} {}`
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "PROFILE_POLICY_JSON") {
+		t.Fatalf("NewStoreConfig() error = %v, want invalid JSON error", err)
 	}
 }
 
@@ -281,6 +317,7 @@ func validConfig() *config.Config {
 		InventoryMode:          "internal",
 		EnabledModules:         []string{"inventory"},
 		CheckoutReservationTTL: 15 * time.Minute,
+		OAuthAttemptTTL:        10 * time.Minute,
 		DefaultWarehouseID:     "00000000-0000-4000-8000-000000000001",
 	}
 }

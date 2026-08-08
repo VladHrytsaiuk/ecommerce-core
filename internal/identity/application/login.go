@@ -25,17 +25,17 @@ func (s *Service) Login(ctx context.Context, email, plainPassword string) (*doma
 		return nil, domain.ErrInvalidCredentials
 	}
 	user, err := s.users.FindByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
-	if err != nil || user == nil || user.Status != "active" || !validRole(user.Role) {
+	if err != nil || user == nil || user.Status != domain.UserStatusActive || !validRole(string(user.Role)) {
 		return nil, domain.ErrInvalidCredentials
 	}
 	if err := password.CheckPassword(plainPassword, user.PasswordHash); err != nil {
 		return nil, domain.ErrInvalidCredentials
 	}
-	accessToken, claims, err := s.tokens.CreateTokenForRole(user.ID, user.Role, s.accessToken)
+	accessToken, claims, err := s.tokens.CreateTokenForRole(user.ID, string(user.Role), s.accessToken)
 	if err != nil {
 		return nil, domain.ErrInvalidCredentials
 	}
-	return &domain.LoginResult{AccessToken: accessToken, ExpiresAt: claims.ExpiresAt.Time, Role: user.Role}, nil
+	return &domain.LoginResult{AccessToken: accessToken, ExpiresAt: claims.ExpiresAt.Time, Role: string(user.Role)}, nil
 }
 
 func validRole(role string) bool {

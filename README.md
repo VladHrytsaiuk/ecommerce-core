@@ -87,6 +87,27 @@ For a locally managed PostgreSQL instance, the equivalent is
 Then obtain a JWT through `POST /api/auth/login` and use it as
 `Authorization: Bearer <access_token>` for `/api/admin/...` routes.
 
+### Customer identity and optional profiles
+
+Password registration and login are always available at `POST /api/auth/register`
+and `POST /api/auth/login`. Registration accepts an email or phone number and
+a password; login accepts `login` (email or phone) and `password` (`email` is
+kept as a compatibility alias). Both return a short-lived JWT containing the
+string role.
+
+Google OAuth is opt-in: set all of `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI`; otherwise no Google SDK
+adapter is constructed. The public flow is `GET /api/auth/oauth/google/login`
+and the configured callback is `GET /api/auth/oauth/google/callback`.
+
+Store-specific customer data is opt-in as well. Add `user_profiles` to
+`ENABLED_MODULES` and define `PROFILE_POLICY_JSON`; then an authenticated
+customer can read and patch their policy-approved JSON document through
+`GET` and `PATCH /api/me/profile`. The profile module owns its separate
+`user_profiles` table, so per-store fields never alter the Core `users` table.
+Concurrent profile edits use optimistic locking: the client receives `409
+Conflict`, reloads the profile and retries its patch.
+
 ### Checkout contract
 
 `POST /api/:lang/checkout/payment` starts payment for the caller's active

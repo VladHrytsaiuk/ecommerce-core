@@ -7,6 +7,7 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 const (
@@ -21,25 +22,22 @@ func AuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authorizationHeader := c.GetHeader(authorizationHeaderKey)
 
-		// Тимчасовий дебаг для перевірки формату в Swagger
-		logger.Log.Debugw("Received Authorization Header", "header", authorizationHeader)
-
 		if len(authorizationHeader) == 0 {
-			logger.Log.Warn("Authorization header is not provided")
+			logger.Log.Warn("missing authorization header")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is not provided"})
 			return
 		}
 
 		fields := strings.Fields(authorizationHeader)
 		if len(fields) < 2 {
-			logger.Log.Warnw("Invalid authorization header format", "header", authorizationHeader)
+			logger.Log.Warn("invalid authorization header format")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header format. Expected 'Bearer {token}'"})
 			return
 		}
 
 		authorizationType := strings.ToLower(fields[0])
 		if authorizationType != authorizationTypeBearer {
-			logger.Log.Warnw("Unsupported authorization type", "type", authorizationType)
+			logger.Log.Warn("unsupported authorization type")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unsupported authorization type"})
 			return
 		}
@@ -47,11 +45,7 @@ func AuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 		accessToken := fields[1]
 		claims, err := tokenMaker.VerifyToken(accessToken)
 		if err != nil {
-			tokenPrefix := accessToken
-			if len(tokenPrefix) > 10 {
-				tokenPrefix = tokenPrefix[:10]
-			}
-			logger.Log.Warnw("Failed to verify token", "error", err, "token_prefix", tokenPrefix+"...")
+			logger.Log.Warnw("failed to verify access token", "error", err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			return
 		}
@@ -61,4 +55,12 @@ func AuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 		c.Set(authorizationRoleKey, claims.Role)
 		c.Next()
 	}
+}
+
+// AuthenticatedUserID returns the subject set by AuthMiddleware. Delivery
+// handlers use this helper rather than depending on an internal Gin key.
+func AuthenticatedUserID(c *gin.Context) (uuid.UUID, bool) {
+	value, exists := c.Get(authorizationPayloadKey)
+	userID, ok := value.(uuid.UUID)
+	return userID, exists && ok && userID != uuid.Nil
 }

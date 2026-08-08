@@ -1,7 +1,10 @@
 package app
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"time"
@@ -10,11 +13,13 @@ import (
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
+	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 )
 
 var storeCodePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 var localeCodePattern = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{2,8})*$`)
+var profileFieldKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 // StoreConfig is the normalized, provider-neutral configuration consumed by the
 // Composition Root. It coexists with platform/config.Config while legacy
@@ -39,6 +44,15 @@ type StoreConfig struct {
 	CheckoutRequirePhone   bool
 	CheckoutReservationTTL time.Duration
 	DefaultWarehouseID     uuid.UUID
+	GoogleOAuth            *GoogleOAuthConfig
+	OAuthAttemptTTL        time.Duration
+	ProfilePolicy          *identityDomain.ProfilePolicy
+}
+
+type GoogleOAuthConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURI  string
 }
 
 // NewStoreConfig maps environment-loaded configuration into the typed
@@ -47,6 +61,10 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 	defaultWarehouseID, err := uuid.Parse(strings.TrimSpace(cfg.DefaultWarehouseID))
 	if err != nil || defaultWarehouseID == uuid.Nil {
 		return StoreConfig{}, fmt.Errorf("DEFAULT_WAREHOUSE_ID must be a non-empty UUID")
+	}
+	profilePolicy, err := parseProfilePolicy(cfg.ProfilePolicyJSON)
+	if err != nil {
+		return StoreConfig{}, err
 	}
 	storeConfig := StoreConfig{
 		Code: normalize(cfg.StoreCode), Name: strings.TrimSpace(cfg.StoreName),
@@ -65,6 +83,11 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		CheckoutRequirePhone:   cfg.CheckoutRequirePhone,
 		CheckoutReservationTTL: cfg.CheckoutReservationTTL,
 		DefaultWarehouseID:     defaultWarehouseID,
+		OAuthAttemptTTL:        cfg.OAuthAttemptTTL,
+		ProfilePolicy:          profilePolicy,
+	}
+	if strings.TrimSpace(cfg.GoogleClientID) != "" || strings.TrimSpace(cfg.GoogleClientSecret) != "" || strings.TrimSpace(cfg.GoogleRedirectURI) != "" {
+		storeConfig.GoogleOAuth = &GoogleOAuthConfig{ClientID: strings.TrimSpace(cfg.GoogleClientID), ClientSecret: strings.TrimSpace(cfg.GoogleClientSecret), RedirectURI: strings.TrimSpace(cfg.GoogleRedirectURI)}
 	}
 	if err := storeConfig.Validate(); err != nil {
 		return StoreConfig{}, err
@@ -80,6 +103,11 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 // database connection or HTTP startup. Adapter construction remains in
 // Bootstrap.
 func validateEnabledAdapters(cfg *config.Config, storeConfig StoreConfig) error {
+	if storeConfig.GoogleOAuth != nil {
+		if storeConfig.GoogleOAuth.ClientID == "" || storeConfig.GoogleOAuth.ClientSecret == "" || storeConfig.GoogleOAuth.RedirectURI == "" {
+			return fmt.Errorf("GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI must all be set when Google OAuth is configured")
+		}
+	}
 	for _, provider := range storeConfig.PaymentProviders {
 		switch provider {
 		case "liqpay":
@@ -187,7 +215,54 @@ func (c StoreConfig) Validate() error {
 	if c.DefaultWarehouseID == uuid.Nil {
 		return fmt.Errorf("DEFAULT_WAREHOUSE_ID must be a non-empty UUID")
 	}
+	if c.OAuthAttemptTTL <= 0 || c.OAuthAttemptTTL > time.Hour {
+		return fmt.Errorf("OAUTH_ATTEMPT_TTL must be between 1ns and 1h")
+	}
+	if contains(c.EnabledModules, "user_profiles") && c.ProfilePolicy == nil {
+		return fmt.Errorf("PROFILE_POLICY_JSON is required when user_profiles is enabled")
+	}
+	if !contains(c.EnabledModules, "user_profiles") && c.ProfilePolicy != nil {
+		return fmt.Errorf("PROFILE_POLICY_JSON requires ENABLED_MODULES to include user_profiles")
+	}
 	return nil
+}
+
+func parseProfilePolicy(raw string) (*identityDomain.ProfilePolicy, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	decoder := json.NewDecoder(bytes.NewBufferString(raw))
+	decoder.DisallowUnknownFields()
+	var policy identityDomain.ProfilePolicy
+	if err := decoder.Decode(&policy); err != nil {
+		return nil, fmt.Errorf("PROFILE_POLICY_JSON is invalid: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF || policy.SchemaVersion <= 0 {
+		return nil, fmt.Errorf("PROFILE_POLICY_JSON must contain one object with a positive schema_version")
+	}
+	seen := make(map[string]struct{}, len(policy.Fields))
+	for _, field := range policy.Fields {
+		key := strings.TrimSpace(field.Key)
+		if !profileFieldKeyPattern.MatchString(key) || key != field.Key {
+			return nil, fmt.Errorf("PROFILE_POLICY_JSON field key %q is invalid", field.Key)
+		}
+		if _, exists := seen[key]; exists {
+			return nil, fmt.Errorf("PROFILE_POLICY_JSON field key %q is duplicated", key)
+		}
+		seen[key] = struct{}{}
+		switch field.Type {
+		case identityDomain.ProfileFieldString, identityDomain.ProfileFieldNumber, identityDomain.ProfileFieldDate, identityDomain.ProfileFieldBool, identityDomain.ProfileFieldEnum:
+		default:
+			return nil, fmt.Errorf("PROFILE_POLICY_JSON field %q has unsupported type %q", key, field.Type)
+		}
+		if field.MaxLength < 0 || field.MaxLength > 4096 {
+			return nil, fmt.Errorf("PROFILE_POLICY_JSON field %q has invalid max_length", key)
+		}
+		if field.Type == identityDomain.ProfileFieldEnum && len(field.AllowedValues) == 0 {
+			return nil, fmt.Errorf("PROFILE_POLICY_JSON enum field %q requires allowed_values", key)
+		}
+	}
+	return &policy, nil
 }
 
 func normalize(value string) string {

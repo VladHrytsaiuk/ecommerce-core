@@ -23,7 +23,8 @@ func TestLoginIssuesRoleJWT(t *testing.T) {
 		t.Fatal(err)
 	}
 	userID := uuid.New()
-	service := NewService(fakeUsers{user: &domain.User{ID: userID, Email: "owner@example.com", PasswordHash: hash, Role: token.RoleOwner, Status: "active"}}, maker, time.Hour)
+	email := "owner@example.com"
+	service := NewService(fakeUsers{user: &domain.User{ID: userID, Email: &email, PasswordHash: hash, Role: token.RoleOwner, Status: domain.UserStatusActive}}, maker, time.Hour)
 
 	result, err := service.Login(context.Background(), "OWNER@example.com", "a-strong-owner-password")
 	if err != nil {

@@ -24,6 +24,10 @@ type Config struct {
 	RefreshTokenDuration time.Duration
 	FrontendURL          string
 	GoogleClientID       string
+	GoogleClientSecret   string
+	GoogleRedirectURI    string
+	OAuthAttemptTTL      time.Duration
+	ProfilePolicyJSON    string
 	MaxSessions          int
 	Env                  string
 	CookieSecure         bool
@@ -190,8 +194,16 @@ func Load() *Config {
 	}
 
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
-	if googleClientID == "" {
-		log.Println("Warning: GOOGLE_CLIENT_ID is not set. Google Auth will not work.")
+	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	googleRedirectURI := os.Getenv("GOOGLE_REDIRECT_URI")
+	profilePolicyJSON := os.Getenv("PROFILE_POLICY_JSON")
+	oauthAttemptTTL := 10 * time.Minute
+	if value := os.Getenv("OAUTH_ATTEMPT_TTL"); value != "" {
+		parsed, parseErr := time.ParseDuration(value)
+		if parseErr != nil || parsed <= 0 || parsed > time.Hour {
+			log.Fatal("Fatal: OAUTH_ATTEMPT_TTL must be between 1ns and 1h")
+		}
+		oauthAttemptTTL = parsed
 	}
 
 	maxSessionsStr := os.Getenv("MAX_SESSIONS")
@@ -457,6 +469,10 @@ func Load() *Config {
 		RefreshTokenDuration:      refreshTokenDuration,
 		FrontendURL:               frontendURL,
 		GoogleClientID:            googleClientID,
+		GoogleClientSecret:        googleClientSecret,
+		GoogleRedirectURI:         googleRedirectURI,
+		OAuthAttemptTTL:           oauthAttemptTTL,
+		ProfilePolicyJSON:         profilePolicyJSON,
 		MaxSessions:               maxSessions,
 		Env:                       appEnv,
 		CookieSecure:              appEnv == "production",

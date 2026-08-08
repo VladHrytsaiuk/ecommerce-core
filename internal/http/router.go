@@ -27,7 +27,11 @@ func InitRouter(application *app.Application) *gin.Engine {
 	api.Use(middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(perMinute(application.Config.APIRateLimitPerMin), application.Config.APIRateLimitPerMin)))
 	api.GET("/ping", application.HTTP.Health)
 	sensitiveLimit := middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(perMinute(application.Config.SensitiveRatePerMin), application.Config.SensitiveRatePerMin))
-	identityHTTP.RegisterRoutes(api, application.IdentityService, sensitiveLimit)
+	oauthRedirectURI := ""
+	if application.StoreConfig.GoogleOAuth != nil {
+		oauthRedirectURI = application.StoreConfig.GoogleOAuth.RedirectURI
+	}
+	identityHTTP.RegisterRoutes(api, application.IdentityAuthService, application.IdentityProfileService, oauthRedirectURI, middleware.AuthMiddleware(application.TokenMaker), sensitiveLimit)
 	if application.PaymentGateways != nil && application.PaymentGateways.Default() != nil {
 		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
 	}
