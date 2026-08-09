@@ -99,6 +99,12 @@ func (r *fakeRepository) CreatePending(_ context.Context, order *ordersDomain.Or
 func (r *fakeRepository) CreatePendingCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, _ workflowDomain.CheckoutAttemptRequest) error {
 	return r.CreatePending(ctx, order, reservationIDs)
 }
+func (r *fakeRepository) CreatePaidCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, _ workflowDomain.CheckoutAttemptRequest) error {
+	return r.CreatePending(ctx, order, reservationIDs)
+}
+func (*fakeRepository) ExpirePendingCheckout(context.Context, time.Time) (bool, error) {
+	return false, nil
+}
 func (r *fakeRepository) CancelPending(_ context.Context, orderID uuid.UUID) error {
 	r.cancelled = orderID
 	return nil

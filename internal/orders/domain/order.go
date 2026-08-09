@@ -35,6 +35,17 @@ type Draft struct {
 	DeliveryProvider string
 	Delivery         *DeliveryDetails
 	Items            []Item
+	Promotion        *Promotion
+	ExpiresAt        time.Time
+}
+
+// Promotion is an immutable order snapshot of an applied promotion.
+type Promotion struct {
+	Code     string
+	Type     string
+	Value    int64
+	Currency string
+	Discount money.Money
 }
 
 // DeliveryDetails is a provider-neutral immutable recipient snapshot. The
@@ -65,7 +76,9 @@ type Order struct {
 	DeliveryProvider string
 	Delivery         *DeliveryDetails
 	Items            []Item
+	Promotion        *Promotion
 	CreatedAt        time.Time
+	ExpiresAt        time.Time
 }
 type Repository interface {
 	Create(context.Context, *Order) error

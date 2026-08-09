@@ -5,6 +5,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
+	badgesHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/delivery/http"
 	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
@@ -14,6 +15,7 @@ import (
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	reviewsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/delivery/http"
+	seoHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/delivery/http"
 	wishlistHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/delivery/http"
 )
 
@@ -52,6 +54,12 @@ func InitRouter(application *app.Application) *gin.Engine {
 	admin.Use(middleware.AuthMiddleware(application.TokenMaker), middleware.AdminMiddleware())
 	if application.ReviewsService != nil {
 		reviewsHTTP.RegisterRoutes(api, admin, application.ReviewsService, middleware.AuthMiddleware(application.TokenMaker))
+	}
+	if application.SEOService != nil {
+		seoHTTP.RegisterRoutes(admin, application.SEOService)
+	}
+	if application.BadgesService != nil {
+		badgesHTTP.RegisterRoutes(admin, application.BadgesService)
 	}
 	localized := api.Group("/:lang")
 	localized.Use(application.HTTP.LocaleMiddleware)

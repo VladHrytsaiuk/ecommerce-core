@@ -99,7 +99,7 @@ func (h *Handler) StartPayment(c *gin.Context) {
 		return
 	}
 	started, err := h.service.StartPayment(c.Request.Context(), checkoutDomain.StartPaymentRequest{
-		Preparation: checkoutDomain.PrepareRequest{CheckoutID: checkoutID, Locale: middleware.GetLanguage(c), Lines: lines, ExpiresAt: time.Now().UTC().Add(h.reservationTTL)},
+		Preparation: checkoutDomain.PrepareRequest{CheckoutID: checkoutID, Locale: middleware.GetLanguage(c), Lines: lines, ExpiresAt: time.Now().UTC().Add(h.reservationTTL), PromoCode: cart.AppliedPromoCode},
 		CartID:      cart.ID, CustomerID: owner.CustomerID, CustomerPhone: request.CustomerPhone, DeliveryProvider: request.DeliveryProvider, DeliveryOptionCode: request.DeliveryOptionCode, Delivery: mapDelivery(request.Delivery), ReturnURL: request.ReturnURL, CancelURL: request.CancelURL,
 	})
 	if err != nil {

@@ -18,11 +18,13 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
+	transaction "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
 type Repository struct {
 	db          *gorm.DB
 	syncEnabled bool
+	hooks       []workflowDomain.TransactionHook
 }
 
 // NewRepository constructs the one cross-context PostgreSQL transaction
@@ -30,6 +32,15 @@ type Repository struct {
 // Bootstrap, so deployments without the Sync module never touch its tables.
 func NewRepository(db *gorm.DB, syncEnabled bool) *Repository {
 	return &Repository{db: db, syncEnabled: syncEnabled}
+}
+
+// WithTransactionHook registers an optional module hook. It is called only
+// from the workflow's database transactions, never around provider I/O.
+func (r *Repository) WithTransactionHook(hook workflowDomain.TransactionHook) *Repository {
+	if hook != nil {
+		r.hooks = append(r.hooks, hook)
+	}
+	return r
 }
 
 type reservationRecord struct {
@@ -53,23 +64,30 @@ type orderStateRecord struct {
 	TotalAmount      int64
 	PaymentProvider  string
 	DeliveryProvider string
+	ExpiresAt        time.Time
 }
 
 func (orderStateRecord) TableName() string { return "orders" }
 
 type orderRecord struct {
-	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
-	CartID           *uuid.UUID
-	Number           string
-	CustomerID       *uuid.UUID
-	Status           string
-	Currency         string
-	SubtotalAmount   int64
-	TaxAmount        int64
-	ShippingAmount   int64
-	TotalAmount      int64
-	PaymentProvider  string
-	DeliveryProvider string
+	ID                    uuid.UUID `gorm:"type:uuid;primaryKey"`
+	CartID                *uuid.UUID
+	Number                string
+	CustomerID            *uuid.UUID
+	Status                string
+	Currency              string
+	SubtotalAmount        int64
+	TaxAmount             int64
+	ShippingAmount        int64
+	TotalAmount           int64
+	PaymentProvider       string
+	DeliveryProvider      string
+	AppliedPromoCode      *string
+	DiscountAmount        int64
+	PromoSnapshotType     *string
+	PromoSnapshotValue    *int64
+	PromoSnapshotCurrency *string
+	ExpiresAt             time.Time
 }
 
 func (orderRecord) TableName() string { return "orders" }
@@ -149,22 +167,43 @@ type paymentCheckoutAttemptRecord struct {
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	LockedAt          *time.Time
+	ExpiresAt         time.Time
 }
+
+type paymentAnomalyRecord struct {
+	ID                uuid.UUID `gorm:"type:uuid;primaryKey"`
+	OrderID           uuid.UUID
+	Provider          string
+	ProviderReference string
+	Amount            int64
+	Currency          string
+	Reason            string
+	Status            string
+}
+
+func (paymentAnomalyRecord) TableName() string { return "payment_anomalies" }
 
 func (paymentCheckoutAttemptRecord) TableName() string { return "payment_checkout_attempts" }
 
 func (deliveryJobRecord) TableName() string { return "delivery_jobs" }
 
 func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID) error {
-	return r.createPending(ctx, order, reservationIDs, nil)
+	return r.createPending(ctx, order, reservationIDs, nil, false)
 }
 
 func (r *Repository) CreatePendingCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt workflowDomain.CheckoutAttemptRequest) error {
-	return r.createPending(ctx, order, reservationIDs, &attempt)
+	return r.createPending(ctx, order, reservationIDs, &attempt, false)
 }
 
-func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt *workflowDomain.CheckoutAttemptRequest) error {
+func (r *Repository) CreatePaidCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt workflowDomain.CheckoutAttemptRequest) error {
+	return r.createPending(ctx, order, reservationIDs, &attempt, true)
+}
+
+func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt *workflowDomain.CheckoutAttemptRequest, markPaid bool) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if order.ExpiresAt.IsZero() {
+			order.ExpiresAt = time.Now().UTC().Add(30 * time.Minute)
+		}
 		reservations, err := lockReservations(tx, reservationIDs)
 		if err != nil {
 			return err
@@ -190,9 +229,28 @@ func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Orde
 			return workflowDomain.ErrReservationUnavailable
 		}
 		if attempt != nil {
-			if err := tx.Create(&paymentCheckoutAttemptRecord{OrderID: order.ID, Provider: attempt.Provider, IdempotencyKey: attempt.IdempotencyKey, Amount: attempt.Amount.Amount, Currency: attempt.Amount.Currency, Status: "creating", Attempts: 1}).Error; err != nil {
+			if attempt.ExpiresAt.IsZero() {
+				attempt.ExpiresAt = order.ExpiresAt
+			}
+			status := "creating"
+			if markPaid {
+				status = "created"
+			}
+			if err := tx.Create(&paymentCheckoutAttemptRecord{OrderID: order.ID, Provider: attempt.Provider, IdempotencyKey: attempt.IdempotencyKey, Amount: attempt.Amount.Amount, Currency: attempt.Amount.Currency, Status: status, Attempts: 1, ExpiresAt: attempt.ExpiresAt}).Error; err != nil {
 				return err
 			}
+		}
+		for _, hook := range r.hooks {
+			if err := hook.BeforeCreatePending(transaction.WithContext(ctx, tx), order); err != nil {
+				return err
+			}
+		}
+		if markPaid {
+			var state orderStateRecord
+			if err := tx.First(&state, "id = ?", order.ID).Error; err != nil {
+				return err
+			}
+			return r.completePending(ctx, tx, state, order.ID, ordersDomain.StatusPaid, nil)
 		}
 		return nil
 	})
@@ -302,6 +360,7 @@ func (r *Repository) RecordCheckoutAttempt(ctx context.Context, req workflowDoma
 			Currency:       req.Amount.Currency,
 			Status:         "creating",
 			Attempts:       1,
+			ExpiresAt:      time.Now().UTC().Add(30 * time.Minute),
 		}).Error
 	})
 }
@@ -322,7 +381,7 @@ func (r *Repository) FindCheckoutAttempt(ctx context.Context, idempotencyKey str
 	if err != nil {
 		return nil, err
 	}
-	return &workflowDomain.CheckoutAttempt{OrderID: record.OrderID, OrderNumber: order.Number, OrderStatus: order.Status, Provider: record.Provider, IdempotencyKey: record.IdempotencyKey, Amount: amount, Status: record.Status, Attempts: record.Attempts, CreatedAt: record.CreatedAt}, nil
+	return &workflowDomain.CheckoutAttempt{OrderID: record.OrderID, OrderNumber: order.Number, OrderStatus: order.Status, Provider: record.Provider, IdempotencyKey: record.IdempotencyKey, Amount: amount, Status: record.Status, Attempts: record.Attempts, CreatedAt: record.CreatedAt, ExpiresAt: record.ExpiresAt}, nil
 }
 
 func (r *Repository) ClaimPendingCheckoutAttempt(ctx context.Context, olderThan, lease time.Duration) (*workflowDomain.CheckoutAttempt, error) {
@@ -349,7 +408,7 @@ func (r *Repository) ClaimPendingCheckoutAttempt(ctx context.Context, olderThan,
 		if err != nil {
 			return err
 		}
-		claimed = &workflowDomain.CheckoutAttempt{OrderID: record.OrderID, Provider: record.Provider, IdempotencyKey: record.IdempotencyKey, Amount: amount, Status: "processing", Attempts: record.Attempts + 1, CreatedAt: record.CreatedAt}
+		claimed = &workflowDomain.CheckoutAttempt{OrderID: record.OrderID, Provider: record.Provider, IdempotencyKey: record.IdempotencyKey, Amount: amount, Status: "processing", Attempts: record.Attempts + 1, CreatedAt: record.CreatedAt, ExpiresAt: record.ExpiresAt}
 		return nil
 	})
 	return claimed, err
@@ -397,6 +456,18 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirma
 		}
 		var payment paymentRecord
 		if confirmation != nil {
+			// A verified paid callback may arrive after the checkout was expired
+			// while the gateway checkout reference could not be persisted. In that
+			// case there is deliberately no payments row to validate against. The
+			// immutable order snapshot is sufficient to acknowledge the callback
+			// and durably open a manual-reconciliation case; never retry a captured
+			// payment indefinitely.
+			if order.Status == ordersDomain.StatusCancelled && targetStatus == ordersDomain.StatusPaid {
+				if order.PaymentProvider != confirmation.Provider || order.TotalAmount != confirmation.Amount.Amount || order.Currency != confirmation.Amount.Currency {
+					return workflowDomain.ErrPaymentMismatch
+				}
+				return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "order_id"}, {Name: "provider"}, {Name: "provider_reference"}, {Name: "reason"}}, DoNothing: true}).Create(&paymentAnomalyRecord{ID: uuid.New(), OrderID: orderID, Provider: confirmation.Provider, ProviderReference: confirmation.ProviderReference, Amount: confirmation.Amount.Amount, Currency: confirmation.Amount.Currency, Reason: "paid_after_cancelled", Status: "open"}).Error
+			}
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&payment, "order_id = ? AND provider = ?", orderID, confirmation.Provider).Error; err != nil {
 				return workflowDomain.ErrPaymentMismatch
 			}
@@ -410,66 +481,104 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirma
 		if order.Status != ordersDomain.StatusPendingPayment {
 			return workflowDomain.ErrInvalidOrderTransition
 		}
-
-		var reservations []reservationRecord
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_id = ?", orderID).Find(&reservations).Error; err != nil {
-			return err
+		var paymentToUpdate *paymentRecord
+		if confirmation != nil {
+			paymentToUpdate = &payment
 		}
-		if len(reservations) == 0 {
+		return r.completePending(ctx, tx, order, orderID, targetStatus, paymentToUpdate)
+	})
+}
+
+func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order orderStateRecord, orderID uuid.UUID, targetStatus string, payment *paymentRecord) error {
+	var reservations []reservationRecord
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_id = ?", orderID).Find(&reservations).Error; err != nil {
+		return err
+	}
+	if len(reservations) == 0 {
+		return workflowDomain.ErrReservationUnavailable
+	}
+	for _, reservation := range reservations {
+		if reservation.Status != "active" {
 			return workflowDomain.ErrReservationUnavailable
 		}
-		for _, reservation := range reservations {
-			if reservation.Status != "active" {
-				return workflowDomain.ErrReservationUnavailable
-			}
-			var result *gorm.DB
-			if targetStatus == ordersDomain.StatusPaid {
-				result = tx.Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand - ?, quantity_reserved = quantity_reserved - ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_reserved >= ?`, reservation.Quantity, reservation.Quantity, reservation.VariantID, reservation.WarehouseID, reservation.Quantity)
-			} else {
-				result = tx.Exec(`UPDATE stock_items SET quantity_reserved = quantity_reserved - ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_reserved >= ?`, reservation.Quantity, reservation.VariantID, reservation.WarehouseID, reservation.Quantity)
-			}
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected != 1 {
-				return workflowDomain.ErrReservationUnavailable
-			}
-		}
-		reservationStatus := "released"
+		var result *gorm.DB
 		if targetStatus == ordersDomain.StatusPaid {
-			reservationStatus = "committed"
+			result = tx.Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand - ?, quantity_reserved = quantity_reserved - ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_reserved >= ?`, reservation.Quantity, reservation.Quantity, reservation.VariantID, reservation.WarehouseID, reservation.Quantity)
+		} else {
+			result = tx.Exec(`UPDATE stock_items SET quantity_reserved = quantity_reserved - ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_reserved >= ?`, reservation.Quantity, reservation.VariantID, reservation.WarehouseID, reservation.Quantity)
 		}
-		if err := tx.Model(&reservationRecord{}).Where("order_id = ? AND status = ?", orderID, "active").Updates(map[string]any{"status": reservationStatus, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return workflowDomain.ErrReservationUnavailable
+		}
+	}
+	reservationStatus := "released"
+	if targetStatus == ordersDomain.StatusPaid {
+		reservationStatus = "committed"
+	}
+	if err := tx.Model(&reservationRecord{}).Where("order_id = ? AND status = ?", orderID, "active").Updates(map[string]any{"status": reservationStatus, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+		return err
+	}
+	if err := tx.Model(&order).Update("status", targetStatus).Error; err != nil {
+		return err
+	}
+	if payment != nil {
+		paymentStatus := "failed"
+		if targetStatus == ordersDomain.StatusPaid {
+			paymentStatus = "paid"
+		}
+		if err := tx.Model(payment).Update("status", paymentStatus).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&order).Update("status", targetStatus).Error; err != nil {
+	}
+	if targetStatus == ordersDomain.StatusPaid && order.DeliveryProvider != "" {
+		var details deliveryDetailsRecord
+		if err := tx.First(&details, "order_id = ?", orderID).Error; err != nil {
 			return err
 		}
-		if confirmation != nil {
-			paymentStatus := "failed"
-			if targetStatus == ordersDomain.StatusPaid {
-				paymentStatus = "paid"
-			}
-			if err := tx.Model(&payment).Update("status", paymentStatus).Error; err != nil {
-				return err
-			}
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "order_id"}}, DoNothing: true}).Create(&deliveryJobRecord{ID: uuid.New(), OrderID: orderID, Provider: order.DeliveryProvider, IdempotencyKey: uuid.NewSHA1(orderID, []byte("delivery:create")), Status: "pending"}).Error; err != nil {
+			return err
 		}
-		if targetStatus == ordersDomain.StatusPaid && order.DeliveryProvider != "" {
-			var details deliveryDetailsRecord
-			if err := tx.First(&details, "order_id = ?", orderID).Error; err != nil {
-				return err
-			}
-			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "order_id"}}, DoNothing: true}).Create(&deliveryJobRecord{ID: uuid.New(), OrderID: orderID, Provider: order.DeliveryProvider, IdempotencyKey: uuid.NewSHA1(orderID, []byte("delivery:create")), Status: "pending"}).Error; err != nil {
-				return err
-			}
+	}
+	if targetStatus == ordersDomain.StatusPaid && order.CartID != nil {
+		if err := tx.Table("carts").Where("id = ? AND status = ?", *order.CartID, "active").Updates(map[string]any{"status": "converted", "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+			return err
 		}
-		if targetStatus == ordersDomain.StatusPaid && order.CartID != nil {
-			if err := tx.Table("carts").Where("id = ? AND status = ?", *order.CartID, "active").Updates(map[string]any{"status": "converted", "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
-				return err
-			}
+	}
+	for _, hook := range r.hooks {
+		if err := hook.BeforeOrderTransition(transaction.WithContext(ctx, tx), orderID, targetStatus); err != nil {
+			return err
 		}
+	}
+	if targetStatus == ordersDomain.StatusCancelled {
+		if err := tx.Model(&paymentCheckoutAttemptRecord{}).Where("order_id = ? AND status IN ?", orderID, []string{"creating", "processing", "created"}).Updates(map[string]any{"status": "failed", "locked_at": nil, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ExpirePendingCheckout claims one expired pending order with SKIP LOCKED and
+// releases every local reservation through the same workflow transaction.
+func (r *Repository) ExpirePendingCheckout(ctx context.Context, now time.Time) (bool, error) {
+	expired := false
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var order orderStateRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status = ? AND expires_at <= ?", ordersDomain.StatusPendingPayment, now).Order("expires_at").First(&order).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		if err := r.completePending(ctx, tx, order, order.ID, ordersDomain.StatusCancelled, nil); err != nil {
+			return err
+		}
+		expired = true
 		return nil
 	})
+	return expired, err
 }
 
 func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
@@ -477,7 +586,18 @@ func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
 	if order.CartID != uuid.Nil {
 		cartID = &order.CartID
 	}
-	record := orderRecord{ID: order.ID, CartID: cartID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, ShippingAmount: order.Shipping.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider}
+	record := orderRecord{ID: order.ID, CartID: cartID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, ShippingAmount: order.Shipping.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider, ExpiresAt: order.ExpiresAt}
+	if order.Promotion != nil {
+		code := order.Promotion.Code
+		record.AppliedPromoCode = &code
+		record.DiscountAmount = order.Promotion.Discount.Amount
+		record.PromoSnapshotType = &order.Promotion.Type
+		record.PromoSnapshotValue = &order.Promotion.Value
+		if order.Promotion.Currency != "" {
+			currency := order.Promotion.Currency
+			record.PromoSnapshotCurrency = &currency
+		}
+	}
 	if err := tx.Create(&record).Error; err != nil {
 		return err
 	}

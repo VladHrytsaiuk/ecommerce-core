@@ -38,6 +38,8 @@ type ProductResponse struct {
 	Status       string                       `json:"status"`
 	Translations []ProductTranslationResponse `json:"translations"`
 	Rating       *ProductRatingResponse       `json:"rating,omitempty"`
+	SEO          *domain.ProductSEO           `json:"seo,omitempty"`
+	Badges       []domain.ProductBadge        `json:"badges,omitempty"`
 }
 
 type ProductRatingResponse struct {
@@ -80,6 +82,19 @@ func (h *ProductHandler) GetBySlug(c *gin.Context) {
 	c.JSON(stdhttp.StatusOK, mapProduct(product))
 }
 
+func (h *ProductHandler) List(c *gin.Context) {
+	products, err := h.service.List(c.Request.Context(), middleware.GetLanguage(c))
+	if err != nil {
+		handleProductError(c, err)
+		return
+	}
+	response := make([]ProductResponse, 0, len(products))
+	for index := range products {
+		response = append(response, mapProduct(&products[index]))
+	}
+	c.JSON(stdhttp.StatusOK, gin.H{"products": response})
+}
+
 func handleProductError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrProductNotFound):
@@ -102,5 +117,7 @@ func mapProduct(product *domain.Product) ProductResponse {
 	if product.Rating != nil {
 		response.Rating = &ProductRatingResponse{ReviewCount: product.Rating.ReviewCount, AverageRating: float64(product.Rating.AverageHundredths) / 100}
 	}
+	response.SEO = product.SEO
+	response.Badges = product.Badges
 	return response
 }

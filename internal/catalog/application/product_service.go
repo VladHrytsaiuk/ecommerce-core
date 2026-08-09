@@ -17,6 +17,8 @@ type ProductService struct {
 	repo         domain.ProductRepository
 	locales      localePolicy
 	ratingReader domain.ProductRatingReader
+	seoReader    domain.ProductSEOReader
+	badgeReader  domain.ProductBadgeReader
 }
 
 func NewProductService(repo domain.ProductRepository, allowedLocales []string) *ProductService {
@@ -25,6 +27,16 @@ func NewProductService(repo domain.ProductRepository, allowedLocales []string) *
 
 func (s *ProductService) WithRatingReader(reader domain.ProductRatingReader) *ProductService {
 	s.ratingReader = reader
+	return s
+}
+
+func (s *ProductService) WithSEOReader(reader domain.ProductSEOReader) *ProductService {
+	s.seoReader = reader
+	return s
+}
+
+func (s *ProductService) WithBadgeReader(reader domain.ProductBadgeReader) *ProductService {
+	s.badgeReader = reader
 	return s
 }
 
@@ -38,15 +50,80 @@ func (s *ProductService) FindBySlug(ctx context.Context, locale, slug string) (*
 		return nil, fmt.Errorf("%w: locale %q is not enabled for this store", domain.ErrInvalidProduct, locale)
 	}
 	product, err := s.repo.FindBySlug(ctx, locale, slug)
-	if err != nil || product == nil || s.ratingReader == nil {
+	if err != nil || product == nil {
 		return product, err
 	}
-	rating, err := s.ratingReader.RatingForProduct(ctx, product.ID)
-	if err != nil {
+	if err := s.enrich(ctx, []*domain.Product{product}, locale); err != nil {
 		return nil, err
 	}
-	product.Rating = rating
 	return product, nil
+}
+
+// List enriches a catalog page with at most one bulk read per optional module.
+// It never invokes an optional reader once per product.
+func (s *ProductService) List(ctx context.Context, locale string) ([]domain.Product, error) {
+	locale = normalize(locale)
+	if locale == "" || !s.locales.allows(locale) {
+		return nil, fmt.Errorf("%w: locale %q is not enabled for this store", domain.ErrInvalidProduct, locale)
+	}
+	products, err := s.repo.List(ctx)
+	if err != nil || len(products) == 0 {
+		return products, err
+	}
+	pointers := make([]*domain.Product, 0, len(products))
+	for index := range products {
+		pointers = append(pointers, &products[index])
+	}
+	if err := s.enrich(ctx, pointers, locale); err != nil {
+		return nil, err
+	}
+	return products, nil
+}
+
+func (s *ProductService) enrich(ctx context.Context, products []*domain.Product, locale string) error {
+	ids := make([]uuid.UUID, 0, len(products))
+	for _, product := range products {
+		if product != nil && product.ID != uuid.Nil {
+			ids = append(ids, product.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	if s.ratingReader != nil {
+		ratings, err := s.ratingReader.RatingsForProducts(ctx, ids)
+		if err != nil {
+			return err
+		}
+		for _, product := range products {
+			if value, ok := ratings[product.ID]; ok {
+				product.Rating = &value
+			}
+		}
+	}
+	if s.seoReader != nil {
+		metadata, err := s.seoReader.SEOForResources(ctx, "product", ids, locale)
+		if err != nil {
+			return err
+		}
+		for _, product := range products {
+			if value, ok := metadata[product.ID]; ok {
+				product.SEO = &value
+			}
+		}
+	}
+	if s.badgeReader != nil {
+		badges, err := s.badgeReader.BadgesForProducts(ctx, ids, locale)
+		if err != nil {
+			return err
+		}
+		for _, product := range products {
+			if values, ok := badges[product.ID]; ok {
+				product.Badges = values
+			}
+		}
+	}
+	return nil
 }
 
 func (s *ProductService) Create(ctx context.Context, product *domain.Product) error {

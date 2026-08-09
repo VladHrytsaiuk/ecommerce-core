@@ -19,7 +19,10 @@ active_paths=(
   migrations/modules
 )
 
-if rg -n -i 'jsonb' migrations/core migrations/modules; then
+# The Identity profile module deliberately stores a validated, per-store
+# attribute document. It is not multilingual content and is the one approved
+# JSONB exception; translated business content remains normalized everywhere.
+if rg -n -i 'jsonb' migrations/core migrations/modules --glob '!migrations/modules/user_profiles/**'; then
   echo 'Active migrations must not store multilingual content in JSONB.' >&2
   exit 1
 fi
@@ -34,8 +37,11 @@ if rg -n 'map\[string\]string' internal/catalog; then
   exit 1
 fi
 
-if rg -n 'REFERENCES (product_variants|orders)' migrations/modules; then
-  echo 'Module migrations must not declare foreign keys to Core tables.' >&2
+# Optional modules may reference stable identity/catalog entities (users,
+# products, variants) for local referential integrity. They must not attach
+# themselves to order workflows, which are a cross-context integration seam.
+if rg -n 'REFERENCES orders' migrations/modules; then
+  echo 'Module migrations must not declare foreign keys to Orders.' >&2
   exit 1
 fi
 

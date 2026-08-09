@@ -154,6 +154,25 @@ engagement modules.
    Catalog through a port; it does not alter Core tables or import a Catalog
    repository.
 
+## Phase 7 — Marketing and SEO
+
+**Status: in progress.** SEO and Badges are implemented as optional modules.
+
+1. SEO owns localized polymorphic metadata rather than columns on products or
+   categories; Catalog reads it through a bulk reader port.
+2. Badges own normalized translations and product associations; Catalog reads
+   page data through a bulk port, avoiding N+1 queries.
+3. Bootstrap wires module repositories only when `seo` or `badges` appears in
+   `ENABLED_MODULES`; their admin routes are absent otherwise.
+4. Promos is opt-in and decorates the Checkout price calculator. It snapshots
+   the applied rule and participates in the atomic OrderWorkflow transaction:
+   redemption is reserved before commit, committed after payment, and released
+   on cancellation without admitting an over-limit concurrent checkout.
+   Pending checkout expiry uses the same configured reservation deadline and
+   atomically releases stock plus redemptions. Zero-total carts use a local
+   free-order flow; late paid callbacks after cancellation create a durable
+   manual-reconciliation anomaly instead of being retried indefinitely.
+
 ## Global rules
 
 - Do not fork for a store.

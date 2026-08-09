@@ -23,6 +23,8 @@ type Product struct {
 	UpdatedAt    time.Time            `json:"updated_at"`
 	Translations []ProductTranslation `gorm:"foreignKey:ProductID;constraint:OnDelete:CASCADE" json:"translations"`
 	Rating       *ProductRating       `gorm:"-" json:"rating,omitempty"`
+	SEO          *ProductSEO          `gorm:"-" json:"seo,omitempty"`
+	Badges       []ProductBadge       `gorm:"-" json:"badges,omitempty"`
 }
 
 // ProductRating is a read projection owned by the optional Reviews module;
@@ -36,6 +38,31 @@ type ProductRating struct {
 // implements it only when the module is enabled and Bootstrap wires it in.
 type ProductRatingReader interface {
 	RatingForProduct(context.Context, uuid.UUID) (*ProductRating, error)
+	RatingsForProducts(context.Context, []uuid.UUID) (map[uuid.UUID]ProductRating, error)
+}
+
+// ProductSEO and ProductBadge are optional read models. Catalog owns their
+// ports so it can be enriched without importing the optional modules.
+type ProductSEO struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Keywords    string `json:"keywords,omitempty"`
+	OGImageRef  string `json:"og_image_ref,omitempty"`
+}
+
+type ProductSEOReader interface {
+	SEOForResources(context.Context, string, []uuid.UUID, string) (map[uuid.UUID]ProductSEO, error)
+}
+
+type ProductBadge struct {
+	ID    uuid.UUID `json:"id"`
+	Slug  string    `json:"slug"`
+	Color string    `json:"color"`
+	Name  string    `json:"name"`
+}
+
+type ProductBadgeReader interface {
+	BadgesForProducts(context.Context, []uuid.UUID, string) (map[uuid.UUID][]ProductBadge, error)
 }
 
 func (Product) TableName() string { return "products" }
@@ -53,6 +80,7 @@ func (ProductTranslation) TableName() string { return "product_translations" }
 
 type ProductRepository interface {
 	FindBySlug(context.Context, string, string) (*Product, error)
+	List(context.Context) ([]Product, error)
 	Create(context.Context, *Product) error
 }
 
@@ -61,5 +89,6 @@ type ProductRepository interface {
 // product fields.
 type ProductService interface {
 	FindBySlug(context.Context, string, string) (*Product, error)
+	List(context.Context, string) ([]Product, error)
 	Create(context.Context, *Product) error
 }

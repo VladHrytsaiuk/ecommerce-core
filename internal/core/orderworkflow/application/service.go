@@ -39,7 +39,13 @@ func (s *Service) CreatePendingCheckout(ctx context.Context, draft ordersDomain.
 	if err := validateReservationIDs(reservationIDs); err != nil {
 		return nil, err
 	}
-	if attempt.OrderID != uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount <= 0 || attempt.Amount.Currency == "" {
+	if draft.ExpiresAt.IsZero() {
+		draft.ExpiresAt = time.Now().UTC().Add(30 * time.Minute)
+	}
+	if attempt.ExpiresAt.IsZero() {
+		attempt.ExpiresAt = draft.ExpiresAt
+	}
+	if attempt.OrderID != uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount <= 0 || attempt.Amount.Currency == "" || attempt.ExpiresAt.IsZero() {
 		return nil, fmt.Errorf("invalid checkout attempt request")
 	}
 	order, err := ordersApp.NewPendingOrder(draft)
@@ -50,6 +56,31 @@ func (s *Service) CreatePendingCheckout(ctx context.Context, draft ordersDomain.
 	if err := s.repo.CreatePendingCheckout(ctx, order, reservationIDs, attempt); err != nil {
 		return nil, err
 	}
+	return order, nil
+}
+
+func (s *Service) CreatePaidCheckout(ctx context.Context, draft ordersDomain.Draft, reservationIDs []uuid.UUID, attempt workflowDomain.CheckoutAttemptRequest) (*ordersDomain.Order, error) {
+	if err := validateReservationIDs(reservationIDs); err != nil {
+		return nil, err
+	}
+	if draft.ExpiresAt.IsZero() {
+		draft.ExpiresAt = time.Now().UTC().Add(30 * time.Minute)
+	}
+	if attempt.ExpiresAt.IsZero() {
+		attempt.ExpiresAt = draft.ExpiresAt
+	}
+	if attempt.OrderID != uuid.Nil || attempt.Provider != "free" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount != 0 || attempt.Amount.Currency == "" || attempt.ExpiresAt.IsZero() {
+		return nil, fmt.Errorf("invalid free checkout attempt request")
+	}
+	order, err := ordersApp.NewPendingOrder(draft)
+	if err != nil {
+		return nil, err
+	}
+	attempt.OrderID = order.ID
+	if err := s.repo.CreatePaidCheckout(ctx, order, reservationIDs, attempt); err != nil {
+		return nil, err
+	}
+	order.Status = ordersDomain.StatusPaid
 	return order, nil
 }
 
@@ -131,6 +162,13 @@ func (s *Service) ClaimPendingCheckoutAttempt(ctx context.Context, olderThan, le
 		return nil, fmt.Errorf("checkout attempt recovery age and lease must be positive")
 	}
 	return s.repo.ClaimPendingCheckoutAttempt(ctx, olderThan, lease)
+}
+
+func (s *Service) ExpirePendingCheckout(ctx context.Context, now time.Time) (bool, error) {
+	if now.IsZero() {
+		return false, fmt.Errorf("expiry time is required")
+	}
+	return s.repo.ExpirePendingCheckout(ctx, now)
 }
 
 func (s *Service) MarkCheckoutAttemptFailed(ctx context.Context, orderID uuid.UUID) error {

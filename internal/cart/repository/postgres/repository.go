@@ -20,6 +20,8 @@ type cartRecord struct {
 	ID                    uuid.UUID `gorm:"type:uuid;primaryKey"`
 	CustomerID, SessionID *uuid.UUID
 	Status                string
+	AppliedPromoCode      *string
+	DiscountAmount        int64
 	UpdatedAt             time.Time
 }
 
@@ -74,6 +76,15 @@ func (r *Repository) Remove(ctx context.Context, owner domain.Owner, variantID u
 		return nil
 	})
 }
+func (r *Repository) SetPromoCode(ctx context.Context, owner domain.Owner, code string) (*domain.Cart, error) {
+	return r.mutate(ctx, owner, func(tx *gorm.DB, cart *cartRecord) error {
+		values := map[string]any{"applied_promo_code": nil, "discount_amount": int64(0)}
+		if code != "" {
+			values["applied_promo_code"] = code
+		}
+		return tx.Model(cart).Updates(values).Error
+	})
+}
 func (r *Repository) mutate(ctx context.Context, owner domain.Owner, change func(*gorm.DB, *cartRecord) error) (*domain.Cart, error) {
 	var result *domain.Cart
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -122,7 +133,11 @@ func load(tx *gorm.DB, record *cartRecord, owner domain.Owner) (*domain.Cart, er
 	for _, row := range rows {
 		items = append(items, domain.Item{VariantID: row.VariantID, Quantity: row.Quantity})
 	}
-	return &domain.Cart{ID: record.ID, Owner: owner, Status: record.Status, Items: items, UpdatedAt: record.UpdatedAt}, nil
+	code := ""
+	if record.AppliedPromoCode != nil {
+		code = *record.AppliedPromoCode
+	}
+	return &domain.Cart{ID: record.ID, Owner: owner, Status: record.Status, Items: items, AppliedPromoCode: code, DiscountAmount: record.DiscountAmount, UpdatedAt: record.UpdatedAt}, nil
 }
 
 var _ domain.Repository = (*Repository)(nil)

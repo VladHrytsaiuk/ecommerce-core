@@ -139,6 +139,34 @@ reject, or delete via `/api/admin/reviews/{id}/status` and
 Catalog reads it through a port and exposes `rating` on product responses when
 the module is enabled.
 
+### Optional SEO and product badges
+
+Add `seo` to `ENABLED_MODULES` to manage localized product, category, and
+future static-page metadata through `/api/admin/seo`. SEO is stored in the
+module-owned polymorphic `seo_metadata` table; no Core Catalog columns change.
+
+Add `badges` to enable `/api/admin/badges`. Badge display names use normalized
+translations and can be assigned to products. Catalog enriches both single
+product and product-list responses through optional reader ports. A product
+list uses one bulk SEO query and one bulk badge query for the complete page,
+never one query per product.
+
+### Optional promotions
+
+Add `promos` to `ENABLED_MODULES` to apply an active cart promo code during
+checkout. The discount is calculated before tax and its rule is snapshotted on
+the order. A promo redemption is reserved atomically with the pending order;
+the payment webhook commits it only after payment succeeds, or releases it
+when payment fails or is cancelled.
+
+The checkout deadline is `CHECKOUT_RESERVATION_TTL`: the background worker
+expires an unpaid order atomically, releasing stock and any reserved promo.
+When a promotion covers the complete payable amount, checkout uses the local
+`free` payment flow and commits the order without calling a payment provider.
+If a verified `paid` webhook arrives after a local cancellation, the callback
+is acknowledged and a durable `payment_anomalies` record is opened for manual
+reconciliation rather than silently losing the captured payment.
+
 ### Checkout contract
 
 `POST /api/:lang/checkout/payment` starts payment for the caller's active

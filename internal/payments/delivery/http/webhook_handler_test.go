@@ -58,6 +58,9 @@ func (*httpWorkflow) CreatePending(context.Context, ordersDomain.Draft, []uuid.U
 func (*httpWorkflow) CreatePendingCheckout(context.Context, ordersDomain.Draft, []uuid.UUID, workflowDomain.CheckoutAttemptRequest) (*ordersDomain.Order, error) {
 	return nil, nil
 }
+func (*httpWorkflow) CreatePaidCheckout(context.Context, ordersDomain.Draft, []uuid.UUID, workflowDomain.CheckoutAttemptRequest) (*ordersDomain.Order, error) {
+	return nil, nil
+}
 func (*httpWorkflow) RegisterPayment(context.Context, workflowDomain.PaymentAttempt) error {
 	return nil
 }
@@ -69,6 +72,9 @@ func (*httpWorkflow) FindCheckoutAttempt(context.Context, string) (*workflowDoma
 }
 func (*httpWorkflow) ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*workflowDomain.CheckoutAttempt, error) {
 	return nil, nil
+}
+func (*httpWorkflow) ExpirePendingCheckout(context.Context, time.Time) (bool, error) {
+	return false, nil
 }
 func (*httpWorkflow) MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error         { return nil }
 func (*httpWorkflow) RetryCheckoutAttempt(context.Context, uuid.UUID, error) error       { return nil }

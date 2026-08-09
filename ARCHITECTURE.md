@@ -56,6 +56,9 @@ flowchart TB
     Bootstrap --> Wishlist[Wishlist module\noptional]
     Bootstrap --> Comparison[Comparison module\noptional]
     Bootstrap --> Reviews[Reviews module\noptional]
+    Bootstrap --> SEO[SEO module\noptional]
+    Bootstrap --> Badges[Badges module\noptional]
+    Bootstrap --> Promos[Promos module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders
@@ -70,6 +73,9 @@ flowchart TB
     Identity -. post-login event .-> Wishlist
     Identity -. post-login event .-> Comparison
     Reviews -. rating reader port .-> Catalog
+    SEO -. SEO reader port .-> Catalog
+    Badges -. badge reader port .-> Catalog
+    Promos -. pricing decorator + transaction hook .-> Checkout
 
     PaymentsPort --> LiqPay[LiqPay adapter]
     PaymentsPort --> Stripe[Stripe adapter]
@@ -113,6 +119,14 @@ same local transaction. Catalog owns a `ProductRatingReader` port and receives
 the Reviews implementation only from Bootstrap, so product API responses can
 include the aggregate without adding review columns to Core `products` or
 making Catalog import a Reviews repository.
+
+SEO and Badges are optional Marketing modules. SEO owns localized polymorphic
+metadata and has no direct foreign key because a record can describe a product,
+category, or future page type. Badges own normalized translations and product
+associations. Catalog owns narrow bulk reader ports for both modules and is
+enriched only by Bootstrap wiring: a catalog page performs one SEO and one
+badges lookup for all product IDs, never N+1 module queries or SQL joins in
+the Catalog repository.
 
 Every state-changing checkout request carries an `Idempotency-Key`. The HTTP
 adapter derives a stable checkout identity from it, so browser retries cannot

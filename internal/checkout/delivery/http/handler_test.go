@@ -166,6 +166,9 @@ func (*fakeCart) SetQuantity(context.Context, cartDomain.Owner, cartDomain.Item)
 func (*fakeCart) Remove(context.Context, cartDomain.Owner, uuid.UUID) (*cartDomain.Cart, error) {
 	return nil, nil
 }
+func (*fakeCart) SetPromoCode(context.Context, cartDomain.Owner, string) (*cartDomain.Cart, error) {
+	return nil, nil
+}
 
 func (s *fakeCheckout) PreparePayment(context.Context, checkoutDomain.PrepareRequest) (*checkoutDomain.PreparedCheckout, error) {
 	return nil, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	"github.com/google/uuid"
@@ -30,6 +31,9 @@ func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {
 	if strings.TrimSpace(draft.Number) == "" || len(draft.Items) == 0 {
 		return nil, fmt.Errorf("invalid order draft")
 	}
+	if !draft.ExpiresAt.IsZero() && !draft.ExpiresAt.After(time.Now()) {
+		return nil, fmt.Errorf("order expiry must be in the future")
+	}
 	if draft.Shipping.Currency == "" && draft.Shipping.Amount == 0 {
 		draft.Shipping.Currency = draft.Subtotal.Currency
 	}
@@ -43,8 +47,16 @@ func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {
 		}
 		sum += item.Total.Amount
 	}
-	if sum != draft.Subtotal.Amount {
-		return nil, fmt.Errorf("order subtotal does not match items")
+	// Item totals are the immutable catalog-price snapshot. With VAT-included
+	// pricing and/or a promotion the taxable subtotal can legitimately be lower
+	// than this pre-tax, pre-discount item sum.
+	if sum < draft.Subtotal.Amount {
+		return nil, fmt.Errorf("order subtotal exceeds item snapshot total")
 	}
-	return &domain.Order{ID: uuid.New(), CartID: draft.CartID, Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Shipping: draft.Shipping, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Delivery: draft.Delivery, Items: draft.Items}, nil
+	if draft.Promotion != nil {
+		if strings.TrimSpace(draft.Promotion.Code) == "" || strings.TrimSpace(draft.Promotion.Type) == "" || draft.Promotion.Value <= 0 || draft.Promotion.Discount.Currency != draft.Total.Currency || draft.Promotion.Discount.Amount < 0 {
+			return nil, fmt.Errorf("invalid order promotion")
+		}
+	}
+	return &domain.Order{ID: uuid.New(), CartID: draft.CartID, Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Shipping: draft.Shipping, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Delivery: draft.Delivery, Items: draft.Items, Promotion: draft.Promotion, ExpiresAt: draft.ExpiresAt}, nil
 }

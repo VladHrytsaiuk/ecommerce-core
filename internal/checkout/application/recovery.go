@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
@@ -14,14 +16,22 @@ import (
 // RecoveryService recovers pending checkout attempts that were interrupted
 // by network timeouts or application crashes.
 type RecoveryService struct {
-	workflow domain.Service
+	workflow recoveryWorkflowPort
 	gateways interface {
 		Get(string) (paymentsDomain.Gateway, bool)
 	}
 	logger logger.Logger
 }
 
-func NewRecoveryService(workflow domain.Service, gateways interface {
+type recoveryWorkflowPort interface {
+	ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*domain.CheckoutAttempt, error)
+	RetryCheckoutAttempt(context.Context, uuid.UUID, error) error
+	MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error
+	CancelPending(context.Context, uuid.UUID) error
+	RegisterPayment(context.Context, domain.PaymentAttempt) error
+}
+
+func NewRecoveryService(workflow recoveryWorkflowPort, gateways interface {
 	Get(string) (paymentsDomain.Gateway, bool)
 }, logger logger.Logger) *RecoveryService {
 	return &RecoveryService{

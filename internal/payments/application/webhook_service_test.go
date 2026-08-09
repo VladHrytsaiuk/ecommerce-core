@@ -55,6 +55,21 @@ func TestWebhookServiceAbandonsClaimWhenWorkflowFails(t *testing.T) {
 	}
 }
 
+func TestWebhookServiceReleasesWorkflowForCancelledOrExpiredPayment(t *testing.T) {
+	for _, status := range []string{"cancelled", "expired"} {
+		t.Run(status, func(t *testing.T) {
+			workflow := &fakeWorkflow{}
+			service := NewWebhookService(&Registry{gateways: map[string]paymentsDomain.Gateway{"fake": webhookGateway{event: webhookEvent(uuid.New(), status)}}}, &fakeEventStore{}, workflow)
+			if err := service.Handle(context.Background(), "fake", paymentsDomain.WebhookRequest{}); err != nil {
+				t.Fatalf("Handle() error = %v", err)
+			}
+			if workflow.failed.Status != "failed" {
+				t.Fatalf("failed confirmation = %+v", workflow.failed)
+			}
+		})
+	}
+}
+
 func webhookEvent(orderID uuid.UUID, status string) paymentsDomain.PaymentEvent {
 	amount, _ := money.New(100, "EUR")
 	return paymentsDomain.PaymentEvent{EventID: "event-1", OrderID: orderID, Status: status, Amount: amount, OccurredAt: time.Now()}
@@ -129,5 +144,5 @@ func (w *fakeWorkflow) CancelPending(_ context.Context, orderID uuid.UUID) error
 	return w.err
 }
 
-var _ workflowDomain.Service = (*fakeWorkflow)(nil)
+var _ paymentWorkflow = (*fakeWorkflow)(nil)
 var _ paymentsDomain.WebhookEventStore = (*fakeEventStore)(nil)

@@ -5,6 +5,8 @@ package orderworkflow
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"runtime"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -26,6 +29,9 @@ import (
 	workflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
+	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
+	paymentHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
+	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 	syncDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/domain"
 	syncPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/repository/postgres"
 )
@@ -110,6 +116,89 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	assertOrderCreatedOutbox(t, db, order.ID)
 	assertSyncPersistence(t, ctx, db, order.ID)
 }
+
+func TestLatePaidWebhookWithoutPersistedPaymentCreatesOneAnomaly(t *testing.T) {
+	testcontainers.SkipIfProviderIsNotHealthy(t)
+	ctx := context.Background()
+	container, err := containerPostgres.Run(ctx,
+		"postgres:16-alpine",
+		containerPostgres.WithDatabase("workflow_anomaly_test"),
+		containerPostgres.WithUsername("workflow"),
+		containerPostgres.WithPassword("workflow"),
+		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(30*time.Second)),
+	)
+	if err != nil {
+		t.Fatalf("start PostgreSQL: %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+
+	databaseURL, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("get PostgreSQL connection string: %v", err)
+	}
+	if err := applyMigrations(filepath.Join(repositoryRoot(t), "migrations", "core"), databaseURL, "schema_migrations"); err != nil {
+		t.Fatalf("migrate core: %v", err)
+	}
+	db, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+
+	orderID := uuid.New()
+	if err := db.Exec(`INSERT INTO orders (id, number, status, currency, subtotal_amount, tax_amount, shipping_amount, total_amount, payment_provider, expires_at) VALUES (?, 'ES-late-paid', 'cancelled', 'EUR', 1000, 0, 0, 1000, 'fake', ?)`, orderID, time.Now().UTC().Add(-time.Minute)).Error; err != nil {
+		t.Fatal(err)
+	}
+	service := workflowApp.NewService(NewRepository(db, false))
+	event := paymentsDomain.PaymentEvent{EventID: "late-paid-event", Provider: "fake", OrderID: orderID, ProviderReference: "captured-after-expiry", Status: "paid", Amount: money.Money{Amount: 1000, Currency: "EUR"}}
+	registry, err := paymentsApp.NewRegistry([]string{"fake"}, "fake", latePaidGateway{event: event})
+	if err != nil {
+		t.Fatalf("create gateway registry: %v", err)
+	}
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	paymentHTTP.RegisterWebhookRoutes(router.Group("/api"), paymentsApp.NewWebhookService(registry, &latePaidEventStore{}, service))
+	for attempt := 0; attempt < 2; attempt++ {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/webhooks/payments/fake", nil))
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("late paid webhook status = %d, want %d", recorder.Code, http.StatusNoContent)
+		}
+	}
+
+	var anomalies, payments int
+	if err := db.Raw(`SELECT COUNT(*) FROM payment_anomalies WHERE order_id = ? AND provider = 'fake' AND provider_reference = 'captured-after-expiry' AND reason = 'paid_after_cancelled'`, orderID).Scan(&anomalies).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Raw(`SELECT COUNT(*) FROM payments WHERE order_id = ?`, orderID).Scan(&payments).Error; err != nil {
+		t.Fatal(err)
+	}
+	if anomalies != 1 || payments != 0 {
+		t.Fatalf("anomaly/payment records = %d/%d, want 1/0", anomalies, payments)
+	}
+}
+
+type latePaidGateway struct{ event paymentsDomain.PaymentEvent }
+
+func (g latePaidGateway) Code() string { return "fake" }
+
+func (latePaidGateway) CreateCheckout(context.Context, paymentsDomain.CheckoutPayment) (paymentsDomain.PaymentSession, error) {
+	return paymentsDomain.PaymentSession{}, nil
+}
+
+func (g latePaidGateway) VerifyWebhook(context.Context, paymentsDomain.WebhookRequest) (paymentsDomain.PaymentEvent, error) {
+	return g.event, nil
+}
+
+func (latePaidGateway) Refund(context.Context, paymentsDomain.RefundRequest) error { return nil }
+
+type latePaidEventStore struct{}
+
+func (*latePaidEventStore) Claim(context.Context, string, paymentsDomain.PaymentEvent) (bool, error) {
+	return true, nil
+}
+
+func (*latePaidEventStore) MarkProcessed(context.Context, string, string) error { return nil }
+func (*latePaidEventStore) Abandon(context.Context, string, string) error       { return nil }
 
 func assertOrderCreatedOutbox(t *testing.T, db *gorm.DB, orderID uuid.UUID) {
 	t.Helper()

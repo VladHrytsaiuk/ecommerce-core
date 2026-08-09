@@ -65,6 +65,21 @@ func TestStartPaymentCreatesOrderBeforeGatewayCall(t *testing.T) {
 	}
 }
 
+func TestStartPaymentCompletesZeroTotalCheckoutWithoutGateway(t *testing.T) {
+	inventory := &fakeInventory{}
+	price, _ := money.New(1000, "EUR")
+	workflow := &fakeWorkflow{}
+	prices := &zeroPriceCalculator{}
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, workflow, nil).WithPriceCalculator(prices)
+	started, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, OrderNumber: "FREE-1"})
+	if err != nil {
+		t.Fatalf("StartPayment() error = %v", err)
+	}
+	if started.Order.Status != ordersDomain.StatusPaid || started.Order.PaymentProvider != "free" || started.Session.ProviderReference != "" {
+		t.Fatalf("zero-total checkout = %+v", started)
+	}
+}
+
 func TestStartPaymentCancelsOrderWhenGatewayFails(t *testing.T) {
 	inventory := &fakeInventory{}
 	price, _ := money.New(1000, "EUR")
@@ -280,6 +295,17 @@ func (f *fakeWorkflow) CreatePending(_ context.Context, draft ordersDomain.Draft
 func (f *fakeWorkflow) CreatePendingCheckout(ctx context.Context, draft ordersDomain.Draft, reservations []uuid.UUID, _ workflowDomain.CheckoutAttemptRequest) (*ordersDomain.Order, error) {
 	return f.CreatePending(ctx, draft, reservations)
 }
+func (f *fakeWorkflow) CreatePaidCheckout(ctx context.Context, draft ordersDomain.Draft, reservations []uuid.UUID, _ workflowDomain.CheckoutAttemptRequest) (*ordersDomain.Order, error) {
+	order, err := f.CreatePending(ctx, draft, reservations)
+	if order != nil {
+		order.Status = ordersDomain.StatusPaid
+		order.PaymentProvider = "free"
+	}
+	return order, err
+}
+func (*fakeWorkflow) ExpirePendingCheckout(context.Context, time.Time) (bool, error) {
+	return false, nil
+}
 func (f *fakeWorkflow) CancelPending(_ context.Context, orderID uuid.UUID) error {
 	f.cancelled = orderID
 	return nil
@@ -335,4 +361,12 @@ func (f *fakeGateway) VerifyWebhook(context.Context, paymentsDomain.WebhookReque
 func (f *fakeGateway) Refund(context.Context, paymentsDomain.RefundRequest) error { return nil }
 
 var _ workflowDomain.Service = (*fakeWorkflow)(nil)
+
+type zeroPriceCalculator struct{}
+
+func (zeroPriceCalculator) Calculate(_ context.Context, request checkoutDomain.PriceCalculationRequest) (checkoutDomain.Price, error) {
+	zero, _ := money.New(0, request.Subtotal.Currency)
+	return checkoutDomain.Price{Subtotal: zero, Discount: request.Subtotal, Tax: zero, Total: zero}, nil
+}
+
 var _ paymentsDomain.Gateway = (*fakeGateway)(nil)

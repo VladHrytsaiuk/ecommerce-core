@@ -28,11 +28,13 @@ type Item struct {
 }
 
 type Cart struct {
-	ID        uuid.UUID
-	Owner     Owner
-	Status    string
-	Items     []Item
-	UpdatedAt time.Time
+	ID               uuid.UUID
+	Owner            Owner
+	Status           string
+	Items            []Item
+	AppliedPromoCode string
+	DiscountAmount   int64
+	UpdatedAt        time.Time
 }
 
 type Repository interface {
@@ -40,6 +42,7 @@ type Repository interface {
 	Add(context.Context, Owner, Item) (*Cart, error)
 	SetQuantity(context.Context, Owner, Item) (*Cart, error)
 	Remove(context.Context, Owner, uuid.UUID) (*Cart, error)
+	SetPromoCode(context.Context, Owner, string) (*Cart, error)
 }
 
 type Service interface {
@@ -47,4 +50,5 @@ type Service interface {
 	Add(context.Context, Owner, Item) (*Cart, error)
 	SetQuantity(context.Context, Owner, Item) (*Cart, error)
 	Remove(context.Context, Owner, uuid.UUID) (*Cart, error)
+	SetPromoCode(context.Context, Owner, string) (*Cart, error)
 }

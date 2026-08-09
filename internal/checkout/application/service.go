@@ -33,6 +33,7 @@ type Service struct {
 	inventory inventoryDomain.Service
 	variants  variantFinder
 	tax       tax.Calculator
+	prices    checkoutDomain.PriceCalculator
 	policy    checkoutDomain.Policy
 	workflow  workflowDomain.Service
 	gateway   paymentsDomain.Gateway
@@ -40,7 +41,14 @@ type Service struct {
 }
 
 func NewService(inventory inventoryDomain.Service, variants variantFinder, tax tax.Calculator, policy checkoutDomain.Policy, workflow workflowDomain.Service, gateway paymentsDomain.Gateway) *Service {
-	return &Service{inventory: inventory, variants: variants, tax: tax, policy: policy, workflow: workflow, gateway: gateway}
+	prices, _ := checkoutDomain.NewCheckoutPriceCalculator(tax)
+	return &Service{inventory: inventory, variants: variants, tax: tax, prices: prices, policy: policy, workflow: workflow, gateway: gateway}
+}
+
+// WithPriceCalculator installs an optional module-owned pricing decorator.
+func (s *Service) WithPriceCalculator(prices checkoutDomain.PriceCalculator) *Service {
+	s.prices = prices
+	return s
 }
 
 // WithCarriers attaches the configured delivery registry to checkout without
@@ -111,7 +119,10 @@ func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.Pre
 	if err != nil {
 		return nil, err
 	}
-	breakdown, err := s.tax.Calculate(subtotal)
+	if s.prices == nil {
+		return nil, fmt.Errorf("checkout price calculator is not configured")
+	}
+	price, err := s.prices.Calculate(ctx, checkoutDomain.PriceCalculationRequest{Subtotal: subtotal, PromoCode: request.PromoCode})
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +141,7 @@ func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.Pre
 	if err != nil {
 		return nil, err
 	}
-	result := &checkoutDomain.PreparedCheckout{CheckoutID: request.CheckoutID, ExpiresAt: request.ExpiresAt, ReservationIDs: make([]uuid.UUID, 0, len(reservations)), Items: items, Subtotal: breakdown.Subtotal, Tax: breakdown.Tax, Total: breakdown.Total}
+	result := &checkoutDomain.PreparedCheckout{CheckoutID: request.CheckoutID, ExpiresAt: request.ExpiresAt, ReservationIDs: make([]uuid.UUID, 0, len(reservations)), Items: items, Subtotal: price.Subtotal, Discount: price.Discount, Tax: price.Tax, Total: price.Total, Promotion: price.Promotion}
 	for _, reservation := range reservations {
 		result.ReservationIDs = append(result.ReservationIDs, reservation.ID)
 	}
@@ -140,11 +151,8 @@ func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.Pre
 // StartPayment creates the order and associates reservations before it performs
 // provider I/O. A gateway failure is compensated through the atomic workflow.
 func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.StartPaymentRequest) (*checkoutDomain.StartedCheckout, error) {
-	if s.gateway == nil || s.workflow == nil {
+	if s.workflow == nil {
 		return nil, fmt.Errorf("checkout payment workflow is not configured")
-	}
-	if strings.TrimSpace(s.gateway.Code()) == "" {
-		return nil, fmt.Errorf("checkout payment gateway code is required")
 	}
 	if started, found, err := s.replayCheckout(ctx, request); err != nil || found {
 		return started, err
@@ -165,6 +173,9 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 	if strings.TrimSpace(request.OrderNumber) == "" {
 		request.OrderNumber = s.policy.OrderNumber(request.Preparation.CheckoutID)
 	}
+	if strings.TrimSpace(request.PromoCode) != "" {
+		request.Preparation.PromoCode = request.PromoCode
+	}
 	prepared, err := s.PreparePayment(ctx, request.Preparation)
 	if err != nil {
 		return nil, err
@@ -180,7 +191,7 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		s.releasePrepared(ctx, prepared.ReservationIDs)
 		return nil, fmt.Errorf("add shipping total: %w", err)
 	}
-	order, err := s.workflow.CreatePendingCheckout(ctx, ordersDomain.Draft{
+	draft := ordersDomain.Draft{
 		Number:           request.OrderNumber,
 		CartID:           request.CartID,
 		CustomerID:       request.CustomerID,
@@ -188,12 +199,28 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		Tax:              prepared.Tax,
 		Shipping:         prepared.Shipping,
 		Total:            prepared.Total,
-		PaymentProvider:  strings.TrimSpace(s.gateway.Code()),
+		PaymentProvider:  "free",
 		DeliveryProvider: strings.TrimSpace(request.DeliveryProvider),
 		Delivery:         mapDelivery(request.Delivery),
 		Items:            prepared.Items,
-	}, prepared.ReservationIDs, workflowDomain.CheckoutAttemptRequest{
-		Provider: s.gateway.Code(), IdempotencyKey: request.Preparation.CheckoutID.String(), Amount: prepared.Total,
+		Promotion:        mapPromotion(prepared.Promotion),
+		ExpiresAt:        request.Preparation.ExpiresAt,
+	}
+	if prepared.Total.Amount == 0 {
+		order, err := s.workflow.CreatePaidCheckout(ctx, draft, prepared.ReservationIDs, workflowDomain.CheckoutAttemptRequest{Provider: "free", IdempotencyKey: request.Preparation.CheckoutID.String(), Amount: prepared.Total, ExpiresAt: request.Preparation.ExpiresAt})
+		if err != nil {
+			s.releasePrepared(ctx, prepared.ReservationIDs)
+			return nil, err
+		}
+		return &checkoutDomain.StartedCheckout{Prepared: prepared, Order: order}, nil
+	}
+	if s.gateway == nil || strings.TrimSpace(s.gateway.Code()) == "" {
+		s.releasePrepared(ctx, prepared.ReservationIDs)
+		return nil, fmt.Errorf("checkout payment gateway code is required")
+	}
+	draft.PaymentProvider = strings.TrimSpace(s.gateway.Code())
+	order, err := s.workflow.CreatePendingCheckout(ctx, draft, prepared.ReservationIDs, workflowDomain.CheckoutAttemptRequest{
+		Provider: s.gateway.Code(), IdempotencyKey: request.Preparation.CheckoutID.String(), Amount: prepared.Total, ExpiresAt: request.Preparation.ExpiresAt,
 	})
 	if err != nil {
 		s.releasePrepared(ctx, prepared.ReservationIDs)
@@ -239,6 +266,12 @@ func (s *Service) replayCheckout(ctx context.Context, request checkoutDomain.Sta
 	}
 	if attempt == nil {
 		return nil, false, nil
+	}
+	if attempt.Provider == "free" && attempt.OrderStatus == ordersDomain.StatusPaid {
+		return &checkoutDomain.StartedCheckout{Prepared: &checkoutDomain.PreparedCheckout{CheckoutID: request.Preparation.CheckoutID, ExpiresAt: attempt.ExpiresAt, Total: attempt.Amount}, Order: &ordersDomain.Order{ID: attempt.OrderID, Number: attempt.OrderNumber, Status: attempt.OrderStatus, Total: attempt.Amount, PaymentProvider: "free"}}, true, nil
+	}
+	if s.gateway == nil {
+		return nil, true, fmt.Errorf("checkout payment gateway is not configured")
 	}
 	if attempt.Provider != s.gateway.Code() || attempt.OrderStatus != ordersDomain.StatusPendingPayment || attempt.Status == "failed" {
 		return nil, true, fmt.Errorf("checkout attempt cannot be replayed")
@@ -299,6 +332,13 @@ func mapDelivery(details *checkoutDomain.DeliveryDetails) *ordersDomain.Delivery
 		return nil
 	}
 	return &ordersDomain.DeliveryDetails{RecipientName: details.RecipientName, RecipientPhone: details.RecipientPhone, CountryCode: details.CountryCode, PostalCode: details.PostalCode, City: details.City, Line1: details.Line1, Line2: details.Line2, LocalityID: details.LocalityID, ServicePointID: details.ServicePointID}
+}
+
+func mapPromotion(snapshot *checkoutDomain.PromotionSnapshot) *ordersDomain.Promotion {
+	if snapshot == nil {
+		return nil
+	}
+	return &ordersDomain.Promotion{Code: snapshot.Code, Type: snapshot.Type, Value: snapshot.Value, Currency: snapshot.Currency, Discount: snapshot.Discount}
 }
 
 func (s *Service) ConfirmPayment(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {

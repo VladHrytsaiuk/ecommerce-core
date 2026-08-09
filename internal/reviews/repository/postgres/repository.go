@@ -115,6 +115,22 @@ func (repository *Repository) RatingForProduct(ctx context.Context, productID uu
 	return &catalogDomain.ProductRating{ReviewCount: record.ReviewCount, AverageHundredths: record.AverageHundredths}, nil
 }
 
+// RatingsForProducts reads all rating projections for one Catalog page.
+func (repository *Repository) RatingsForProducts(ctx context.Context, productIDs []uuid.UUID) (map[uuid.UUID]catalogDomain.ProductRating, error) {
+	result := make(map[uuid.UUID]catalogDomain.ProductRating, len(productIDs))
+	if len(productIDs) == 0 {
+		return result, nil
+	}
+	var records []ratingRecord
+	if err := repository.db.WithContext(ctx).Where("product_id IN ?", productIDs).Find(&records).Error; err != nil {
+		return nil, err
+	}
+	for _, record := range records {
+		result[record.ProductID] = catalogDomain.ProductRating{ReviewCount: record.ReviewCount, AverageHundredths: record.AverageHundredths}
+	}
+	return result, nil
+}
+
 func refreshRatingProjection(ctx context.Context, tx *gorm.DB, productID uuid.UUID) error {
 	if err := tx.WithContext(ctx).Where("product_id = ?", productID).Delete(&ratingRecord{}).Error; err != nil {
 		return err

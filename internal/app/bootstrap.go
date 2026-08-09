@@ -13,6 +13,9 @@ import (
 	"gorm.io/gorm"
 
 	googleAuthAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/auth/google"
+	badgesDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/domain"
+	badgesPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/repository/postgres"
+	badgesService "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/service"
 	cartApp "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/application"
 	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	cartPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/repository/postgres"
@@ -47,9 +50,14 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	workflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/orderworkflow"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
+	promosApp "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/application"
+	promosPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/repository/postgres"
 	reviewsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/domain"
 	reviewsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/repository/postgres"
 	reviewsService "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/service"
+	seoDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/domain"
+	seoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/repository/postgres"
+	seoService "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/service"
 	wishlistDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
 	wishlistPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/repository/postgres"
 	wishlistService "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/service"
@@ -66,6 +74,7 @@ type Application struct {
 	CartService            cartDomain.Service
 	CheckoutService        checkoutDomain.Service
 	CheckoutRecovery       *checkoutApp.RecoveryService
+	CheckoutExpiry         *checkoutApp.ExpiryService
 	OrderWorkflowService   orderWorkflowDomain.Service
 	InventoryService       inventoryDomain.Service
 	InventoryCleanup       *inventoryApp.Cleanup
@@ -75,6 +84,8 @@ type Application struct {
 	WishlistService        wishlistDomain.Service
 	ComparisonService      comparisonDomain.Service
 	ReviewsService         reviewsDomain.Service
+	SEOService             seoDomain.Service
+	BadgesService          badgesDomain.Service
 	PaymentGateways        *paymentsApp.Registry
 	PaymentWebhookService  *paymentsApp.WebhookService
 	DeliveryCarriers       *deliveryApp.Registry
@@ -139,7 +150,18 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
 	// Inventory repository implementation.
-	orderWorkflowService := orderWorkflowApp.NewService(workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync")))
+	workflowRepository := workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync"))
+	basePriceCalculator, err := checkoutDomain.NewCheckoutPriceCalculator(taxPolicy)
+	if err != nil {
+		return nil, err
+	}
+	var priceCalculator checkoutDomain.PriceCalculator = basePriceCalculator
+	if contains(storeConfig.EnabledModules, "promos") {
+		promosRepository := promosPostgres.NewRepository(db)
+		workflowRepository.WithTransactionHook(promosApp.NewWorkflowHook(promosRepository))
+		priceCalculator = promosApp.NewPromoCalculatorDecorator(priceCalculator, promosRepository)
+	}
+	orderWorkflowService := orderWorkflowApp.NewService(workflowRepository)
 	paymentWebhookService := paymentsApp.NewWebhookService(paymentGateways, paymentsPostgres.NewWebhookEventStore(db), orderWorkflowService)
 	var enabledWishlist wishlistDomain.Service
 	if contains(storeConfig.EnabledModules, "wishlist") {
@@ -150,6 +172,18 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		enabledComparison = comparisonService.New(comparisonPostgres.NewRepository(db), storeConfig.ComparisonMaxItems)
 	}
 	productService := catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales)
+	var enabledSEO seoDomain.Service
+	if contains(storeConfig.EnabledModules, "seo") {
+		repository := seoPostgres.NewRepository(db)
+		enabledSEO = seoService.New(repository)
+		productService.WithSEOReader(repository)
+	}
+	var enabledBadges badgesDomain.Service
+	if contains(storeConfig.EnabledModules, "badges") {
+		repository := badgesPostgres.NewRepository(db)
+		enabledBadges = badgesService.New(repository)
+		productService.WithBadgeReader(repository)
+	}
 	var enabledReviews reviewsDomain.Service
 	if contains(storeConfig.EnabledModules, "reviews") {
 		repository := reviewsPostgres.NewRepository(db)
@@ -186,20 +220,23 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		identityProfileService = identityService.NewProfileService(*storeConfig.ProfilePolicy, identityPostgres.NewProfileRepository(db))
 	}
 
+	checkoutService := checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
+		AllowGuest:                 storeConfig.CheckoutAllowGuest,
+		RequirePhone:               storeConfig.CheckoutRequirePhone,
+		OrderNumberPrefix:          storeConfig.Code,
+		SupportedDeliveryProviders: storeConfig.ShippingProviders,
+		DefaultDeliveryProvider:    storeConfig.ShippingDefault,
+	}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers).WithPriceCalculator(priceCalculator)
+
 	return &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
 		CatalogProductService:  productService,
 		CatalogVariantService:  variantService,
 		CartService:            cartApp.NewService(cartPostgres.NewRepository(db)),
-		CheckoutService: checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
-			AllowGuest:                 storeConfig.CheckoutAllowGuest,
-			RequirePhone:               storeConfig.CheckoutRequirePhone,
-			OrderNumberPrefix:          storeConfig.Code,
-			SupportedDeliveryProviders: storeConfig.ShippingProviders,
-			DefaultDeliveryProvider:    storeConfig.ShippingDefault,
-		}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers),
+		CheckoutService:        checkoutService,
 		CheckoutRecovery:       checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
+		CheckoutExpiry:         checkoutApp.NewExpiryService(orderWorkflowService),
 		OrderWorkflowService:   orderWorkflowService,
 		InventoryService:       inventoryService,
 		InventoryCleanup:       inventoryApp.NewCleanup(inventoryRepository),
@@ -209,6 +246,8 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		WishlistService:        enabledWishlist,
 		ComparisonService:      enabledComparison,
 		ReviewsService:         enabledReviews,
+		SEOService:             enabledSEO,
+		BadgesService:          enabledBadges,
 		PaymentGateways:        paymentGateways,
 		PaymentWebhookService:  paymentWebhookService,
 		DeliveryCarriers:       deliveryCarriers,

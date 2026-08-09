@@ -23,6 +23,7 @@ type PrepareRequest struct {
 	Locale     string
 	Lines      []Line
 	ExpiresAt  time.Time
+	PromoCode  string
 }
 type PreparedCheckout struct {
 	CheckoutID     uuid.UUID
@@ -33,6 +34,8 @@ type PreparedCheckout struct {
 	Tax            money.Money
 	Shipping       money.Money
 	Total          money.Money
+	Discount       money.Money
+	Promotion      *PromotionSnapshot
 }
 
 type StartPaymentRequest struct {
@@ -46,6 +49,7 @@ type StartPaymentRequest struct {
 	Delivery           *DeliveryDetails
 	ReturnURL          string
 	CancelURL          string
+	PromoCode          string
 }
 
 type DeliveryDetails struct {

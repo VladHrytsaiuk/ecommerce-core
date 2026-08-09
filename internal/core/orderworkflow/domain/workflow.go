@@ -25,6 +25,7 @@ type CheckoutAttemptRequest struct {
 	Provider       string
 	IdempotencyKey string
 	Amount         money.Money
+	ExpiresAt      time.Time
 }
 
 // CheckoutAttempt represents an existing durable record of an attempt to
@@ -39,6 +40,7 @@ type CheckoutAttempt struct {
 	Status         string
 	Attempts       int
 	CreatedAt      time.Time
+	ExpiresAt      time.Time
 }
 
 // PaymentAttempt is the durable, provider-neutral snapshot created after a
@@ -59,12 +61,23 @@ type PaymentConfirmation struct {
 	Status string
 }
 
+// TransactionHook extends the atomic order workflow without allowing a module
+// to own order or inventory persistence. The platform invokes it with a
+// transaction-scoped context immediately before the surrounding transaction
+// commits. Implementations must not perform external I/O.
+type TransactionHook interface {
+	BeforeCreatePending(context.Context, *ordersDomain.Order) error
+	BeforeOrderTransition(context.Context, uuid.UUID, string) error
+}
+
 type Repository interface {
 	CreatePending(context.Context, *ordersDomain.Order, []uuid.UUID) error
 	CreatePendingCheckout(context.Context, *ordersDomain.Order, []uuid.UUID, CheckoutAttemptRequest) error
+	CreatePaidCheckout(context.Context, *ordersDomain.Order, []uuid.UUID, CheckoutAttemptRequest) error
 	RecordCheckoutAttempt(context.Context, CheckoutAttemptRequest) error
 	FindCheckoutAttempt(context.Context, string) (*CheckoutAttempt, error)
 	ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*CheckoutAttempt, error)
+	ExpirePendingCheckout(context.Context, time.Time) (bool, error)
 	RegisterPayment(context.Context, PaymentAttempt) error
 	CancelPending(context.Context, uuid.UUID) error
 	MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error
@@ -76,9 +89,11 @@ type Repository interface {
 type Service interface {
 	CreatePending(context.Context, ordersDomain.Draft, []uuid.UUID) (*ordersDomain.Order, error)
 	CreatePendingCheckout(context.Context, ordersDomain.Draft, []uuid.UUID, CheckoutAttemptRequest) (*ordersDomain.Order, error)
+	CreatePaidCheckout(context.Context, ordersDomain.Draft, []uuid.UUID, CheckoutAttemptRequest) (*ordersDomain.Order, error)
 	RecordCheckoutAttempt(context.Context, CheckoutAttemptRequest) error
 	FindCheckoutAttempt(context.Context, string) (*CheckoutAttempt, error)
 	ClaimPendingCheckoutAttempt(context.Context, time.Duration, time.Duration) (*CheckoutAttempt, error)
+	ExpirePendingCheckout(context.Context, time.Time) (bool, error)
 	RegisterPayment(context.Context, PaymentAttempt) error
 	CancelPending(context.Context, uuid.UUID) error
 	MarkCheckoutAttemptFailed(context.Context, uuid.UUID) error

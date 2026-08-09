@@ -30,6 +30,14 @@ func (r *ProductRepository) FindBySlug(ctx context.Context, locale, slug string)
 	return &product, nil
 }
 
+func (r *ProductRepository) List(ctx context.Context) ([]domain.Product, error) {
+	var products []domain.Product
+	if err := r.db.WithContext(ctx).Preload("Translations").Order("created_at DESC").Find(&products).Error; err != nil {
+		return nil, err
+	}
+	return products, nil
+}
+
 func (r *ProductRepository) Create(ctx context.Context, product *domain.Product) error {
 	if product.ID == uuid.Nil {
 		product.ID = uuid.New()

@@ -10,6 +10,7 @@ import (
 // paths intentionally do not reuse the predecessor product API contract.
 func RegisterProductRoutes(localeGroup, adminGroup *gin.RouterGroup, service domain.ProductService) {
 	handler := NewProductHandler(service)
+	localeGroup.GET("/catalog/products", handler.List)
 	localeGroup.GET("/catalog/products/by-slug/:slug", handler.GetBySlug)
 	adminGroup.POST("/catalog/products", handler.Create)
 }

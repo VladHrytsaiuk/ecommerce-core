@@ -47,3 +47,7 @@ func (r *fakeRepository) Remove(context.Context, domain.Owner, uuid.UUID) (*doma
 	r.called = true
 	return &domain.Cart{}, nil
 }
+func (r *fakeRepository) SetPromoCode(_ context.Context, _ domain.Owner, code string) (*domain.Cart, error) {
+	r.called = true
+	return &domain.Cart{AppliedPromoCode: code}, nil
+}

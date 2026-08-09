@@ -49,3 +49,7 @@ func (s *fakeProductService) Create(_ context.Context, product *domain.Product) 
 func (s *fakeProductService) FindBySlug(_ context.Context, _, _ string) (*domain.Product, error) {
 	return nil, domain.ErrProductNotFound
 }
+
+func (s *fakeProductService) List(_ context.Context, _ string) ([]domain.Product, error) {
+	return nil, nil
+}

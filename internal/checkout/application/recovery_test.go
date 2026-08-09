@@ -153,5 +153,5 @@ func (recoveryLogger) Fatalw(string, ...interface{})   {}
 func (recoveryLogger) With(...zap.Field) logger.Logger { return recoveryLogger{} }
 func (recoveryLogger) Sync() error                     { return nil }
 
-var _ workflowDomain.Service = (*recoveryWorkflow)(nil)
+var _ recoveryWorkflowPort = (*recoveryWorkflow)(nil)
 var _ paymentsDomain.Gateway = (*recoveryGateway)(nil)

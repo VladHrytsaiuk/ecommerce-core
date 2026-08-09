@@ -27,6 +27,10 @@ func (a *Application) Start(ctx context.Context) {
 			a.CheckoutRecovery.Run(workerCtx, 5*time.Second, time.Minute, time.Minute)
 		}()
 	}
+	if a.CheckoutExpiry != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.CheckoutExpiry.Run(workerCtx, time.Minute) }()
+	}
 	if a.InventoryCleanup != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.InventoryCleanup.Run(workerCtx, time.Minute) }()

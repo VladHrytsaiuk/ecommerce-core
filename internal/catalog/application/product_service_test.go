@@ -44,10 +44,67 @@ func TestProductServiceReadsOptionalRatingProjection(t *testing.T) {
 	}
 }
 
+func TestProductServiceListUsesOneBulkLookupPerOptionalModule(t *testing.T) {
+	products := []domain.Product{{ID: uuid.New()}, {ID: uuid.New()}, {ID: uuid.New()}}
+	repository := &listProductRepository{products: products}
+	seo := &seoReaderFake{}
+	badges := &badgeReaderFake{}
+	service := NewProductService(repository, []string{"en"}).WithSEOReader(seo).WithBadgeReader(badges)
+
+	result, err := service.List(context.Background(), "en")
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if seo.calls != 1 || badges.calls != 1 {
+		t.Fatalf("bulk readers called seo=%d badges=%d, want one each", seo.calls, badges.calls)
+	}
+	if len(result) != 3 || result[0].SEO == nil || len(result[0].Badges) != 1 {
+		t.Fatalf("List() did not enrich products: %+v", result)
+	}
+}
+
 type ratingReaderFake struct{ rating *domain.ProductRating }
 
 func (reader ratingReaderFake) RatingForProduct(context.Context, uuid.UUID) (*domain.ProductRating, error) {
 	return reader.rating, nil
+}
+
+func (reader ratingReaderFake) RatingsForProducts(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]domain.ProductRating, error) {
+	result := make(map[uuid.UUID]domain.ProductRating, len(ids))
+	for _, id := range ids {
+		if reader.rating != nil {
+			result[id] = *reader.rating
+		}
+	}
+	return result, nil
+}
+
+type seoReaderFake struct{ calls int }
+
+func (reader *seoReaderFake) SEOForResources(_ context.Context, resourceType string, ids []uuid.UUID, locale string) (map[uuid.UUID]domain.ProductSEO, error) {
+	reader.calls++
+	if resourceType != "product" || locale != "en" {
+		return nil, errors.New("unexpected SEO bulk query")
+	}
+	result := make(map[uuid.UUID]domain.ProductSEO, len(ids))
+	for _, id := range ids {
+		result[id] = domain.ProductSEO{Title: "SEO"}
+	}
+	return result, nil
+}
+
+type badgeReaderFake struct{ calls int }
+
+func (reader *badgeReaderFake) BadgesForProducts(_ context.Context, ids []uuid.UUID, locale string) (map[uuid.UUID][]domain.ProductBadge, error) {
+	reader.calls++
+	if locale != "en" {
+		return nil, errors.New("unexpected badge bulk query")
+	}
+	result := make(map[uuid.UUID][]domain.ProductBadge, len(ids))
+	for _, id := range ids {
+		result[id] = []domain.ProductBadge{{ID: uuid.New(), Slug: "new"}}
+	}
+	return result, nil
 }
 
 func TestProductServiceCreateRejectsDuplicateLocale(t *testing.T) {
@@ -83,6 +140,23 @@ type fakeProductRepository struct {
 	created bool
 	product *domain.Product
 }
+
+func (r *fakeProductRepository) List(_ context.Context) ([]domain.Product, error) {
+	if r.product == nil {
+		return nil, nil
+	}
+	return []domain.Product{*r.product}, nil
+}
+
+type listProductRepository struct{ products []domain.Product }
+
+func (r *listProductRepository) FindBySlug(context.Context, string, string) (*domain.Product, error) {
+	return nil, domain.ErrProductNotFound
+}
+func (r *listProductRepository) List(context.Context) ([]domain.Product, error) {
+	return r.products, nil
+}
+func (r *listProductRepository) Create(context.Context, *domain.Product) error { return nil }
 
 func (r *fakeProductRepository) FindBySlug(_ context.Context, _, _ string) (*domain.Product, error) {
 	return r.product, nil

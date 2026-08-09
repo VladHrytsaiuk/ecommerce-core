@@ -4,6 +4,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -46,6 +47,16 @@ func (s *Service) Remove(ctx context.Context, owner domain.Owner, variantID uuid
 		return nil, fmt.Errorf("%w: variant id is required", domain.ErrInvalidItem)
 	}
 	return s.repo.Remove(ctx, owner, variantID)
+}
+func (s *Service) SetPromoCode(ctx context.Context, owner domain.Owner, code string) (*domain.Cart, error) {
+	if err := validateOwner(owner); err != nil {
+		return nil, err
+	}
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if len(code) > 64 {
+		return nil, domain.ErrInvalidItem
+	}
+	return s.repo.SetPromoCode(ctx, owner, code)
 }
 func validateOwner(owner domain.Owner) error {
 	if (owner.CustomerID == nil && owner.SessionID == nil) || (owner.CustomerID != nil && owner.SessionID != nil) {

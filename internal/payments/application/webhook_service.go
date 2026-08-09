@@ -14,10 +14,15 @@ import (
 type WebhookService struct {
 	gateways *Registry
 	events   paymentsDomain.WebhookEventStore
-	workflow workflowDomain.Service
+	workflow paymentWorkflow
 }
 
-func NewWebhookService(gateways *Registry, events paymentsDomain.WebhookEventStore, workflow workflowDomain.Service) *WebhookService {
+type paymentWorkflow interface {
+	MarkPaid(context.Context, workflowDomain.PaymentConfirmation) error
+	MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error
+}
+
+func NewWebhookService(gateways *Registry, events paymentsDomain.WebhookEventStore, workflow paymentWorkflow) *WebhookService {
 	return &WebhookService{gateways: gateways, events: events, workflow: workflow}
 }
 
@@ -57,7 +62,10 @@ func (s *WebhookService) apply(ctx context.Context, event paymentsDomain.Payment
 	switch event.Status {
 	case "paid":
 		return s.workflow.MarkPaid(ctx, confirmation)
-	case "failed":
+	case "failed", "cancelled", "expired":
+		// All non-success terminal provider outcomes release the same local
+		// reservation set, including an optional promo redemption.
+		confirmation.Status = "failed"
 		return s.workflow.MarkFailed(ctx, confirmation)
 	case "pending":
 		return nil
