@@ -88,6 +88,26 @@ func (s *CategoryService) Create(ctx context.Context, category *domain.Category)
 	return nil
 }
 
+func (s *CategoryService) Update(ctx context.Context, category *domain.Category) error {
+	if category == nil || category.ID == uuid.Nil {
+		return fmt.Errorf("%w: category id is required", domain.ErrInvalidCatalogCategory)
+	}
+	if err := s.validate(category); err != nil {
+		return err
+	}
+	repository, ok := s.repo.(domain.AdminCategoryRepository)
+	if !ok {
+		return fmt.Errorf("catalog category update is not configured")
+	}
+	if err := repository.Update(ctx, category); err != nil {
+		return err
+	}
+	if s.cache != nil {
+		_ = s.cache.DeleteByPrefix(ctx, categoryCachePrefix)
+	}
+	return nil
+}
+
 func categoryCacheKey(locale, slug string) string { return categoryCachePrefix + locale + ":" + slug }
 
 func (s *CategoryService) validate(category *domain.Category) error {

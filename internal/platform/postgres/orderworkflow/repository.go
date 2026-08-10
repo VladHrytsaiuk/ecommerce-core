@@ -217,7 +217,7 @@ func (r *Repository) CreatePaidCheckout(ctx context.Context, order *ordersDomain
 }
 
 func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt *workflowDomain.CheckoutAttemptRequest, markPaid bool) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.withTransaction(ctx, func(tx *gorm.DB) error {
 		if order.ExpiresAt.IsZero() {
 			order.ExpiresAt = time.Now().UTC().Add(30 * time.Minute)
 		}
@@ -327,7 +327,7 @@ func (r *Repository) CancelPending(ctx context.Context, orderID uuid.UUID) error
 }
 
 func (r *Repository) RegisterPayment(ctx context.Context, attempt workflowDomain.PaymentAttempt) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.withTransaction(ctx, func(tx *gorm.DB) error {
 		var order orderStateRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", attempt.OrderID).Error; err != nil {
 			return workflowDomain.ErrPaymentMismatch
@@ -362,7 +362,7 @@ func (r *Repository) RegisterPayment(ctx context.Context, attempt workflowDomain
 }
 
 func (r *Repository) RecordCheckoutAttempt(ctx context.Context, req workflowDomain.CheckoutAttemptRequest) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.withTransaction(ctx, func(tx *gorm.DB) error {
 		var existing paymentCheckoutAttemptRecord
 		err := tx.First(&existing, "order_id = ?", req.OrderID).Error
 		if err == nil {
@@ -412,7 +412,7 @@ func (r *Repository) FindCheckoutAttempt(ctx context.Context, idempotencyKey str
 func (r *Repository) ClaimPendingCheckoutAttempt(ctx context.Context, olderThan, lease time.Duration) (*workflowDomain.CheckoutAttempt, error) {
 	now := time.Now().UTC()
 	var claimed *workflowDomain.CheckoutAttempt
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.withTransaction(ctx, func(tx *gorm.DB) error {
 		if err := tx.Model(&paymentCheckoutAttemptRecord{}).
 			Where("status = ? AND locked_at < ?", "processing", now.Add(-lease)).
 			Updates(map[string]any{"status": "creating", "locked_at": nil, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
@@ -471,7 +471,7 @@ func (r *Repository) MarkFailed(ctx context.Context, confirmation workflowDomain
 }
 
 func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirmation *workflowDomain.PaymentConfirmation, targetStatus string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return r.withTransaction(ctx, func(tx *gorm.DB) error {
 		var order orderStateRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", orderID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -512,6 +512,16 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirma
 		}
 		return r.completePending(ctx, tx, order, orderID, targetStatus, paymentToUpdate)
 	})
+}
+
+// withTransaction joins an outer Admin/Workflow transaction when one is
+// carried in context. Starting a new transaction here would commit a status
+// change even if its companion Outbox append later fails.
+func (r *Repository) withTransaction(ctx context.Context, fn func(*gorm.DB) error) error {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return fn(tx.WithContext(ctx))
+	}
+	return r.db.WithContext(ctx).Transaction(fn)
 }
 
 func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order orderStateRecord, orderID uuid.UUID, targetStatus string, payment *paymentRecord) error {
@@ -598,7 +608,7 @@ func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order ord
 // releases every local reservation through the same workflow transaction.
 func (r *Repository) ExpirePendingCheckout(ctx context.Context, now time.Time) (bool, error) {
 	expired := false
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.withTransaction(ctx, func(tx *gorm.DB) error {
 		var order orderStateRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status = ? AND expires_at <= ?", ordersDomain.StatusPendingPayment, now).Order("expires_at").First(&order).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

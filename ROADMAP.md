@@ -199,6 +199,26 @@ attempts per minute per protected client-IP key. With Redis disabled, caching
 is a no-op and the same login policy falls back to an explicitly per-process
 limiter for constrained local environments.
 
+## Phase 9 — Admin API, RBAC and Audit Logging
+
+**Status: complete.** The opt-in `admin` module owns a normalized,
+data-driven RBAC schema: roles, permissions, many-to-many assignments and an
+active admin record with an `authorization_version`. Its Authorizer always
+checks the active/version state in PostgreSQL, then caches the permission set
+by versioned Redis key. Increasing the version makes stale grants unreachable
+without depending on best-effort cache invalidation. `POST /api/admin/promos`
+is the first dynamic-RBAC route and requires `promos:write`. Its Admin Facade
+opens one local transaction for the promotion mutation and `admin.action.v1`
+Outbox append. A dedicated `admin_audit` consumer persists idempotent audit
+records by event ID, with recursive sanitization of password-, token-, and
+secret-like fields before durable storage. Catalog and Orders facades remain
+the next incremental migration. Catalog product/category creation and updates,
+promotion creation, and safe pending-payment order cancellation use Admin
+Facades; each writes its audit event in the mutation transaction. Legacy
+role-name AdminMiddleware has been removed. The idempotent `SuperAdmin` seed
+migration registers every current permission, and `cmd/cli grant-superadmin`
+assigns the role to an existing user without an HTTP bootstrap endpoint.
+
 ## Global rules
 
 - Do not fork for a store.

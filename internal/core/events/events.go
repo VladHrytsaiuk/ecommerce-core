@@ -16,7 +16,11 @@ import (
 
 const (
 	ConsumerNotifications = "notifications"
-	TopicOrderPaid        = "orders.paid.v1"
+	// ConsumerAdminAudit owns immutable records of privileged back-office
+	// mutations. It deliberately has its own delivery so a notification failure
+	// cannot delay or suppress an audit trail.
+	ConsumerAdminAudit = "admin_audit"
+	TopicOrderPaid     = "orders.paid.v1"
 )
 
 // DomainEvent is an immutable versioned message. Its payload must contain

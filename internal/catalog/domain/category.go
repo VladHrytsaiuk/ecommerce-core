@@ -47,3 +47,7 @@ type CategoryService interface {
 	FindBySlug(context.Context, string, string) (*Category, error)
 	Create(context.Context, *Category) error
 }
+
+type AdminCategoryRepository interface {
+	Update(context.Context, *Category) error
+}

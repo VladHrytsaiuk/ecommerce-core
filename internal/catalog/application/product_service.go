@@ -136,6 +136,20 @@ func (s *ProductService) Create(ctx context.Context, product *domain.Product) er
 	return s.repo.Create(ctx, product)
 }
 
+func (s *ProductService) Update(ctx context.Context, product *domain.Product) error {
+	if product == nil || product.ID == uuid.Nil {
+		return fmt.Errorf("%w: product id is required", domain.ErrInvalidProduct)
+	}
+	if err := s.validate(product); err != nil {
+		return err
+	}
+	repository, ok := s.repo.(domain.AdminProductRepository)
+	if !ok {
+		return fmt.Errorf("catalog product update is not configured")
+	}
+	return repository.Update(ctx, product)
+}
+
 func (s *ProductService) validate(product *domain.Product) error {
 	if product == nil {
 		return fmt.Errorf("%w: product is required", domain.ErrInvalidProduct)

@@ -60,6 +60,7 @@ flowchart TB
     Bootstrap --> Badges[Badges module\noptional]
     Bootstrap --> Promos[Promos module\noptional]
     Bootstrap --> Notifications[Notifications module\noptional]
+    Bootstrap --> Admin[Admin RBAC module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders
@@ -78,6 +79,13 @@ flowchart TB
     Badges -. badge reader port .-> Catalog
     Promos -. pricing decorator + transaction hook .-> Checkout
     Core -. durable orders.paid.v1 outbox .-> Notifications
+    Admin -. permission ports .-> Catalog
+    Admin -. facade port .-> Promos
+    Admin -. facade ports .-> Catalog
+    Admin -. safe workflow port .-> Orders
+    Admin -. durable admin.action.v1 outbox .-> Admin
+    Admin -. permission ports .-> Promos
+    Admin -. permission ports .-> Orders
 
     PaymentsPort --> LiqPay[LiqPay adapter]
     PaymentsPort --> Stripe[Stripe adapter]

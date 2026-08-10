@@ -57,6 +57,35 @@ func (r *Repository) FindByCode(ctx context.Context, code string) (*promosDomain
 	return mapCode(record), nil
 }
 
+func (r *Repository) Create(ctx context.Context, code promosDomain.Code) (*promosDomain.Code, error) {
+	code.Code = strings.ToUpper(strings.TrimSpace(code.Code))
+	code.DiscountType = strings.ToLower(strings.TrimSpace(code.DiscountType))
+	code.Currency = strings.ToUpper(strings.TrimSpace(code.Currency))
+	if code.Code == "" || len(code.Code) > 64 || code.DiscountValue <= 0 ||
+		(code.DiscountType != promosDomain.TypePercent && code.DiscountType != promosDomain.TypeFixed) ||
+		(code.DiscountType == promosDomain.TypePercent && (code.DiscountValue > 10000 || code.Currency != "")) ||
+		(code.DiscountType == promosDomain.TypeFixed && len(code.Currency) != 3) ||
+		(code.UsageLimit != nil && *code.UsageLimit < 0) {
+		return nil, promosDomain.ErrInvalidCode
+	}
+	if code.ID == uuid.Nil {
+		code.ID = uuid.New()
+	}
+	var currency *string
+	if code.Currency != "" {
+		currency = &code.Currency
+	}
+	record := codeRecord{ID: code.ID, Code: code.Code, DiscountType: code.DiscountType, DiscountValue: code.DiscountValue, Currency: currency, IsActive: code.IsActive, ValidUntil: code.ValidUntil, UsageLimit: code.UsageLimit, UsageCount: 0}
+	db := r.db.WithContext(ctx)
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		db = tx.WithContext(ctx)
+	}
+	if err := db.Create(&record).Error; err != nil {
+		return nil, err
+	}
+	return mapCode(record), nil
+}
+
 func (r *Repository) Reserve(ctx context.Context, orderID uuid.UUID, snapshot ordersDomain.Promotion) error {
 	tx, err := transaction.FromContext(ctx)
 	if err != nil {
@@ -151,3 +180,4 @@ func valueOrEmpty(value *string) string {
 }
 
 var _ promosDomain.Repository = (*Repository)(nil)
+var _ promosDomain.AdminRepository = (*Repository)(nil)

@@ -15,6 +15,9 @@ import (
 	"gorm.io/gorm"
 
 	googleAuthAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/auth/google"
+	adminApp "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/application"
+	adminDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
+	adminPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/repository/postgres"
 	badgesDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/domain"
 	badgesPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/repository/postgres"
 	badgesService "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/service"
@@ -104,6 +107,11 @@ type Application struct {
 	DeliveryDispatcher     *deliveryApp.Dispatcher
 	DeliveryTracker        *deliveryApp.Tracker
 	OutboxWorker           *eventsApp.OutboxWorker
+	AdminAuditOutboxWorker *eventsApp.OutboxWorker
+	AdminAuthorizer        adminDomain.Authorizer
+	PromosAdminFacade      *adminApp.PromosAdminFacade
+	CatalogAdminFacade     *adminApp.CatalogAdminFacade
+	OrdersAdminFacade      *adminApp.OrdersAdminFacade
 	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
 	resourceCloser         io.Closer
@@ -165,6 +173,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		cacheService = platformCache.NewRedisAdapter(redisClient.Raw(), storeConfig.Code+":")
 		loginLimiter = platformRedis.NewFixedWindowLimiter(redisClient.Raw())
 	}
+	adminEnabled := contains(storeConfig.EnabledModules, "admin")
+	var adminAuthorizer adminDomain.Authorizer
+	if adminEnabled {
+		adminAuthorizer, err = adminApp.NewAuthorizer(adminPostgres.NewRepository(db), cacheService, 0)
+		if err != nil {
+			return nil, fmt.Errorf("configure admin RBAC: %w", err)
+		}
+	}
 
 	httpDependencies := HTTPDependencies{
 		Recovery: gin.Recovery(),
@@ -199,8 +215,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		return nil, err
 	}
 	var priceCalculator checkoutDomain.PriceCalculator = basePriceCalculator
+	var promosRepository *promosPostgres.Repository
 	if contains(storeConfig.EnabledModules, "promos") {
-		promosRepository := promosPostgres.NewRepository(db)
+		promosRepository = promosPostgres.NewRepository(db)
 		workflowRepository.WithTransactionHook(promosApp.NewWorkflowHook(promosRepository))
 		priceCalculator = promosApp.NewPromoCalculatorDecorator(priceCalculator, promosRepository)
 	}
@@ -276,6 +293,20 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		renderer := notificationsApp.NewTemplateRenderer(repository, storeConfig.DefaultLocale)
 		outboxHandlers = append(outboxHandlers, notificationsApp.NewOrderPaidEventHandler(repository, cipher, renderer, sender))
 	}
+	var promosAdminFacade *adminApp.PromosAdminFacade
+	var catalogAdminFacade *adminApp.CatalogAdminFacade
+	var ordersAdminFacade *adminApp.OrdersAdminFacade
+	var adminAuditOutboxWorker *eventsApp.OutboxWorker
+	if adminEnabled {
+		auditHandler := adminApp.NewAdminAuditEventHandler(adminPostgres.NewAuditRepository(db))
+		adminAuditOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerAdminAudit, time.Minute, logger.Log, auditHandler)
+		if promosRepository != nil {
+			promosAdminFacade, err = adminApp.NewPromosAdminFacade(adminAuthorizer, promosApp.NewAdminService(promosRepository), adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
+			if err != nil {
+				return nil, fmt.Errorf("configure admin promos facade: %w", err)
+			}
+		}
+	}
 
 	checkoutService := checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
 		AllowGuest:                 storeConfig.CheckoutAllowGuest,
@@ -286,6 +317,16 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers).WithPriceCalculator(priceCalculator)
 
 	categoryService := catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales).WithCache(cacheService)
+	if adminEnabled {
+		catalogAdminFacade, err = adminApp.NewCatalogAdminFacade(adminAuthorizer, productService, categoryService, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
+		if err != nil {
+			return nil, fmt.Errorf("configure admin catalog facade: %w", err)
+		}
+		ordersAdminFacade, err = adminApp.NewOrdersAdminFacade(adminAuthorizer, orderWorkflowService, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
+		if err != nil {
+			return nil, fmt.Errorf("configure admin orders facade: %w", err)
+		}
+	}
 	application := &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: categoryService,
@@ -312,6 +353,11 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		DeliveryDispatcher:     deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
 		DeliveryTracker:        deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers),
 		OutboxWorker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
+		AdminAuditOutboxWorker: adminAuditOutboxWorker,
+		AdminAuthorizer:        adminAuthorizer,
+		PromosAdminFacade:      promosAdminFacade,
+		CatalogAdminFacade:     catalogAdminFacade,
+		OrdersAdminFacade:      ordersAdminFacade,
 		TaxPolicy:              taxPolicy,
 		HTTP:                   httpDependencies,
 		resourceCloser:         resourceCloser,

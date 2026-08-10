@@ -92,3 +92,7 @@ type ProductService interface {
 	List(context.Context, string) ([]Product, error)
 	Create(context.Context, *Product) error
 }
+
+type AdminProductRepository interface {
+	Update(context.Context, *Product) error
+}

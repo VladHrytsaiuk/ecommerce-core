@@ -2,7 +2,6 @@ package http
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 )
 
 // RegisterRoutes підключає всі ендпоінти домену `user` до головного роутера Gin.
@@ -56,20 +55,8 @@ func RegisterRoutes(
 			adminAuthGrp.POST("/refresh", adminRateLimiter, authH.AdminRefresh)
 		}
 
-		// adminApiGroup також містить публічні /auth/login і /auth/refresh,
-		// тому захист для користувачів додаємо явно, не успадковуючи його від групи.
-		adminUsersGrp := adminApiGroup.Group("/users")
-		adminUsersGrp.Use(authMiddleware, middleware.AdminMiddleware())
-		{
-			adminUsersGrp.GET("/me", userH.GetMe)
-			adminUsersGrp.PATCH("/me", userH.UpdateMe)
-
-			ownerUsersGrp := adminUsersGrp.Group("")
-			ownerUsersGrp.Use(middleware.OwnerMiddleware())
-			ownerUsersGrp.GET("", authH.ListAdmins)
-			ownerUsersGrp.POST("", authH.CreateAdmin)
-			ownerUsersGrp.DELETE("/:id", authH.DeleteAdmin)
-		}
+		// Legacy role-name based administrator-user routes were removed. Their
+		// replacement will be an Admin Facade protected by data-driven RBAC.
 	}
 
 	// ==========================================

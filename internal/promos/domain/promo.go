@@ -44,3 +44,13 @@ type Repository interface {
 	Commit(context.Context, uuid.UUID) error
 	Release(context.Context, uuid.UUID) error
 }
+
+// AdminRepository is intentionally separate from the checkout/redemption
+// port. Admin facades depend only on this narrow mutation capability.
+type AdminRepository interface {
+	Create(context.Context, Code) (*Code, error)
+}
+
+type AdminService interface {
+	Create(context.Context, Code) (*Code, error)
+}

@@ -4,8 +4,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 
+	adminHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
-	badgesHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/delivery/http"
 	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
@@ -14,8 +14,6 @@ import (
 	identityHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
-	reviewsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/delivery/http"
-	seoHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/delivery/http"
 	wishlistHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/delivery/http"
 )
 
@@ -51,15 +49,21 @@ func InitRouter(application *app.Application) *gin.Engine {
 		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
 	}
 	admin := api.Group("/admin")
-	admin.Use(middleware.AuthMiddleware(application.TokenMaker), middleware.AdminMiddleware())
-	if application.ReviewsService != nil {
-		reviewsHTTP.RegisterRoutes(api, admin, application.ReviewsService, middleware.AuthMiddleware(application.TokenMaker))
+	admin.Use(middleware.AuthMiddleware(application.TokenMaker))
+	// Reviews, SEO, Badges and Variant mutations are intentionally not exposed
+	// here until each has an Admin Facade that appends an audit event in the
+	// same transaction. Leaving permission-protected but unaudited routes live
+	// would create a forensic bypass.
+	// New Admin facades use data-driven RBAC. Existing legacy admin routes keep
+	// their compatibility middleware until they are migrated individually.
+	if application.PromosAdminFacade != nil {
+		adminHTTP.RegisterPromosRoutes(admin, application.AdminAuthorizer, application.PromosAdminFacade)
 	}
-	if application.SEOService != nil {
-		seoHTTP.RegisterRoutes(admin, application.SEOService)
+	if application.CatalogAdminFacade != nil {
+		adminHTTP.RegisterCatalogRoutes(admin, application.AdminAuthorizer, application.CatalogAdminFacade)
 	}
-	if application.BadgesService != nil {
-		badgesHTTP.RegisterRoutes(admin, application.BadgesService)
+	if application.OrdersAdminFacade != nil {
+		adminHTTP.RegisterOrdersRoutes(admin, application.AdminAuthorizer, application.OrdersAdminFacade)
 	}
 	localized := api.Group("/:lang")
 	localized.Use(application.HTTP.LocaleMiddleware)
@@ -67,9 +71,8 @@ func InitRouter(application *app.Application) *gin.Engine {
 	cart.Use(application.HTTP.OptionalAuth)
 	cartHTTP.RegisterRoutes(cart, application.CartService, application.Config.CookieSecure)
 	checkoutHTTP.RegisterRoutes(cart, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID, application.Config.CookieSecure, sensitiveLimit)
-	catalogHTTP.RegisterCategoryRoutes(localized, admin, application.CatalogCategoryService)
-	catalogHTTP.RegisterProductRoutes(localized, admin, application.CatalogProductService)
-	catalogHTTP.RegisterVariantRoutes(admin, application.CatalogVariantService)
+	catalogHTTP.RegisterCategoryRoutes(localized, nil, application.CatalogCategoryService)
+	catalogHTTP.RegisterProductRoutes(localized, nil, application.CatalogProductService)
 	return r
 }
 

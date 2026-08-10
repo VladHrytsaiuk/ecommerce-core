@@ -197,6 +197,19 @@ With `REDIS_ENABLED=false`, Catalog caching is a no-op and login protection uses
 a safe per-process fallback for local development; production replicas should
 enable Redis for a shared policy.
 
+### Admin RBAC and audit trail
+
+Add `admin` to `ENABLED_MODULES` to apply the Admin module migration and build
+the data-driven authorization foundation. Roles are assigned permissions in
+PostgreSQL; authorization checks require a permission contract such as
+`promos:write`, never a JWT role name. Catalog and permitted order-cancellation
+mutations also pass through Admin Facades and append `admin.action.v1` in their
+local transaction. A dedicated Outbox consumer stores immutable records in
+`audit_logs`. Audit old/new payloads redact password-, token-, and secret-like
+fields before they reach either the Outbox or the JSONB audit trail. Run
+`go run ./cmd/cli grant-superadmin -email existing@example.com` after applying
+Admin migrations to grant the seeded `SuperAdmin` role to the first user.
+
 ### Checkout contract
 
 `POST /api/:lang/checkout/payment` starts payment for the caller's active
