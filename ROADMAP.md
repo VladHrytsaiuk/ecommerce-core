@@ -156,7 +156,7 @@ engagement modules.
 
 ## Phase 7 — Marketing and SEO
 
-**Status: in progress.** SEO and Badges are implemented as optional modules.
+**Status: complete.** SEO and Badges are implemented as optional modules.
 
 1. SEO owns localized polymorphic metadata rather than columns on products or
    categories; Catalog reads it through a bulk reader port.
