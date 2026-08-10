@@ -53,6 +53,11 @@ type Config struct {
 	NotificationEmailProvider string
 	NotificationEncryptionKey string
 
+	// Redis is an optional infrastructure capability used only for cache and
+	// distributed rate limiting. Financial workflows continue to use PostgreSQL.
+	RedisEnabled bool
+	RedisURL     string
+
 	// SendGrid (Email)
 	SendGridAPIKey string
 	EmailFrom      string
@@ -259,6 +264,11 @@ func Load() *Config {
 	smtpTLSMode := strings.ToLower(getEnvString("SMTP_TLS_MODE", "starttls"))
 	notificationEmailProvider := strings.ToLower(getEnvString("NOTIFICATION_EMAIL_PROVIDER", "mock"))
 	notificationEncryptionKey := strings.TrimSpace(os.Getenv("NOTIFICATION_ENCRYPTION_KEY"))
+	redisEnabled := getEnvBool("REDIS_ENABLED", false)
+	redisURL := strings.TrimSpace(os.Getenv("REDIS_URL"))
+	if redisEnabled && redisURL == "" {
+		log.Fatal("Fatal: REDIS_URL is required when REDIS_ENABLED=true")
+	}
 
 	// SendGrid Config
 	sendGridAPIKey := os.Getenv("SENDGRID_API_KEY")
@@ -506,6 +516,8 @@ func Load() *Config {
 		SMTPTLSMode:               smtpTLSMode,
 		NotificationEmailProvider: notificationEmailProvider,
 		NotificationEncryptionKey: notificationEncryptionKey,
+		RedisEnabled:              redisEnabled,
+		RedisURL:                  redisURL,
 		SendGridAPIKey:            sendGridAPIKey,
 		EmailFrom:                 emailFrom,
 		NovaPoshtaAPIKey:          novaPoshtaAPIKey,

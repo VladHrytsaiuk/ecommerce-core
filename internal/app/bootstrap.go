@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -51,11 +52,13 @@ import (
 	ordersPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/repository/postgres"
 	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
 	paymentsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/repository/postgres"
+	platformCache "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/cache"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/encryption"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	eventsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/events"
 	workflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/orderworkflow"
+	platformRedis "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/redis"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 	promosApp "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/application"
 	promosPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/repository/postgres"
@@ -65,6 +68,8 @@ import (
 	seoDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/domain"
 	seoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/repository/postgres"
 	seoService "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/service"
+	sharedCache "github.com/VladHrytsaiuk/ecommerce-core/internal/shared/cache"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/ratelimit"
 	wishlistDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
 	wishlistPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/repository/postgres"
 	wishlistService "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/service"
@@ -101,6 +106,7 @@ type Application struct {
 	OutboxWorker           *eventsApp.OutboxWorker
 	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
+	resourceCloser         io.Closer
 	workerMu               sync.Mutex
 	workerCancel           context.CancelFunc
 	workerWG               sync.WaitGroup
@@ -115,6 +121,7 @@ type HTTPDependencies struct {
 	Health           gin.HandlerFunc
 	LocaleMiddleware gin.HandlerFunc
 	OptionalAuth     gin.HandlerFunc
+	LoginRateLimit   gin.HandlerFunc
 }
 
 // Bootstrap is the sole Composition Root for the active clean-slate modules.
@@ -138,6 +145,27 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		return nil, err
 	}
 
+	// Redis is opt-in. When disabled, cache misses and local, per-process login
+	// limiting preserve a fully functional constrained-environment deployment.
+	cacheService := sharedCache.Service(sharedCache.NewNoOpService())
+	loginLimiter := ratelimit.Service(ratelimit.NewLocalService())
+	var resourceCloser io.Closer
+	bootstrapComplete := false
+	defer func() {
+		if !bootstrapComplete && resourceCloser != nil {
+			_ = resourceCloser.Close()
+		}
+	}()
+	if cfg.RedisEnabled {
+		redisClient, redisErr := platformRedis.Connect(context.Background(), cfg.RedisURL)
+		if redisErr != nil {
+			return nil, fmt.Errorf("configure Redis: %w", redisErr)
+		}
+		resourceCloser = redisClient
+		cacheService = platformCache.NewRedisAdapter(redisClient.Raw(), storeConfig.Code+":")
+		loginLimiter = platformRedis.NewFixedWindowLimiter(redisClient.Raw())
+	}
+
 	httpDependencies := HTTPDependencies{
 		Recovery: gin.Recovery(),
 		Timeout:  middleware.TimeoutMiddleware(cfg.RequestTimeout),
@@ -150,6 +178,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		Health:           func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) },
 		LocaleMiddleware: middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: storeConfig.DefaultLocale, FallbackLocale: storeConfig.FallbackLocale, SupportedLocales: storeConfig.SupportedLocales}),
 		OptionalAuth:     middleware.OptionalAuthMiddleware(tokenMaker),
+		LoginRateLimit:   middleware.LoginRateLimitMiddleware(loginLimiter, cfg.JWTSecret),
 	}
 
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
@@ -256,9 +285,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		DefaultDeliveryProvider:    storeConfig.ShippingDefault,
 	}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers).WithPriceCalculator(priceCalculator)
 
-	return &Application{
+	categoryService := catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales).WithCache(cacheService)
+	application := &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
-		CatalogCategoryService: catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales),
+		CatalogCategoryService: categoryService,
 		CatalogProductService:  productService,
 		CatalogVariantService:  variantService,
 		CartService:            cartApp.NewService(cartPostgres.NewRepository(db)),
@@ -284,7 +314,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		OutboxWorker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
 		TaxPolicy:              taxPolicy,
 		HTTP:                   httpDependencies,
-	}, nil
+		resourceCloser:         resourceCloser,
+	}
+	bootstrapComplete = true
+	return application, nil
 }
 
 func inventoryMode(value string) inventoryDomain.Mode {

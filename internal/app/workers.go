@@ -46,8 +46,13 @@ func (a *Application) StopContext(ctx context.Context) error {
 	a.workerMu.Lock()
 	cancel := a.workerCancel
 	a.workerCancel = nil
+	closer := a.resourceCloser
+	a.resourceCloser = nil
 	a.workerMu.Unlock()
 	if cancel == nil {
+		if closer != nil {
+			return closer.Close()
+		}
 		return nil
 	}
 	cancel()
@@ -55,8 +60,14 @@ func (a *Application) StopContext(ctx context.Context) error {
 	go func() { a.workerWG.Wait(); close(done) }()
 	select {
 	case <-done:
+		if closer != nil {
+			return closer.Close()
+		}
 		return nil
 	case <-ctx.Done():
+		if closer != nil {
+			_ = closer.Close()
+		}
 		return fmt.Errorf("wait for workers: %w", ctx.Err())
 	}
 }

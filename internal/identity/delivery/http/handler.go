@@ -160,7 +160,7 @@ func (h *ProfileHandler) Update(c *gin.Context) {
 	c.JSON(stdhttp.StatusOK, profileResponse(profile))
 }
 
-func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService, profileService identityDomain.ProfileService, oauthRedirectURI string, authMiddleware, sensitiveLimit gin.HandlerFunc) {
+func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService, profileService identityDomain.ProfileService, oauthRedirectURI string, authMiddleware, sensitiveLimit gin.HandlerFunc, loginLimit ...gin.HandlerFunc) {
 	if authService != nil {
 		auth := api.Group("/auth")
 		if sensitiveLimit != nil {
@@ -168,7 +168,11 @@ func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService
 		}
 		handler := NewAuthHandler(authService, oauthRedirectURI)
 		auth.POST("/register", handler.Register)
-		auth.POST("/login", handler.Login)
+		if len(loginLimit) > 0 && loginLimit[0] != nil {
+			auth.POST("/login", loginLimit[0], handler.Login)
+		} else {
+			auth.POST("/login", handler.Login)
+		}
 		auth.GET("/oauth/:provider/login", handler.BeginOAuth)
 		auth.GET("/oauth/:provider/callback", handler.CompleteOAuth)
 	}

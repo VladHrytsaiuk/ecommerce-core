@@ -187,6 +187,18 @@ I/O remains outside the database transaction. The worker has panic recovery,
 sanitized failure codes, a bounded retry policy and a durable `dead` delivery
 state; notification jobs use fenced leases to prevent concurrent sends.
 
+### Infrastructure foundation — Redis cache and distributed rate limiting
+
+**Status: complete.** Redis is an opt-in capability selected with
+`REDIS_ENABLED=true` and `REDIS_URL`. Bootstrap validates connectivity with a
+bounded `PING` before listening, then supplies provider-neutral cache and rate
+limiting ports. It is never used as a source of truth or as an Outbox broker.
+Catalog category lookups are cached for ten minutes and invalidated after a
+category write. Password login uses an atomic Redis fixed-window limit of five
+attempts per minute per protected client-IP key. With Redis disabled, caching
+is a no-op and the same login policy falls back to an explicitly per-process
+limiter for constrained local environments.
+
 ## Global rules
 
 - Do not fork for a store.

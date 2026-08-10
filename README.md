@@ -181,6 +181,22 @@ existing `SMTP_*` configuration and requires `SMTP_TLS_MODE=starttls` (or
 `implicit` for SMTPS/465), while SES is an explicit safe placeholder
 pending an AWS SDK credentials adapter.
 
+### Optional Redis cache and rate limiting
+
+Redis is opt-in: set `REDIS_ENABLED=true` and provide `REDIS_URL`, for example
+`redis://redis:6379/0` when using the optional Compose profile:
+
+```bash
+docker compose --profile redis up
+```
+
+Startup verifies Redis with `PING`. Redis accelerates Catalog category reads
+and provides a distributed fixed-window limit of five password-login attempts
+per minute per client IP. It never carries payment, inventory, or Outbox truth.
+With `REDIS_ENABLED=false`, Catalog caching is a no-op and login protection uses
+a safe per-process fallback for local development; production replicas should
+enable Redis for a shared policy.
+
 ### Checkout contract
 
 `POST /api/:lang/checkout/payment` starts payment for the caller's active

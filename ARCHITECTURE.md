@@ -177,6 +177,15 @@ parsed into typed structures such as `StoreConfig`, `PaymentsConfig`,
 `DeliveryConfig`, `InventoryConfig`, and `CheckoutPolicy`. Application services
 receive only the narrow policy or port they need, never a giant global config.
 
+Redis is an optional performance and security capability, not a transactional
+integration boundary: `REDIS_ENABLED=true` requires a valid `REDIS_URL` and a
+successful bounded startup `PING`. Bootstrap owns the client lifecycle and
+injects only a cache or rate-limit port. PostgreSQL remains authoritative for
+orders, payments, inventory, and the transactional Outbox. When Redis is
+disabled, cache calls are no-ops and login limiting uses a documented
+per-process fallback; enabled Redis failures fail startup rather than silently
+degrading distributed protection.
+
 `DEFAULT_WAREHOUSE_ID` is the initial inventory-allocation policy: the UUID of
 an active local warehouse from which checkout reserves stock. It is not a
 carrier sender address. Carrier-specific sender references remain adapter
