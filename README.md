@@ -167,6 +167,20 @@ If a verified `paid` webhook arrives after a local cancellation, the callback
 is acknowledged and a durable `payment_anomalies` record is opened for manual
 reconciliation rather than silently losing the captured payment.
 
+### Optional transactional notifications
+
+Add `notifications` to `ENABLED_MODULES` to consume the durable
+`orders.paid.v1` event. Checkout snapshots `customer_email` and the active
+locale into `order_contact_details`, so an order receipt remains addressed to
+the original buyer even after a profile change. Receipt job payloads are stored
+only as AES-256-GCM ciphertext; set `NOTIFICATION_ENCRYPTION_KEY` to a
+base64-encoded 32-byte key (`openssl rand -base64 32`). Templates are selected
+by the contact locale and fall back to `DEFAULT_LOCALE`. Set
+`NOTIFICATION_EMAIL_PROVIDER` to `mock`, `smtp`, or `ses`; SMTP uses the
+existing `SMTP_*` configuration and requires `SMTP_TLS_MODE=starttls` (or
+`implicit` for SMTPS/465), while SES is an explicit safe placeholder
+pending an AWS SDK credentials adapter.
+
 ### Checkout contract
 
 `POST /api/:lang/checkout/payment` starts payment for the caller's active

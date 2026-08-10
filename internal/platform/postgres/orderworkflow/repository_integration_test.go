@@ -4,6 +4,8 @@ package orderworkflow
 
 import (
 	"context"
+	"database/sql"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -25,13 +27,20 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	mockEmail "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/notification/email/mock"
+	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
+	eventsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events/application"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
+	notificationsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/application"
+	notificationsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/repository/postgres"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
 	paymentHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/encryption"
+	eventsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/events"
 	syncDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/domain"
 	syncPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/repository/postgres"
 )
@@ -65,17 +74,22 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	if err := applyMigrations(filepath.Join(root, "migrations", "modules", "sync"), databaseURL, "schema_migrations_module_sync"); err != nil {
 		t.Fatalf("migrate sync: %v", err)
 	}
+	if err := applyMigrations(filepath.Join(root, "migrations", "modules", "notifications"), databaseURL, "schema_migrations_module_notifications"); err != nil {
+		t.Fatalf("migrate notifications: %v", err)
+	}
 
 	db, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
+	seedOrderPaidTemplate(t, db)
 	variantID, _, reservationID := seedReservation(t, db)
 	price, _ := money.New(1000, "EUR")
-	service := workflowApp.NewService(NewRepository(db, true))
+	service := workflowApp.NewService(NewRepository(db, true).WithEventPublisher(eventsPostgres.NewPublisher(eventsDomain.ConsumerNotifications)))
 	order, err := service.CreatePendingCheckout(ctx, ordersDomain.Draft{
 		Number: "ES-300", Subtotal: price, Tax: money.Money{Currency: "EUR"}, Total: price, PaymentProvider: "fake", DeliveryProvider: "novaposhta",
 		Delivery: &ordersDomain.DeliveryDetails{RecipientName: "Iryna Customer", RecipientPhone: "+34123456789", CountryCode: "ES", City: "Madrid", LocalityID: "madrid", ServicePointID: "branch-1"},
+		Contact:  &ordersDomain.ContactDetails{Email: "iryna@example.com", Locale: "es"},
 		Items:    []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "CREAM-50", Quantity: 1, UnitPrice: price, Total: price, UnitWeightGrams: 275}},
 	}, []uuid.UUID{reservationID}, workflowDomain.CheckoutAttemptRequest{Provider: "fake", IdempotencyKey: "checkout-300", Amount: price})
 	if err != nil {
@@ -115,6 +129,59 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	}
 	assertOrderCreatedOutbox(t, db, order.ID)
 	assertSyncPersistence(t, ctx, db, order.ID)
+	assertOrderPaidEventAndDispatch(t, ctx, db, order.ID)
+}
+
+func assertOrderPaidEventAndDispatch(t *testing.T, ctx context.Context, db *gorm.DB, orderID uuid.UUID) {
+	t.Helper()
+	var eventID uuid.UUID
+	var topic, payload, status, consumer string
+	if err := db.Raw(`SELECT event.id, event.topic, event.payload, delivery.consumer, delivery.status FROM domain_events event JOIN event_deliveries delivery ON delivery.event_id = event.id WHERE event.aggregate_id = ?`, orderID).Row().Scan(&eventID, &topic, &payload, &consumer, &status); err != nil {
+		t.Fatal(err)
+	}
+	if topic != eventsDomain.TopicOrderPaid || consumer != eventsDomain.ConsumerNotifications || status != "pending" || !strings.Contains(payload, orderID.String()) {
+		t.Fatalf("order paid event = %s/%s/%s/%s, want notifications pending event", eventID, topic, consumer, status)
+	}
+	sender := mockEmail.New(nil)
+	cipher, err := encryption.NewAESGCM(testNotificationEncryptionKey(t))
+	if err != nil {
+		t.Fatalf("create notification cipher: %v", err)
+	}
+	repository := notificationsPostgres.NewRepository(db)
+	handler := notificationsApp.NewOrderPaidEventHandler(repository, cipher, notificationsApp.NewTemplateRenderer(repository, "en"), sender)
+	if err := eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, nil, handler).DispatchOnce(ctx); err != nil {
+		t.Fatalf("dispatch order paid event: %v", err)
+	}
+	if err := db.Raw(`SELECT status FROM event_deliveries WHERE event_id = ? AND consumer = ?`, eventID, eventsDomain.ConsumerNotifications).Scan(&status).Error; err != nil {
+		t.Fatal(err)
+	}
+	if status != "done" {
+		t.Fatalf("event delivery status = %s, want done", status)
+	}
+	var ciphertext, jobStatus, attemptStatus string
+	var recipient sql.NullString
+	var jobs, attempts, attemptNumber int
+	if err := db.Raw(`SELECT COUNT(*), MIN(recipient), MIN(payload_ciphertext), MIN(status) FROM notification_jobs WHERE order_id = ?`, orderID).Row().Scan(&jobs, &recipient, &ciphertext, &jobStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Raw(`SELECT COUNT(*), MIN(status), MIN(attempt_number) FROM notification_attempts`).Row().Scan(&attempts, &attemptStatus, &attemptNumber); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 1 || attempts != 1 || attemptNumber != 1 || recipient.Valid || ciphertext == "" || strings.Contains(ciphertext, "iryna@example.com") || jobStatus != "sent" || attemptStatus != "success" || len(sender.Sent()) != 1 || sender.Sent()[0].Subject != "Receipt ES-300" {
+		t.Fatalf("notification state jobs/attempts/attempt-number/plain-recipient/ciphertext/job/attempt/sent = %d/%d/%d/%t/%q/%s/%s/%d", jobs, attempts, attemptNumber, recipient.Valid, ciphertext, jobStatus, attemptStatus, len(sender.Sent()))
+	}
+}
+
+func seedOrderPaidTemplate(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.Exec(`INSERT INTO notification_templates (template_key, channel, locale, version, subject_template, html_template, text_template) VALUES ('order_paid', 'email', 'en', 1, 'Receipt {{.OrderNumber}}', '<p>Your order {{.OrderNumber}} has been paid.</p>', 'Your order {{.OrderNumber}} has been paid.')`).Error; err != nil {
+		t.Fatalf("seed notification template: %v", err)
+	}
+}
+
+func testNotificationEncryptionKey(t *testing.T) string {
+	t.Helper()
+	return base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
 }
 
 func TestLatePaidWebhookWithoutPersistedPaymentCreatesOneAnomaly(t *testing.T) {

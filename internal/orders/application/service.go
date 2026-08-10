@@ -58,5 +58,8 @@ func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {
 			return nil, fmt.Errorf("invalid order promotion")
 		}
 	}
-	return &domain.Order{ID: uuid.New(), CartID: draft.CartID, Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Shipping: draft.Shipping, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Delivery: draft.Delivery, Items: draft.Items, Promotion: draft.Promotion, ExpiresAt: draft.ExpiresAt}, nil
+	if draft.Contact != nil && (strings.TrimSpace(draft.Contact.Email) == "" || strings.TrimSpace(draft.Contact.Locale) == "") {
+		return nil, fmt.Errorf("invalid order contact")
+	}
+	return &domain.Order{ID: uuid.New(), CartID: draft.CartID, Number: draft.Number, CustomerID: draft.CustomerID, Status: domain.StatusPendingPayment, Subtotal: draft.Subtotal, Tax: draft.Tax, Shipping: draft.Shipping, Total: draft.Total, PaymentProvider: draft.PaymentProvider, DeliveryProvider: draft.DeliveryProvider, Delivery: draft.Delivery, Items: draft.Items, Promotion: draft.Promotion, Contact: draft.Contact, ExpiresAt: draft.ExpiresAt}, nil
 }

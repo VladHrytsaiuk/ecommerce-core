@@ -46,6 +46,12 @@ type Config struct {
 	SMTPUser     string
 	SMTPPassword string
 	SMTPFrom     string
+	SMTPTLSMode  string
+
+	// Transactional Notifications. The encryption key is a base64-encoded
+	// 32-byte AES-256 key and is validated by the Notifications composition.
+	NotificationEmailProvider string
+	NotificationEncryptionKey string
 
 	// SendGrid (Email)
 	SendGridAPIKey string
@@ -250,6 +256,9 @@ func Load() *Config {
 	if smtpFrom == "" {
 		smtpFrom = smtpUser
 	}
+	smtpTLSMode := strings.ToLower(getEnvString("SMTP_TLS_MODE", "starttls"))
+	notificationEmailProvider := strings.ToLower(getEnvString("NOTIFICATION_EMAIL_PROVIDER", "mock"))
+	notificationEncryptionKey := strings.TrimSpace(os.Getenv("NOTIFICATION_ENCRYPTION_KEY"))
 
 	// SendGrid Config
 	sendGridAPIKey := os.Getenv("SENDGRID_API_KEY")
@@ -494,6 +503,9 @@ func Load() *Config {
 		SMTPUser:                  smtpUser,
 		SMTPPassword:              smtpPassword,
 		SMTPFrom:                  smtpFrom,
+		SMTPTLSMode:               smtpTLSMode,
+		NotificationEmailProvider: notificationEmailProvider,
+		NotificationEncryptionKey: notificationEncryptionKey,
 		SendGridAPIKey:            sendGridAPIKey,
 		EmailFrom:                 emailFrom,
 		NovaPoshtaAPIKey:          novaPoshtaAPIKey,

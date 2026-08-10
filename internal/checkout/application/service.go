@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/mail"
 	"sort"
 	"strings"
 	"time"
@@ -160,6 +161,10 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 	if err := s.policy.ValidateCustomer(request.CustomerID, request.CustomerPhone); err != nil {
 		return nil, err
 	}
+	customerEmail, err := normalizeCustomerEmail(request.CustomerEmail)
+	if err != nil {
+		return nil, err
+	}
 	provider, err := s.policy.ResolveDeliveryProvider(request.DeliveryProvider)
 	if err != nil {
 		return nil, err
@@ -204,6 +209,7 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		Delivery:         mapDelivery(request.Delivery),
 		Items:            prepared.Items,
 		Promotion:        mapPromotion(prepared.Promotion),
+		Contact:          &ordersDomain.ContactDetails{Email: customerEmail, Locale: request.Preparation.Locale},
 		ExpiresAt:        request.Preparation.ExpiresAt,
 	}
 	if prepared.Total.Amount == 0 {
@@ -254,6 +260,15 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		return nil, fmt.Errorf("record payment checkout (left pending for recovery): %w", err)
 	}
 	return &checkoutDomain.StartedCheckout{Prepared: prepared, Order: order, Session: session}, nil
+}
+
+func normalizeCustomerEmail(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	parsed, err := mail.ParseAddress(value)
+	if err != nil || parsed.Address != value {
+		return "", fmt.Errorf("valid customer email is required")
+	}
+	return value, nil
 }
 
 // replayCheckout returns a new browser session for an existing logical

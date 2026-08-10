@@ -48,6 +48,9 @@ func (s *Service) CreatePendingCheckout(ctx context.Context, draft ordersDomain.
 	if attempt.OrderID != uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount <= 0 || attempt.Amount.Currency == "" || attempt.ExpiresAt.IsZero() {
 		return nil, fmt.Errorf("invalid checkout attempt request")
 	}
+	if draft.Contact == nil || strings.TrimSpace(draft.Contact.Email) == "" || strings.TrimSpace(draft.Contact.Locale) == "" {
+		return nil, fmt.Errorf("checkout contact is required")
+	}
 	order, err := ordersApp.NewPendingOrder(draft)
 	if err != nil {
 		return nil, err
@@ -71,6 +74,9 @@ func (s *Service) CreatePaidCheckout(ctx context.Context, draft ordersDomain.Dra
 	}
 	if attempt.OrderID != uuid.Nil || attempt.Provider != "free" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount != 0 || attempt.Amount.Currency == "" || attempt.ExpiresAt.IsZero() {
 		return nil, fmt.Errorf("invalid free checkout attempt request")
+	}
+	if draft.Contact == nil || strings.TrimSpace(draft.Contact.Email) == "" || strings.TrimSpace(draft.Contact.Locale) == "" {
+		return nil, fmt.Errorf("checkout contact is required")
 	}
 	order, err := ordersApp.NewPendingOrder(draft)
 	if err != nil {

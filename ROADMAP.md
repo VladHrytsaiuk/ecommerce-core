@@ -173,6 +173,20 @@ engagement modules.
    free-order flow; late paid callbacks after cancellation create a durable
    manual-reconciliation anomaly instead of being retried indefinitely.
 
+## Phase 8 — Notifications and background jobs
+
+**Status: complete.** Core now provides a PostgreSQL transactional event
+outbox. `orders.paid.v1` is appended atomically with the paid order and is
+claimed through lease-based `FOR UPDATE SKIP LOCKED` delivery rows. The
+optional Notifications module creates idempotent order-paid email jobs from
+the event and records provider attempts. Recipient payloads use AES-256-GCM
+encryption at rest, are decrypted only in worker memory, and templates resolve
+by contact locale with `DEFAULT_LOCALE` fallback. Bootstrap selects `mock`,
+SMTP, or the explicit SES integration boundary through configuration; provider
+I/O remains outside the database transaction. The worker has panic recovery,
+sanitized failure codes, a bounded retry policy and a durable `dead` delivery
+state; notification jobs use fenced leases to prevent concurrent sends.
+
 ## Global rules
 
 - Do not fork for a store.

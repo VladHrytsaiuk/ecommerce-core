@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
@@ -25,6 +26,7 @@ type Repository struct {
 	db          *gorm.DB
 	syncEnabled bool
 	hooks       []workflowDomain.TransactionHook
+	events      eventsDomain.TransactionalEventPublisher
 }
 
 // NewRepository constructs the one cross-context PostgreSQL transaction
@@ -40,6 +42,13 @@ func (r *Repository) WithTransactionHook(hook workflowDomain.TransactionHook) *R
 	if hook != nil {
 		r.hooks = append(r.hooks, hook)
 	}
+	return r
+}
+
+// WithEventPublisher enables durable domain events within the workflow's
+// existing database transaction. The publisher must never perform network I/O.
+func (r *Repository) WithEventPublisher(publisher eventsDomain.TransactionalEventPublisher) *Repository {
+	r.events = publisher
 	return r
 }
 
@@ -121,6 +130,14 @@ type deliveryDetailsRecord struct {
 }
 
 func (deliveryDetailsRecord) TableName() string { return "order_delivery_details" }
+
+type contactDetailsRecord struct {
+	OrderID uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Email   string
+	Locale  string
+}
+
+func (contactDetailsRecord) TableName() string { return "order_contact_details" }
 
 type deliveryJobRecord struct {
 	ID             uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -215,6 +232,14 @@ func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Orde
 		}
 		if err := createOrderSnapshot(tx, order); err != nil {
 			return err
+		}
+		if attempt != nil {
+			if order.Contact == nil {
+				return fmt.Errorf("order contact is required")
+			}
+			if err := tx.Create(&contactDetailsRecord{OrderID: order.ID, Email: order.Contact.Email, Locale: order.Contact.Locale}).Error; err != nil {
+				return err
+			}
 		}
 		if r.syncEnabled {
 			if err := enqueueOrderCreated(tx, order); err != nil {
@@ -549,6 +574,15 @@ func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order ord
 	}
 	for _, hook := range r.hooks {
 		if err := hook.BeforeOrderTransition(transaction.WithContext(ctx, tx), orderID, targetStatus); err != nil {
+			return err
+		}
+	}
+	if targetStatus == ordersDomain.StatusPaid && r.events != nil {
+		event, err := eventsDomain.NewOrderPaidEvent(orderID, order.Number, money.Money{Amount: order.TotalAmount, Currency: order.Currency}, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if err := r.events.Publish(transaction.WithContext(ctx, tx), event); err != nil {
 			return err
 		}
 	}

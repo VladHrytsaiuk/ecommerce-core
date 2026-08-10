@@ -35,6 +35,10 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.InventoryCleanup.Run(workerCtx, time.Minute) }()
 	}
+	if a.OutboxWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.OutboxWorker.Run(workerCtx, 5*time.Second) }()
+	}
 }
 
 func (a *Application) Stop() { _ = a.StopContext(context.Background()) }

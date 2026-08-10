@@ -36,6 +36,7 @@ type Draft struct {
 	Delivery         *DeliveryDetails
 	Items            []Item
 	Promotion        *Promotion
+	Contact          *ContactDetails
 	ExpiresAt        time.Time
 }
 
@@ -62,6 +63,15 @@ type DeliveryDetails struct {
 	LocalityID     string
 	ServicePointID string
 }
+
+// ContactDetails is the immutable receipt destination captured at checkout.
+// It is separate from delivery details because digital orders may have no
+// shipment and a customer can change their profile after payment.
+type ContactDetails struct {
+	Email  string
+	Locale string
+}
+
 type Order struct {
 	ID               uuid.UUID
 	CartID           uuid.UUID
@@ -77,6 +87,7 @@ type Order struct {
 	Delivery         *DeliveryDetails
 	Items            []Item
 	Promotion        *Promotion
+	Contact          *ContactDetails
 	CreatedAt        time.Time
 	ExpiresAt        time.Time
 }

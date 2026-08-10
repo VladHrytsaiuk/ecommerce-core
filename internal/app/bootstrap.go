@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 	comparisonDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/domain"
 	comparisonPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/repository/postgres"
 	comparisonService "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/service"
+	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
+	eventsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events/application"
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
 	orderWorkflowApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/application"
@@ -41,13 +44,17 @@ import (
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	inventoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/repository/postgres"
+	notificationsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/application"
+	notificationsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/repository/postgres"
 	ordersApp "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/application"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	ordersPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/repository/postgres"
 	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
 	paymentsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/encryption"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	eventsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/events"
 	workflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/orderworkflow"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 	promosApp "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/application"
@@ -91,6 +98,7 @@ type Application struct {
 	DeliveryCarriers       *deliveryApp.Registry
 	DeliveryDispatcher     *deliveryApp.Dispatcher
 	DeliveryTracker        *deliveryApp.Tracker
+	OutboxWorker           *eventsApp.OutboxWorker
 	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
 	workerMu               sync.Mutex
@@ -147,10 +155,16 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
 	inventoryRepository := inventoryPostgres.NewRepository(db)
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
+	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
+	eventConsumers := make([]string, 0, 1)
+	if notificationsEnabled {
+		eventConsumers = append(eventConsumers, eventsDomain.ConsumerNotifications)
+	}
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
 	// Inventory repository implementation.
-	workflowRepository := workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync"))
+	workflowRepository := workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync")).
+		WithEventPublisher(eventsPostgres.NewPublisher(eventConsumers...))
 	basePriceCalculator, err := checkoutDomain.NewCheckoutPriceCalculator(taxPolicy)
 	if err != nil {
 		return nil, err
@@ -219,6 +233,20 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	if contains(storeConfig.EnabledModules, "user_profiles") {
 		identityProfileService = identityService.NewProfileService(*storeConfig.ProfilePolicy, identityPostgres.NewProfileRepository(db))
 	}
+	outboxHandlers := make([]eventsApp.Consumer, 0, 1)
+	if notificationsEnabled {
+		cipher, err := encryption.NewAESGCM(cfg.NotificationEncryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("configure notifications encryption: %w", err)
+		}
+		sender, err := newNotificationEmailSender(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("configure notifications email sender: %w", err)
+		}
+		repository := notificationsPostgres.NewRepository(db)
+		renderer := notificationsApp.NewTemplateRenderer(repository, storeConfig.DefaultLocale)
+		outboxHandlers = append(outboxHandlers, notificationsApp.NewOrderPaidEventHandler(repository, cipher, renderer, sender))
+	}
 
 	checkoutService := checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
 		AllowGuest:                 storeConfig.CheckoutAllowGuest,
@@ -253,6 +281,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		DeliveryCarriers:       deliveryCarriers,
 		DeliveryDispatcher:     deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
 		DeliveryTracker:        deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers),
+		OutboxWorker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
 		TaxPolicy:              taxPolicy,
 		HTTP:                   httpDependencies,
 	}, nil

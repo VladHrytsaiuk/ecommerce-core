@@ -43,6 +43,7 @@ type StartPaymentRequest struct {
 	CartID             uuid.UUID
 	OrderNumber        string
 	CustomerID         *uuid.UUID
+	CustomerEmail      string
 	CustomerPhone      string
 	DeliveryProvider   string
 	DeliveryOptionCode string

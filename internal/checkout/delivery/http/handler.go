@@ -29,6 +29,7 @@ func NewHandler(service checkoutDomain.Service, carts cartDomain.Service, reserv
 }
 
 type StartPaymentRequest struct {
+	CustomerEmail      string           `json:"customer_email"`
 	CustomerPhone      string           `json:"customer_phone,omitempty"`
 	DeliveryProvider   string           `json:"delivery_provider,omitempty"`
 	DeliveryOptionCode string           `json:"delivery_option_code,omitempty"`
@@ -100,7 +101,7 @@ func (h *Handler) StartPayment(c *gin.Context) {
 	}
 	started, err := h.service.StartPayment(c.Request.Context(), checkoutDomain.StartPaymentRequest{
 		Preparation: checkoutDomain.PrepareRequest{CheckoutID: checkoutID, Locale: middleware.GetLanguage(c), Lines: lines, ExpiresAt: time.Now().UTC().Add(h.reservationTTL), PromoCode: cart.AppliedPromoCode},
-		CartID:      cart.ID, CustomerID: owner.CustomerID, CustomerPhone: request.CustomerPhone, DeliveryProvider: request.DeliveryProvider, DeliveryOptionCode: request.DeliveryOptionCode, Delivery: mapDelivery(request.Delivery), ReturnURL: request.ReturnURL, CancelURL: request.CancelURL,
+		CartID:      cart.ID, CustomerID: owner.CustomerID, CustomerEmail: request.CustomerEmail, CustomerPhone: request.CustomerPhone, DeliveryProvider: request.DeliveryProvider, DeliveryOptionCode: request.DeliveryOptionCode, Delivery: mapDelivery(request.Delivery), ReturnURL: request.ReturnURL, CancelURL: request.CancelURL,
 	})
 	if err != nil {
 		c.JSON(stdhttp.StatusUnprocessableEntity, gin.H{"error": "checkout could not be started", "message": err.Error()})

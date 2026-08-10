@@ -59,6 +59,7 @@ flowchart TB
     Bootstrap --> SEO[SEO module\noptional]
     Bootstrap --> Badges[Badges module\noptional]
     Bootstrap --> Promos[Promos module\noptional]
+    Bootstrap --> Notifications[Notifications module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders
@@ -76,6 +77,7 @@ flowchart TB
     SEO -. SEO reader port .-> Catalog
     Badges -. badge reader port .-> Catalog
     Promos -. pricing decorator + transaction hook .-> Checkout
+    Core -. durable orders.paid.v1 outbox .-> Notifications
 
     PaymentsPort --> LiqPay[LiqPay adapter]
     PaymentsPort --> Stripe[Stripe adapter]
