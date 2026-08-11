@@ -12,6 +12,7 @@ import (
 	comparisonHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	identityHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/delivery/http"
+	mediaHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/media/delivery/http"
 	ordersHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
@@ -51,21 +52,26 @@ func InitRouter(application *app.Application) *gin.Engine {
 		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
 	}
 	v1 := api.Group("/v1")
-	v1.Use(application.HTTP.SecurityHeaders, application.HTTP.ErrorRenderer.Middleware(), application.HTTP.RequestBodyLimit, application.HTTP.APIRateLimit)
+	v1.Use(application.HTTP.SecurityHeaders, application.HTTP.ErrorRenderer.Middleware(), application.HTTP.APIRateLimit)
 	v1Catalog := v1.Group("/catalog/:lang")
-	v1Catalog.Use(application.HTTP.LocaleMiddleware)
+	v1Catalog.Use(application.HTTP.RequestBodyLimit, application.HTTP.LocaleMiddleware)
 	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer)
 	if application.SearchService != nil {
 		searchHTTP.RegisterV1Routes(v1Catalog, application.SearchService, application.HTTP.ErrorRenderer)
 	}
 	v1Checkout := v1.Group("/checkout/:lang")
-	v1Checkout.Use(application.HTTP.LocaleMiddleware, application.HTTP.OptionalAuth, sensitiveLimit)
+	v1Checkout.Use(application.HTTP.RequestBodyLimit, application.HTTP.LocaleMiddleware, application.HTTP.OptionalAuth, sensitiveLimit)
 	checkoutHTTP.RegisterV1Routes(v1Checkout, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID, application.Config.CookieSecure, application.HTTP.ErrorRenderer)
 	v1Admin := v1.Group("/admin")
-	v1Admin.Use(middleware.AuthMiddleware(application.TokenMaker))
+	v1Admin.Use(application.HTTP.RequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))
 	adminHTTP.RegisterV1Routes(v1Admin, application.AdminAuthorizer, application.PromosAdminFacade, application.CatalogAdminFacade, application.OrdersAdminFacade, application.HTTP.ErrorRenderer)
+	if application.MediaUploadService != nil {
+		v1AdminMedia := v1.Group("/admin/media")
+		v1AdminMedia.Use(application.HTTP.MediaRequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))
+		mediaHTTP.RegisterV1Routes(v1AdminMedia, application.AdminAuthorizer, application.MediaUploadService, application.HTTP.ErrorRenderer)
+	}
 	v1Orders := v1.Group("/orders")
-	v1Orders.Use(middleware.AuthMiddleware(application.TokenMaker))
+	v1Orders.Use(application.HTTP.RequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))
 	ordersHTTP.RegisterV1Routes(v1Orders, application.OrderService, application.HTTP.ErrorRenderer)
 	admin := api.Group("/admin")
 	admin.Use(middleware.AuthMiddleware(application.TokenMaker))

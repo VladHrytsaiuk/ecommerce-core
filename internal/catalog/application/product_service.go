@@ -19,6 +19,12 @@ type ProductService struct {
 	ratingReader domain.ProductRatingReader
 	seoReader    domain.ProductSEOReader
 	badgeReader  domain.ProductBadgeReader
+	mediaReader  domain.MediaReader
+}
+
+func (s *ProductService) WithMediaReader(r domain.MediaReader) *ProductService {
+	s.mediaReader = r
+	return s
 }
 
 func NewProductService(repo domain.ProductRepository, allowedLocales []string) *ProductService {
@@ -171,6 +177,23 @@ func (s *ProductService) enrich(ctx context.Context, products []*domain.Product,
 			}
 		}
 	}
+	if s.mediaReader != nil {
+		ids := []uuid.UUID{}
+		for _, p := range products {
+			for _, m := range p.Media {
+				ids = append(ids, m.AssetID)
+			}
+		}
+		urls, err := s.mediaReader.GetPublicURLs(ctx, ids)
+		if err != nil {
+			return err
+		}
+		for _, p := range products {
+			for i := range p.Media {
+				p.Media[i].URL = urls[p.Media[i].AssetID]
+			}
+		}
+	}
 	return nil
 }
 
@@ -240,6 +263,16 @@ func (s *ProductService) validate(product *domain.Product) error {
 			return fmt.Errorf("%w: duplicate translation for locale %q", domain.ErrInvalidProduct, translation.Locale)
 		}
 		seenLocales[translation.Locale] = struct{}{}
+	}
+	for _, item := range product.Media {
+		if item.AssetID == uuid.Nil || item.Position < 0 {
+			return fmt.Errorf("%w: media asset and position are invalid", domain.ErrInvalidProduct)
+		}
+		switch item.Role {
+		case "MAIN", "HOVER", "GALLERY":
+		default:
+			return fmt.Errorf("%w: unsupported media role %q", domain.ErrInvalidProduct, item.Role)
+		}
 	}
 	return nil
 }

@@ -25,6 +25,22 @@ type Product struct {
 	Rating       *ProductRating       `gorm:"-" json:"rating,omitempty"`
 	SEO          *ProductSEO          `gorm:"-" json:"seo,omitempty"`
 	Badges       []ProductBadge       `gorm:"-" json:"badges,omitempty"`
+	Media        []ProductMedia       `gorm:"foreignKey:ProductID" json:"media,omitempty"`
+}
+type ProductMedia struct {
+	ProductID uuid.UUID  `json:"product_id"`
+	VariantID *uuid.UUID `json:"variant_id,omitempty"`
+	AssetID   uuid.UUID  `json:"asset_id"`
+	Role      string     `json:"role"`
+	Position  int        `json:"position"`
+	URL       string     `gorm:"-" json:"url,omitempty"`
+}
+
+func (ProductMedia) TableName() string { return "product_media" }
+
+type MediaReader interface {
+	CheckAssetsReady(context.Context, []uuid.UUID) error
+	GetPublicURLs(context.Context, []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
 // ProductRating is a read projection owned by the optional Reviews module;

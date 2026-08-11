@@ -56,6 +56,14 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.SearchOutboxWorker.Run(workerCtx, 5*time.Second) }()
 	}
+	if a.MediaOutboxWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.MediaOutboxWorker.Run(workerCtx, 5*time.Second) }()
+	}
+	if a.MediaOrphanCleanup != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.MediaOrphanCleanup.Run(workerCtx, 24*time.Hour) }()
+	}
 }
 
 func (a *Application) Stop() { _ = a.StopContext(context.Background()) }

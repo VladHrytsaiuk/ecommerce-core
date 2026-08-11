@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	adminDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
@@ -12,6 +13,10 @@ import (
 )
 
 const PermissionCatalogWrite = "catalog:write"
+
+// ErrMediaAssetsNotReady is safe for HTTP delivery to expose as a bad request;
+// the wrapped storage detail remains available only to structured logs.
+var ErrMediaAssetsNotReady = errors.New("catalog media assets are not ready")
 
 type CatalogProducts interface {
 	Create(context.Context, *domain.Product) error
@@ -38,6 +43,12 @@ type CatalogAdminFacade struct {
 	tx            TransactionManager
 	publisher     events.TransactionalEventPublisher
 	productEvents events.TransactionalEventPublisher
+	mediaReader   domain.MediaReader
+}
+
+func (f *CatalogAdminFacade) WithMediaReader(r domain.MediaReader) *CatalogAdminFacade {
+	f.mediaReader = r
+	return f
 }
 
 // WithProductEventPublisher attaches the optional Search projection publisher.
@@ -75,6 +86,18 @@ func (f *CatalogAdminFacade) product(ctx context.Context, cmd CatalogCommand, p 
 		cmd.EventKey = uuid.New()
 	}
 	return f.tx.WithinTransaction(ctx, func(tx context.Context) error {
+		if len(p.Media) > 0 {
+			if f.mediaReader == nil {
+				return fmt.Errorf("media module is not configured")
+			}
+			ids := make([]uuid.UUID, 0, len(p.Media))
+			for _, m := range p.Media {
+				ids = append(ids, m.AssetID)
+			}
+			if err := f.mediaReader.CheckAssetsReady(tx, ids); err != nil {
+				return fmt.Errorf("%w: %v", ErrMediaAssetsNotReady, err)
+			}
+		}
 		var err error
 		action := "catalog.product.create"
 		var old []byte

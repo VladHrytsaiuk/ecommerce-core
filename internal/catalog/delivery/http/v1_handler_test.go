@@ -95,6 +95,15 @@ func TestCatalogV1RejectsDeepPagination(t *testing.T) {
 	}
 }
 
+func TestGroupMediaGroupsRolesAndVariants(t *testing.T) {
+	main, variant := uuid.New(), uuid.New()
+	variantID := uuid.New()
+	got := groupMedia([]domain.ProductMedia{{AssetID: main, Role: "MAIN"}, {AssetID: variant, Role: "GALLERY", VariantID: &variantID}}, map[uuid.UUID]string{main: "https://cdn/main.webp", variant: "https://cdn/variant.webp"})
+	if got.Main != "https://cdn/main.webp" || got.Variants[variantID.String()][0] != "https://cdn/variant.webp" {
+		t.Fatalf("group=%+v", got)
+	}
+}
+
 type v1ProductService struct {
 	products  []domain.Product
 	findErr   error

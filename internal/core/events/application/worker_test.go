@@ -56,15 +56,30 @@ func TestOutboxWorkerMovesFinalFailureToDeadLetter(t *testing.T) {
 	}
 }
 
+func TestOutboxWorkerBoundsFinalizationAfterParentCancellation(t *testing.T) {
+	eventID := uuid.New()
+	store := &fakeDeliveryStore{delivery: &events.Delivery{EventID: eventID, Topic: events.TopicOrderPaid, Consumer: events.ConsumerNotifications}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil).DispatchOnce(ctx); err != nil {
+		t.Fatalf("DispatchOnce() error = %v", err)
+	}
+	if !store.completeHasDeadline || store.completeContextErr != nil {
+		t.Fatalf("completion context deadline=%t err=%v; want active bounded context", store.completeHasDeadline, store.completeContextErr)
+	}
+}
+
 type fakeDeliveryStore struct {
-	delivery         *events.Delivery
-	claimErr         error
-	claimConsumer    string
-	completeEventID  uuid.UUID
-	completeConsumer string
-	failedEventID    uuid.UUID
-	deadEventID      uuid.UUID
-	failCause        error
+	delivery            *events.Delivery
+	claimErr            error
+	claimConsumer       string
+	completeEventID     uuid.UUID
+	completeConsumer    string
+	completeHasDeadline bool
+	completeContextErr  error
+	failedEventID       uuid.UUID
+	deadEventID         uuid.UUID
+	failCause           error
 }
 
 func (s *fakeDeliveryStore) Claim(_ context.Context, consumer string, _ time.Time, _ time.Duration) (*events.Delivery, error) {
@@ -72,8 +87,10 @@ func (s *fakeDeliveryStore) Claim(_ context.Context, consumer string, _ time.Tim
 	return s.delivery, s.claimErr
 }
 
-func (s *fakeDeliveryStore) Complete(_ context.Context, eventID uuid.UUID, consumer string, _ time.Time) error {
+func (s *fakeDeliveryStore) Complete(ctx context.Context, eventID uuid.UUID, consumer string, _ time.Time) error {
 	s.completeEventID, s.completeConsumer = eventID, consumer
+	_, s.completeHasDeadline = ctx.Deadline()
+	s.completeContextErr = ctx.Err()
 	return nil
 }
 

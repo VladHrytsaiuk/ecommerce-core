@@ -23,7 +23,9 @@ const (
 	// ConsumerSearchIndexer owns the asynchronous projection of Catalog
 	// products into an optional external search engine.
 	ConsumerSearchIndexer = "search_indexer"
-	TopicOrderPaid        = "orders.paid.v1"
+	// ConsumerMediaProcessor owns asynchronous media state transitions.
+	ConsumerMediaProcessor = "media_processor"
+	TopicOrderPaid         = "orders.paid.v1"
 )
 
 // DomainEvent is an immutable versioned message. Its payload must contain

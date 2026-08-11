@@ -270,6 +270,21 @@ expressions from reaching the Search provider. Every provider task has a
 bounded deadline, so a stalled Meilisearch task follows Outbox retry/DLQ
 handling instead of permanently occupying an indexer worker.
 
+## Phase 13 — Media assets and object storage
+
+**Status: complete.** The optional `media` module owns
+asset metadata, variant records and processing attempts, while object bytes
+remain in an S3-compatible store. `POST /api/v1/admin/media/upload` is RBAC
+protected, streams a single magic-byte-validated JPEG/PNG/WebP with a strict
+15 MiB file limit, and uses only a server-generated quarantine object key.
+The quarantine asset record and `media.asset.uploaded.v1` delivery are appended
+in one PostgreSQL transaction. A pure-Go Outbox consumer rejects images above
+8192px per dimension or 16,000,000 pixels before full decode, then creates
+WebP thumbnail/product variants. Catalog stores asset links only after the
+MediaReader confirms assets are ready. A daily, paginated S3 reconciliation
+worker removes quarantine objects older than 24 hours that have no non-failed
+asset record. The S3 adapter is portable across AWS S3, MinIO and Cloudflare R2.
+
 ## Global rules
 
 - Do not fork for a store.

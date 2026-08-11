@@ -67,6 +67,18 @@ type Config struct {
 	SearchMasterKey   string
 	SearchIndexPrefix string
 
+	// Media is an optional S3-compatible capability. One adapter supports AWS
+	// S3, MinIO and Cloudflare R2; the provider value controls URL selection.
+	MediaProvider          string
+	MediaS3Bucket          string
+	MediaS3Region          string
+	MediaS3Endpoint        string
+	MediaS3AccessKeyID     string
+	MediaS3SecretAccessKey string
+	MediaS3PublicBaseURL   string
+	MediaR2PublicBaseURL   string
+	MediaS3UsePathStyle    bool
+
 	// SendGrid (Email)
 	SendGridAPIKey string
 	EmailFrom      string
@@ -278,6 +290,15 @@ func Load() *Config {
 	searchURL := strings.TrimSpace(os.Getenv("SEARCH_URL"))
 	searchMasterKey := strings.TrimSpace(os.Getenv("SEARCH_MASTER_KEY"))
 	searchIndexPrefix := getEnvString("SEARCH_INDEX_PREFIX", "ecommerce")
+	mediaProvider := strings.ToLower(getEnvString("MEDIA_PROVIDER", "s3"))
+	mediaS3Bucket := strings.TrimSpace(os.Getenv("MEDIA_S3_BUCKET"))
+	mediaS3Region := strings.TrimSpace(getEnvString("MEDIA_S3_REGION", "us-east-1"))
+	mediaS3Endpoint := strings.TrimSpace(os.Getenv("MEDIA_S3_ENDPOINT"))
+	mediaS3AccessKeyID := strings.TrimSpace(os.Getenv("MEDIA_S3_ACCESS_KEY_ID"))
+	mediaS3SecretAccessKey := strings.TrimSpace(os.Getenv("MEDIA_S3_SECRET_ACCESS_KEY"))
+	mediaS3PublicBaseURL := strings.TrimSpace(os.Getenv("MEDIA_S3_PUBLIC_BASE_URL"))
+	mediaR2PublicBaseURL := strings.TrimSpace(os.Getenv("MEDIA_R2_PUBLIC_BASE_URL"))
+	mediaS3UsePathStyle := getEnvBool("MEDIA_S3_USE_PATH_STYLE", false)
 	if redisEnabled && redisURL == "" {
 		log.Fatal("Fatal: REDIS_URL is required when REDIS_ENABLED=true")
 	}
@@ -539,6 +560,15 @@ func Load() *Config {
 		SearchURL:                 searchURL,
 		SearchMasterKey:           searchMasterKey,
 		SearchIndexPrefix:         searchIndexPrefix,
+		MediaProvider:             mediaProvider,
+		MediaS3Bucket:             mediaS3Bucket,
+		MediaS3Region:             mediaS3Region,
+		MediaS3Endpoint:           mediaS3Endpoint,
+		MediaS3AccessKeyID:        mediaS3AccessKeyID,
+		MediaS3SecretAccessKey:    mediaS3SecretAccessKey,
+		MediaS3PublicBaseURL:      mediaS3PublicBaseURL,
+		MediaR2PublicBaseURL:      mediaR2PublicBaseURL,
+		MediaS3UsePathStyle:       mediaS3UsePathStyle,
 		SendGridAPIKey:            sendGridAPIKey,
 		EmailFrom:                 emailFrom,
 		NovaPoshtaAPIKey:          novaPoshtaAPIKey,

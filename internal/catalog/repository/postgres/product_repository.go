@@ -18,7 +18,7 @@ func NewProductRepository(db *gorm.DB) *ProductRepository { return &ProductRepos
 
 func (r *ProductRepository) FindByID(ctx context.Context, id uuid.UUID) (*domain.Product, error) {
 	var product domain.Product
-	if err := r.database(ctx).Preload("Translations").First(&product, "id = ?", id).Error; err != nil {
+	if err := r.database(ctx).Preload("Translations").Preload("Media").First(&product, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrProductNotFound
 		}
@@ -44,9 +44,9 @@ func (r *ProductRepository) ListActiveAfter(ctx context.Context, after *uuid.UUI
 
 func (r *ProductRepository) FindBySlug(ctx context.Context, locale, slug string) (*domain.Product, error) {
 	var product domain.Product
-	err := r.db.WithContext(ctx).
+	err := r.database(ctx).
 		Joins("JOIN product_translations pt ON pt.product_id = products.id").
-		Preload("Translations").
+		Preload("Translations").Preload("Media").
 		Where("pt.locale = ? AND pt.slug = ?", locale, slug).
 		First(&product).Error
 	if err != nil {
@@ -60,7 +60,7 @@ func (r *ProductRepository) FindBySlug(ctx context.Context, locale, slug string)
 
 func (r *ProductRepository) List(ctx context.Context) ([]domain.Product, error) {
 	var products []domain.Product
-	if err := r.db.WithContext(ctx).Preload("Translations").Order("created_at DESC").Find(&products).Error; err != nil {
+	if err := r.database(ctx).Preload("Translations").Preload("Media").Order("created_at DESC").Find(&products).Error; err != nil {
 		return nil, err
 	}
 	return products, nil
@@ -84,7 +84,7 @@ func (r *ProductRepository) ListProducts(ctx context.Context, locale string, pag
 	offset := (page - 1) * limit
 	if err := visible.
 		Distinct("products.*").
-		Preload("Translations").
+		Preload("Translations").Preload("Media").
 		Order("products.created_at DESC, products.id DESC").
 		Limit(limit).
 		Offset(offset).
@@ -101,7 +101,11 @@ func (r *ProductRepository) Create(ctx context.Context, product *domain.Product)
 	for i := range product.Translations {
 		product.Translations[i].ProductID = product.ID
 	}
-	return r.database(ctx).Create(product).Error
+	db := r.database(ctx)
+	if err := db.Create(product).Error; err != nil {
+		return err
+	}
+	return r.replaceMedia(db, product)
 }
 
 func (r *ProductRepository) Update(ctx context.Context, product *domain.Product) error {
@@ -115,7 +119,10 @@ func (r *ProductRepository) Update(ctx context.Context, product *domain.Product)
 	if err := db.Where("product_id = ?", product.ID).Delete(&domain.ProductTranslation{}).Error; err != nil {
 		return err
 	}
-	return db.Create(&product.Translations).Error
+	if err := db.Create(&product.Translations).Error; err != nil {
+		return err
+	}
+	return r.replaceMedia(db, product)
 }
 
 func (r *ProductRepository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -131,10 +138,25 @@ func (r *ProductRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *ProductRepository) FindByIDForUpdate(ctx context.Context, id uuid.UUID) (*domain.Product, error) {
 	var product domain.Product
-	if err := r.database(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Preload("Translations").First(&product, "id = ?", id).Error; err != nil {
+	if err := r.database(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Preload("Translations").Preload("Media").First(&product, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
 	return &product, nil
+}
+func (r *ProductRepository) replaceMedia(db *gorm.DB, p *domain.Product) error {
+	if p.Media == nil {
+		return nil
+	}
+	if err := db.Where("product_id=?", p.ID).Delete(&domain.ProductMedia{}).Error; err != nil {
+		return err
+	}
+	for i := range p.Media {
+		p.Media[i].ProductID = p.ID
+	}
+	if len(p.Media) == 0 {
+		return nil
+	}
+	return db.Create(&p.Media).Error
 }
 
 func (r *ProductRepository) database(ctx context.Context) *gorm.DB {

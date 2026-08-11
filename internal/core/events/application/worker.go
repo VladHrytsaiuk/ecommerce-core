@@ -12,7 +12,10 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/sanitize"
 )
 
-const DefaultMaxAttempts = 10
+const (
+	DefaultMaxAttempts  = 10
+	finalizationTimeout = 3 * time.Second
+)
 
 type Logger interface {
 	Infow(string, ...interface{})
@@ -74,7 +77,9 @@ func (w *OutboxWorker) DispatchOnce(ctx context.Context) error {
 			return w.failDelivery(ctx, event, err)
 		}
 	}
-	if err := w.store.Complete(context.WithoutCancel(ctx), event.EventID, w.consumer, time.Now().UTC()); err != nil {
+	finalizationCtx, cancel := finalizationContext(ctx)
+	defer cancel()
+	if err := w.store.Complete(finalizationCtx, event.EventID, w.consumer, time.Now().UTC()); err != nil {
 		if w.logger != nil {
 			w.logger.Errorw("event outbox delivery completion failed", "event_id", event.EventID, "consumer", w.consumer, "error_code", sanitize.ErrorCode(err))
 		}
@@ -107,11 +112,13 @@ func (w *OutboxWorker) Run(ctx context.Context, interval time.Duration) {
 func (w *OutboxWorker) failDelivery(ctx context.Context, event *events.Delivery, cause error) error {
 	code := sanitize.ErrorCode(cause)
 	sanitizedCause := errors.New(code)
+	finalizationCtx, cancel := finalizationContext(ctx)
+	defer cancel()
 	var err error
 	if event.Attempts >= w.maxAttempts {
-		err = w.store.Dead(context.WithoutCancel(ctx), event.EventID, w.consumer, sanitizedCause, time.Now().UTC())
+		err = w.store.Dead(finalizationCtx, event.EventID, w.consumer, sanitizedCause, time.Now().UTC())
 	} else {
-		err = w.store.Fail(context.WithoutCancel(ctx), event.EventID, w.consumer, sanitizedCause, time.Now().UTC().Add(time.Minute))
+		err = w.store.Fail(finalizationCtx, event.EventID, w.consumer, sanitizedCause, time.Now().UTC().Add(time.Minute))
 	}
 	if err != nil {
 		return fmt.Errorf("record event delivery failure")
@@ -124,6 +131,13 @@ func (w *OutboxWorker) failDelivery(ctx context.Context, event *events.Delivery,
 		w.logger.Errorw("event outbox delivery failed", "event_id", event.EventID, "topic", event.Topic, "consumer", event.Consumer, "status", status, "error_code", code)
 	}
 	return fmt.Errorf("event delivery failed: %s", code)
+}
+
+// finalizationContext allows a claimed delivery to be acknowledged even when
+// the parent was cancelled, but bounds the final database call so shutdown can
+// never wait indefinitely for an unavailable PostgreSQL connection.
+func finalizationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), finalizationTimeout)
 }
 
 func invokeSafely(ctx context.Context, handler Consumer, event events.Delivery) (err error) {

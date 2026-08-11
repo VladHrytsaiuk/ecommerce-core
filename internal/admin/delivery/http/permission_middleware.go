@@ -42,25 +42,5 @@ func RequirePermission(authorizer adminDomain.Authorizer, permission string) gin
 // RequirePermissionV1 preserves the same data-driven authorization policy for
 // v1 while delegating its wire errors to the standard problem renderer.
 func RequirePermissionV1(authorizer adminDomain.Authorizer, permission string, renderer *apiresponse.ErrorRenderer) gin.HandlerFunc {
-	permission = strings.TrimSpace(permission)
-	return func(c *gin.Context) {
-		if authorizer == nil || permission == "" {
-			renderer.Abort(c, apiresponse.Unavailable(errors.New("authorization is not configured")))
-			return
-		}
-		userID, ok := sharedMiddleware.AuthenticatedUserID(c)
-		if !ok {
-			renderer.Abort(c, apiresponse.Unauthenticated(errors.New("authenticated subject missing")))
-			return
-		}
-		err := authorizer.Require(c.Request.Context(), userID, permission)
-		switch {
-		case err == nil:
-			c.Next()
-		case errors.Is(err, adminDomain.ErrNotAdmin), errors.Is(err, adminDomain.ErrPermissionDenied), errors.Is(err, adminDomain.ErrInvalidPermission):
-			renderer.Abort(c, apiresponse.Forbidden(err))
-		default:
-			renderer.Abort(c, apiresponse.Unavailable(err))
-		}
-	}
+	return sharedMiddleware.RequirePermissionV1(authorizer, permission, renderer)
 }

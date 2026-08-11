@@ -172,6 +172,20 @@ func TestNewStoreConfigValidatesOptionalSearch(t *testing.T) {
 	}
 }
 
+func TestNewStoreConfigValidatesOptionalMedia(t *testing.T) {
+	cfg := validConfig()
+	cfg.EnabledModules = []string{"inventory", "media"}
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "admin") {
+		t.Fatalf("NewStoreConfig() error = %v, want media admin dependency", err)
+	}
+	cfg.EnabledModules = []string{"inventory", "admin", "media"}
+	cfg.MediaProvider, cfg.MediaS3Bucket, cfg.MediaS3Region = "minio", "media", "us-east-1"
+	cfg.MediaS3PublicBaseURL = "http://minio.local/media"
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
 func TestNewStoreConfigRejectsTrailingProfilePolicyJSON(t *testing.T) {
 	cfg := validConfig()
 	cfg.EnabledModules = []string{"inventory", "user_profiles"}

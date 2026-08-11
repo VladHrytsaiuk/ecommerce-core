@@ -1,6 +1,7 @@
 package http
 
 import (
+	stderrors "errors"
 	"net/http"
 	"strings"
 
@@ -115,7 +116,7 @@ func createPromoV1(f PromosFacade, errors *apiresponse.ErrorRenderer) gin.Handle
 // @Accept json
 // @Produce json
 // @Param id path string false "Product ID"
-// @Param request body catalogDomain.Product true "Product"
+// @Param request body object true "Product"
 // @Success 200,201 {object} apiresponse.SuccessResponse
 // @Failure 400,401,403,422 {object} apiresponse.ProblemDetails
 // @Router /api/v1/admin/catalog/products [post]
@@ -152,6 +153,10 @@ func catalogProductV1(f *adminApp.CatalogAdminFacade, update bool, errors *apire
 			err = f.CreateProduct(c, command, &product)
 		}
 		if err != nil {
+			if stderrors.Is(err, adminApp.ErrMediaAssetsNotReady) {
+				errors.Abort(c, apiresponse.InvalidPayload(err))
+				return
+			}
 			errors.Abort(c, apiresponse.ValidationFailed(err))
 			return
 		}
@@ -169,7 +174,7 @@ func catalogProductV1(f *adminApp.CatalogAdminFacade, update bool, errors *apire
 // @Accept json
 // @Produce json
 // @Param id path string false "Category ID"
-// @Param request body catalogDomain.Category true "Category"
+// @Param request body object true "Category"
 // @Success 200,201 {object} apiresponse.SuccessResponse
 // @Failure 400,401,403,422 {object} apiresponse.ProblemDetails
 // @Router /api/v1/admin/catalog/categories [post]

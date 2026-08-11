@@ -2177,6 +2177,81 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/media/upload": {
+            "post": {
+                "description": "Streams one JPEG, PNG or WebP image (maximum 15 MiB) to quarantine.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin v1"
+                ],
+                "summary": "Upload a product media asset",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "Image file",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Stable upload ID",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/orders/{id}/cancel": {
             "post": {
                 "produces": [
@@ -3563,6 +3638,12 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "media": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductMedia"
+                    }
+                },
                 "rating": {
                     "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductRating"
                 },
@@ -3596,6 +3677,29 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductMedia": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "type": "string"
+                },
+                "position": {
+                    "type": "integer"
+                },
+                "product_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "variant_id": {
                     "type": "string"
                 }
             }

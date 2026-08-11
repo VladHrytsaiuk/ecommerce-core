@@ -131,6 +131,22 @@ attribute facet keys, 50 values per facet, and 100 facet values in total.
 Every Meilisearch indexing task has a 30-second lifecycle deadline, so an
 unhealthy provider cannot permanently occupy an Outbox worker.
 
+### Optional media assets
+
+Add `media,admin` to `ENABLED_MODULES` to enable secure media uploads. The
+admin endpoint `POST /api/v1/admin/media/upload` requires `media:write`, a UUID
+`Idempotency-Key`, and one `file` multipart part. Only magic-byte-validated
+JPEG, PNG and WebP files up to 15 MiB are accepted; the original filename is
+never used as an object key. Configure `MEDIA_PROVIDER` as `s3`, `minio` or
+`r2`, with `MEDIA_S3_BUCKET`, `MEDIA_S3_REGION`, credentials and a public base
+URL. Start local MinIO with `docker compose --profile media up`; production
+may use AWS S3 or Cloudflare R2 with the same adapter. Uploaded assets begin in
+`quarantine`; a durable Outbox worker rejects images above 8192px per side or
+16,000,000 pixels before processing and creates WebP variants after commit.
+The media identity needs `s3:ListBucket` and object delete permission: a daily
+reconciler removes only unreferenced or failed quarantine objects older than
+24 hours.
+
 ### Customer identity and optional profiles
 
 Password registration and login are always available at `POST /api/auth/register`

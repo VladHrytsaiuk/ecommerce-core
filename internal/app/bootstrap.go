@@ -48,6 +48,9 @@ import (
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	inventoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/repository/postgres"
+	mediaS3 "github.com/VladHrytsaiuk/ecommerce-core/internal/media/adapter/s3"
+	mediaApp "github.com/VladHrytsaiuk/ecommerce-core/internal/media/application"
+	mediaPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/media/repository/postgres"
 	notificationsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/application"
 	notificationsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/repository/postgres"
 	ordersApp "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/application"
@@ -115,7 +118,10 @@ type Application struct {
 	OutboxWorker           *eventsApp.OutboxWorker
 	AdminAuditOutboxWorker *eventsApp.OutboxWorker
 	SearchOutboxWorker     *eventsApp.OutboxWorker
+	MediaOutboxWorker      *eventsApp.OutboxWorker
+	MediaOrphanCleanup     *mediaApp.OrphanCleanupWorker
 	SearchService          searchDomain.SearchService
+	MediaUploadService     *mediaApp.UploadService
 	AdminAuthorizer        adminDomain.Authorizer
 	PromosAdminFacade      *adminApp.PromosAdminFacade
 	CatalogAdminFacade     *adminApp.CatalogAdminFacade
@@ -131,20 +137,21 @@ type Application struct {
 }
 
 type HTTPDependencies struct {
-	Recovery         gin.HandlerFunc
-	Observability    gin.HandlerFunc
-	Timeout          gin.HandlerFunc
-	RequestLogging   gin.HandlerFunc
-	CORS             gin.HandlerFunc
-	SecurityHeaders  gin.HandlerFunc
-	ErrorRenderer    *apiresponse.ErrorRenderer
-	Swagger          gin.HandlerFunc
-	Health           gin.HandlerFunc
-	LocaleMiddleware gin.HandlerFunc
-	OptionalAuth     gin.HandlerFunc
-	LoginRateLimit   gin.HandlerFunc
-	APIRateLimit     gin.HandlerFunc
-	RequestBodyLimit gin.HandlerFunc
+	Recovery              gin.HandlerFunc
+	Observability         gin.HandlerFunc
+	Timeout               gin.HandlerFunc
+	RequestLogging        gin.HandlerFunc
+	CORS                  gin.HandlerFunc
+	SecurityHeaders       gin.HandlerFunc
+	ErrorRenderer         *apiresponse.ErrorRenderer
+	Swagger               gin.HandlerFunc
+	Health                gin.HandlerFunc
+	LocaleMiddleware      gin.HandlerFunc
+	OptionalAuth          gin.HandlerFunc
+	LoginRateLimit        gin.HandlerFunc
+	APIRateLimit          gin.HandlerFunc
+	RequestBodyLimit      gin.HandlerFunc
+	MediaRequestBodyLimit gin.HandlerFunc
 }
 
 // Bootstrap is the sole Composition Root for the active clean-slate modules.
@@ -237,6 +244,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		LoginRateLimit:   middleware.LoginRateLimitMiddleware(loginLimiter, cfg.JWTSecret),
 		APIRateLimit:     middleware.RateLimitByIP(loginLimiter, "api:v1", cfg.APIRateLimitPerMin, time.Minute, cfg.JWTSecret, errorRenderer),
 		RequestBodyLimit: middleware.MaxRequestBodyBytes(1<<20, errorRenderer),
+		// Includes multipart framing while ReadImagePart independently enforces
+		// a strict 15 MiB limit for the file itself.
+		MediaRequestBodyLimit: middleware.MaxRequestBodyBytes(16<<20, errorRenderer),
 	}
 
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
@@ -341,8 +351,12 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var ordersAdminFacade *adminApp.OrdersAdminFacade
 	var adminAuditOutboxWorker *eventsApp.OutboxWorker
 	var searchOutboxWorker *eventsApp.OutboxWorker
+	var mediaOutboxWorker *eventsApp.OutboxWorker
+	var mediaOrphanCleanup *mediaApp.OrphanCleanupWorker
 	var productEventPublisher eventsDomain.TransactionalEventPublisher
 	var searchService searchDomain.SearchService
+	var mediaUploadService *mediaApp.UploadService
+	var mediaCatalogReader *mediaApp.CatalogReader
 	if searchEnabled {
 		searchStartupCtx, cancelSearchStartup := context.WithTimeout(context.Background(), searchMeili.DefaultTaskTimeout)
 		index, err := searchMeili.New(searchStartupCtx, searchMeili.Config{
@@ -375,6 +389,37 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			}
 		}
 	}
+	if contains(storeConfig.EnabledModules, "media") {
+		publicBaseURL := cfg.MediaS3PublicBaseURL
+		if cfg.MediaProvider == "r2" {
+			publicBaseURL = cfg.MediaR2PublicBaseURL
+		}
+		store, err := mediaS3.New(context.Background(), mediaS3.Config{
+			Provider: cfg.MediaProvider, Bucket: cfg.MediaS3Bucket, Region: cfg.MediaS3Region,
+			Endpoint: cfg.MediaS3Endpoint, AccessKeyID: cfg.MediaS3AccessKeyID,
+			SecretAccessKey: cfg.MediaS3SecretAccessKey, PublicBaseURL: publicBaseURL,
+			UsePathStyle: cfg.MediaS3UsePathStyle,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("configure media object store: %w", err)
+		}
+		mediaRepository := mediaPostgres.NewRepository(db)
+		mediaCatalogReader = mediaApp.NewCatalogReader(mediaRepository, store)
+		productService.WithMediaReader(mediaCatalogReader)
+		mediaUploadService, err = mediaApp.NewUploadService(mediaRepository, store, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerMediaProcessor), cfg.MediaProvider, cfg.MediaS3Bucket)
+		if err != nil {
+			return nil, fmt.Errorf("configure media uploads: %w", err)
+		}
+		mediaHandler, err := mediaApp.NewAssetUploadedHandler(mediaRepository, mediaApp.NewPureGoProcessor(store))
+		if err != nil {
+			return nil, fmt.Errorf("configure media processor: %w", err)
+		}
+		mediaOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerMediaProcessor, time.Minute, logger.Log, mediaHandler)
+		mediaOrphanCleanup, err = mediaApp.NewOrphanCleanupWorker(mediaRepository, store, logger.Log)
+		if err != nil {
+			return nil, fmt.Errorf("configure media orphan cleanup: %w", err)
+		}
+	}
 
 	checkoutService := checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
 		AllowGuest:                 storeConfig.CheckoutAllowGuest,
@@ -391,6 +436,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			return nil, fmt.Errorf("configure admin catalog facade: %w", err)
 		}
 		catalogAdminFacade.WithProductEventPublisher(productEventPublisher)
+		if mediaCatalogReader != nil {
+			catalogAdminFacade.WithMediaReader(mediaCatalogReader)
+		}
 		ordersAdminFacade, err = adminApp.NewOrdersAdminFacade(adminAuthorizer, orderWorkflowService, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
 		if err != nil {
 			return nil, fmt.Errorf("configure admin orders facade: %w", err)
@@ -442,7 +490,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		OutboxWorker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
 		AdminAuditOutboxWorker: adminAuditOutboxWorker,
 		SearchOutboxWorker:     searchOutboxWorker,
+		MediaOutboxWorker:      mediaOutboxWorker,
+		MediaOrphanCleanup:     mediaOrphanCleanup,
 		SearchService:          searchService,
+		MediaUploadService:     mediaUploadService,
 		AdminAuthorizer:        adminAuthorizer,
 		PromosAdminFacade:      promosAdminFacade,
 		CatalogAdminFacade:     catalogAdminFacade,

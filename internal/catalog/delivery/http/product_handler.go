@@ -40,6 +40,13 @@ type ProductResponse struct {
 	Rating       *ProductRatingResponse       `json:"rating,omitempty"`
 	SEO          *domain.ProductSEO           `json:"seo,omitempty"`
 	Badges       []domain.ProductBadge        `json:"badges,omitempty"`
+	Media        ProductMediaResponse         `json:"media,omitempty"`
+}
+type ProductMediaResponse struct {
+	Main     string              `json:"main,omitempty"`
+	Hover    string              `json:"hover,omitempty"`
+	Gallery  []string            `json:"gallery,omitempty"`
+	Variants map[string][]string `json:"variants,omitempty"`
 }
 
 type ProductRatingResponse struct {
@@ -119,5 +126,34 @@ func mapProduct(product *domain.Product) ProductResponse {
 	}
 	response.SEO = product.SEO
 	response.Badges = product.Badges
+	response.Media = groupMedia(product.Media, nil)
 	return response
+}
+func groupMedia(links []domain.ProductMedia, urls map[uuid.UUID]string) ProductMediaResponse {
+	out := ProductMediaResponse{Variants: map[string][]string{}}
+	for _, x := range links {
+		u := x.URL
+		if u == "" {
+			u = urls[x.AssetID]
+		}
+		if u == "" {
+			continue
+		}
+		if x.VariantID != nil {
+			out.Variants[x.VariantID.String()] = append(out.Variants[x.VariantID.String()], u)
+			continue
+		}
+		switch x.Role {
+		case "MAIN":
+			out.Main = u
+		case "HOVER":
+			out.Hover = u
+		case "GALLERY":
+			out.Gallery = append(out.Gallery, u)
+		}
+	}
+	if len(out.Variants) == 0 {
+		out.Variants = nil
+	}
+	return out
 }
