@@ -39,6 +39,9 @@ type Config struct {
 	// RequestTimeout — верхня межа тривалості обробки HTTP-запиту (context deadline).
 	// Має бути достатньою для повільних операцій (напр., завантаження кількох зображень у Cloudinary).
 	RequestTimeout time.Duration
+	ManagementAddr string
+	OTelEnabled    bool
+	OTelEndpoint   string
 
 	// SMTP (Email)
 	SMTPHost     string
@@ -484,6 +487,9 @@ func Load() *Config {
 		comparisonMaxItems = parsed
 	}
 	apiRateLimitPerMin := getEnvInt("API_RATE_LIMIT_PER_MINUTE", 100)
+	managementAddr := getEnvString("MANAGEMENT_ADDR", "127.0.0.1:9090")
+	otelEnabled := getEnvBool("OTEL_ENABLED", false)
+	otelEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	sensitiveRatePerMin := getEnvInt("SENSITIVE_RATE_LIMIT_PER_MINUTE", 10)
 	if apiRateLimitPerMin <= 0 || sensitiveRatePerMin <= 0 {
 		log.Fatal("Fatal: API_RATE_LIMIT_PER_MINUTE and SENSITIVE_RATE_LIMIT_PER_MINUTE must be positive")
@@ -508,6 +514,9 @@ func Load() *Config {
 		APIRateLimitPerMin:        apiRateLimitPerMin,
 		SensitiveRatePerMin:       sensitiveRatePerMin,
 		RequestTimeout:            requestTimeout,
+		ManagementAddr:            managementAddr,
+		OTelEnabled:               otelEnabled,
+		OTelEndpoint:              otelEndpoint,
 		SMTPHost:                  smtpHost,
 		SMTPPort:                  smtpPort,
 		SMTPUser:                  smtpUser,

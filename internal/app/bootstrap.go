@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
@@ -41,6 +40,7 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/tax"
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
 	deliveryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/repository/postgres"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
 	identityPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/repository/postgres"
@@ -59,6 +59,8 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/encryption"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/management"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/observability"
 	eventsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/events"
 	workflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/orderworkflow"
 	platformRedis "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/redis"
@@ -114,7 +116,9 @@ type Application struct {
 	OrdersAdminFacade      *adminApp.OrdersAdminFacade
 	TaxPolicy              tax.Calculator
 	HTTP                   HTTPDependencies
+	Management             *management.Server
 	resourceCloser         io.Closer
+	telemetryShutdown      func(context.Context) error
 	workerMu               sync.Mutex
 	workerCancel           context.CancelFunc
 	workerWG               sync.WaitGroup
@@ -122,14 +126,19 @@ type Application struct {
 
 type HTTPDependencies struct {
 	Recovery         gin.HandlerFunc
+	Observability    gin.HandlerFunc
 	Timeout          gin.HandlerFunc
 	RequestLogging   gin.HandlerFunc
 	CORS             gin.HandlerFunc
+	SecurityHeaders  gin.HandlerFunc
+	ErrorRenderer    *apiresponse.ErrorRenderer
 	Swagger          gin.HandlerFunc
 	Health           gin.HandlerFunc
 	LocaleMiddleware gin.HandlerFunc
 	OptionalAuth     gin.HandlerFunc
 	LoginRateLimit   gin.HandlerFunc
+	APIRateLimit     gin.HandlerFunc
+	RequestBodyLimit gin.HandlerFunc
 }
 
 // Bootstrap is the sole Composition Root for the active clean-slate modules.
@@ -155,17 +164,32 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 
 	// Redis is opt-in. When disabled, cache misses and local, per-process login
 	// limiting preserve a fully functional constrained-environment deployment.
+	telemetryShutdown, err := observability.Init(context.Background(), observability.Config{
+		Enabled:     cfg.OTelEnabled,
+		Endpoint:    cfg.OTelEndpoint,
+		ServiceName: "ecommerce-core",
+		Environment: cfg.Env,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure observability: %w", err)
+	}
+
 	cacheService := sharedCache.Service(sharedCache.NewNoOpService())
 	loginLimiter := ratelimit.Service(ratelimit.NewLocalService())
 	var resourceCloser io.Closer
+	var redisClient *platformRedis.Client
 	bootstrapComplete := false
 	defer func() {
 		if !bootstrapComplete && resourceCloser != nil {
 			_ = resourceCloser.Close()
 		}
+		if !bootstrapComplete && telemetryShutdown != nil {
+			_ = telemetryShutdown(context.Background())
+		}
 	}()
 	if cfg.RedisEnabled {
-		redisClient, redisErr := platformRedis.Connect(context.Background(), cfg.RedisURL)
+		var redisErr error
+		redisClient, redisErr = platformRedis.Connect(context.Background(), cfg.RedisURL)
 		if redisErr != nil {
 			return nil, fmt.Errorf("configure Redis: %w", redisErr)
 		}
@@ -182,19 +206,29 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		}
 	}
 
+	corsMiddleware, err := middleware.NewCORS(cfg.CORSAllowOrigins)
+	if err != nil {
+		return nil, fmt.Errorf("configure CORS: %w", err)
+	}
+	errorRenderer := apiresponse.NewErrorRenderer(logger.Log)
 	httpDependencies := HTTPDependencies{
-		Recovery: gin.Recovery(),
-		Timeout:  middleware.TimeoutMiddleware(cfg.RequestTimeout),
+		Recovery:      middleware.PanicRecovery(errorRenderer),
+		Observability: observability.Middleware(),
+		Timeout:       middleware.TimeoutMiddleware(cfg.RequestTimeout),
 		RequestLogging: func(c *gin.Context) {
-			logger.Log.Infow("Inbound Request", "method", c.Request.Method, "path", c.Request.URL.Path, "ip", c.ClientIP())
+			logger.WithContext(c.Request.Context()).Infow("Inbound Request", "method", c.Request.Method, "path", c.Request.URL.Path, "ip", c.ClientIP())
 			c.Next()
 		},
-		CORS:             cors.New(cors.Config{AllowOrigins: cfg.CORSAllowOrigins, AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}, AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization", "Accept-Language"}, AllowCredentials: true}),
+		CORS:             corsMiddleware,
+		SecurityHeaders:  middleware.SecurityHeaders(),
+		ErrorRenderer:    errorRenderer,
 		Swagger:          ginSwagger.WrapHandler(swaggerFiles.Handler),
 		Health:           func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) },
 		LocaleMiddleware: middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: storeConfig.DefaultLocale, FallbackLocale: storeConfig.FallbackLocale, SupportedLocales: storeConfig.SupportedLocales}),
 		OptionalAuth:     middleware.OptionalAuthMiddleware(tokenMaker),
 		LoginRateLimit:   middleware.LoginRateLimitMiddleware(loginLimiter, cfg.JWTSecret),
+		APIRateLimit:     middleware.RateLimitByIP(loginLimiter, "api:v1", cfg.APIRateLimitPerMin, time.Minute, cfg.JWTSecret, errorRenderer),
+		RequestBodyLimit: middleware.MaxRequestBodyBytes(1<<20, errorRenderer),
 	}
 
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
@@ -327,6 +361,25 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			return nil, fmt.Errorf("configure admin orders facade: %w", err)
 		}
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("obtain SQL database: %w", err)
+	}
+	readinessChecks := []management.ReadinessCheck{{
+		Name: "postgres",
+		Check: func(ctx context.Context) error {
+			return sqlDB.PingContext(ctx)
+		},
+	}}
+	if redisClient != nil {
+		readinessChecks = append(readinessChecks, management.ReadinessCheck{
+			Name: "redis",
+			Check: func(ctx context.Context) error {
+				return redisClient.Raw().Ping(ctx).Err()
+			},
+		})
+	}
+
 	application := &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: categoryService,
@@ -360,7 +413,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		OrdersAdminFacade:      ordersAdminFacade,
 		TaxPolicy:              taxPolicy,
 		HTTP:                   httpDependencies,
+		Management:             management.NewServer(cfg.ManagementAddr, readinessChecks...),
 		resourceCloser:         resourceCloser,
+		telemetryShutdown:      telemetryShutdown,
 	}
 	bootstrapComplete = true
 	return application, nil

@@ -1,8 +1,10 @@
 package logger
 
 import (
+	"context"
 	"os"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -31,6 +33,14 @@ type Logger interface {
 
 	With(fields ...zap.Field) Logger
 	Sync() error
+}
+
+// ContextLogger is an optional extension of Logger for adapters at the
+// transport boundary. Keeping it separate preserves the small Logger port
+// used by domain services and their test doubles.
+type ContextLogger interface {
+	Logger
+	WithContext(context.Context) Logger
 }
 
 // Log — це глобальний логер, який можна використовувати без DI (для main, ініціалізацій тощо).
@@ -80,4 +90,35 @@ func (l *zapLogger) Sync() error { return l.s.Sync() }
 func (l *zapLogger) With(fields ...zap.Field) Logger {
 	newLogger := l.s.Desugar().With(fields...).Sugar()
 	return &zapLogger{newLogger}
+}
+
+type requestIDKey struct{}
+
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, requestIDKey{}, requestID)
+}
+
+func RequestID(ctx context.Context) string {
+	value, _ := ctx.Value(requestIDKey{}).(string)
+	return value
+}
+
+// WithContext attaches correlation identifiers to the global logger without
+// making transports leak into business-facing Logger ports.
+func WithContext(ctx context.Context) Logger {
+	if contextual, ok := Log.(ContextLogger); ok {
+		return contextual.WithContext(ctx)
+	}
+	return Log
+}
+
+func (l *zapLogger) WithContext(ctx context.Context) Logger {
+	fields := make([]zap.Field, 0, 3)
+	if id := RequestID(ctx); id != "" {
+		fields = append(fields, zap.String("request_id", id))
+	}
+	if span := trace.SpanContextFromContext(ctx); span.IsValid() {
+		fields = append(fields, zap.String("trace_id", span.TraceID().String()), zap.String("span_id", span.SpanID().String()))
+	}
+	return l.With(fields...)
 }

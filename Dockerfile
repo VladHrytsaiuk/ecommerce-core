@@ -1,89 +1,62 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 
 FROM --platform=$BUILDPLATFORM golang:1.25.12-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
 
-WORKDIR /app
+WORKDIR /src
 
+# Keep dependency and compiler caches outside the image layers. BuildKit reuses
+# them across builds while the final image remains free of source and tooling.
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
-COPY . .
+COPY . ./
 
-RUN CGO_ENABLED=0 \
-    GOOS=$TARGETOS \
-    GOARCH=$TARGETARCH \
-    go build \
-    -trimpath \
-    -ldflags="-s -w" \
-    -o /out/aquawheel-api \
-    ./cmd/api/main.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/ecommerce-api ./cmd/api
 
-RUN CGO_ENABLED=0 \
-    GOOS=$TARGETOS \
-    GOARCH=$TARGETARCH \
-    go build \
-    -trimpath \
-    -ldflags="-s -w" \
-    -o /out/ecommerce-migrate \
-    ./cmd/migrate/main.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/ecommerce-migrate ./cmd/migrate
 
-RUN CGO_ENABLED=0 \
-    GOOS=$TARGETOS \
-    GOARCH=$TARGETARCH \
-    go build \
-    -trimpath \
-    -ldflags="-s -w" \
-    -o /out/ecommerce-cli \
-    ./cmd/cli/main.go
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o /out/ecommerce-cli ./cmd/cli
 
-
-# Сертифікати генеруються на архітектурі GitLab Runner,
-# бо сам файл сертифікатів не залежить від CPU.
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS certificates
-
+# The distroless static image does not need a shell or package manager. Copy
+# the CA bundle explicitly because payment, SMTP, and OTLP adapters use TLS.
+FROM alpine:3.22 AS certificates
 RUN apk add --no-cache ca-certificates
 
-
-FROM alpine:3.22 AS runner
-
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 WORKDIR /app
 
-COPY --from=certificates \
-    /etc/ssl/certs/ca-certificates.crt \
-    /etc/ssl/certs/ca-certificates.crt
-
-FROM runner AS api
-
-COPY --from=builder --chown=10001:10001 \
-    /out/aquawheel-api \
-    ./aquawheel-api
-
+COPY --from=certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
-USER 10001:10001
+FROM runtime AS migrate
+COPY --from=builder --chown=nonroot:nonroot /out/ecommerce-migrate /app/ecommerce-migrate
+COPY --from=builder --chown=nonroot:nonroot /src/migrations /app/migrations
+USER nonroot:nonroot
+ENTRYPOINT ["/app/ecommerce-migrate"]
+CMD ["up"]
 
-EXPOSE 8080
+FROM runtime AS cli
+COPY --from=builder --chown=nonroot:nonroot /out/ecommerce-cli /app/ecommerce-cli
+USER nonroot:nonroot
+ENTRYPOINT ["/app/ecommerce-cli"]
 
-CMD ["./aquawheel-api"]
-
-FROM runner AS migrate
-
-COPY --from=builder --chown=10001:10001 \
-    /out/ecommerce-migrate \
-    ./ecommerce-migrate
-COPY --from=builder --chown=10001:10001 \
-    /app/migrations \
-    ./migrations
-
-CMD ["./ecommerce-migrate", "up"]
-
-FROM runner AS cli
-
-COPY --from=builder --chown=10001:10001 \
-    /out/ecommerce-cli \
-    ./ecommerce-cli
-
-ENTRYPOINT ["./ecommerce-cli"]
+# API is intentionally the final/default target: `docker build .` produces
+# the production runtime image rather than a migration or maintenance tool.
+FROM runtime AS api
+COPY --from=builder --chown=nonroot:nonroot /out/ecommerce-api /app/ecommerce-api
+USER nonroot:nonroot
+EXPOSE 8080 9090
+ENTRYPOINT ["/app/ecommerce-api"]

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 )
 
 func (a *Application) Start(ctx context.Context) {
@@ -11,6 +13,13 @@ func (a *Application) Start(ctx context.Context) {
 	defer a.workerMu.Unlock()
 	if a.workerCancel != nil {
 		return
+	}
+	if a.Management != nil {
+		if err := a.Management.Start(); err != nil {
+			logger.Log.Errorw("management server failed to start", "error", err)
+		} else {
+			logger.Log.Infow("management server is listening", "address", a.Config.ManagementAddr)
+		}
 	}
 	workerCtx, cancel := context.WithCancel(ctx)
 	a.workerCancel = cancel
@@ -52,12 +61,31 @@ func (a *Application) StopContext(ctx context.Context) error {
 	a.workerCancel = nil
 	closer := a.resourceCloser
 	a.resourceCloser = nil
+	managementServer := a.Management
+	telemetryShutdown := a.telemetryShutdown
+	a.telemetryShutdown = nil
 	a.workerMu.Unlock()
+	var shutdownErr error
+	if managementServer != nil {
+		if err := managementServer.Shutdown(ctx); err != nil {
+			shutdownErr = fmt.Errorf("shutdown management server: %w", err)
+		}
+	}
+	shutdownTelemetry := func() {
+		if telemetryShutdown != nil {
+			if err := telemetryShutdown(ctx); err != nil && shutdownErr == nil {
+				shutdownErr = fmt.Errorf("shutdown telemetry: %w", err)
+			}
+		}
+	}
 	if cancel == nil {
 		if closer != nil {
-			return closer.Close()
+			if err := closer.Close(); err != nil && shutdownErr == nil {
+				shutdownErr = err
+			}
 		}
-		return nil
+		shutdownTelemetry()
+		return shutdownErr
 	}
 	cancel()
 	done := make(chan struct{})
@@ -65,13 +93,17 @@ func (a *Application) StopContext(ctx context.Context) error {
 	select {
 	case <-done:
 		if closer != nil {
-			return closer.Close()
+			if err := closer.Close(); err != nil && shutdownErr == nil {
+				shutdownErr = err
+			}
 		}
-		return nil
+		shutdownTelemetry()
+		return shutdownErr
 	case <-ctx.Done():
 		if closer != nil {
 			_ = closer.Close()
 		}
+		shutdownTelemetry()
 		return fmt.Errorf("wait for workers: %w", ctx.Err())
 	}
 }
