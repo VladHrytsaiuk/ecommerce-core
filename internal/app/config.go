@@ -110,18 +110,27 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		if !contains(storeConfig.EnabledModules, "admin") {
 			return StoreConfig{}, fmt.Errorf("media requires ENABLED_MODULES to include admin for permission-gated uploads")
 		}
-		if cfg.MediaProvider != "s3" && cfg.MediaProvider != "r2" && cfg.MediaProvider != "minio" {
-			return StoreConfig{}, fmt.Errorf("MEDIA_PROVIDER must be s3, minio, or r2 when media is enabled")
-		}
-		if strings.TrimSpace(cfg.MediaS3Bucket) == "" || strings.TrimSpace(cfg.MediaS3Region) == "" {
-			return StoreConfig{}, fmt.Errorf("MEDIA_S3_BUCKET and MEDIA_S3_REGION are required when media is enabled")
-		}
-		publicURL := cfg.MediaS3PublicBaseURL
-		if cfg.MediaProvider == "r2" {
-			publicURL = cfg.MediaR2PublicBaseURL
-		}
-		if strings.TrimSpace(publicURL) == "" {
-			return StoreConfig{}, fmt.Errorf("a media public base URL is required when media is enabled")
+		switch cfg.MediaProvider {
+		case "cloudinary":
+			if strings.TrimSpace(cfg.MediaCloudinaryURL) == "" {
+				return StoreConfig{}, fmt.Errorf("MEDIA_CLOUDINARY_URL is required when MEDIA_PROVIDER=cloudinary")
+			}
+		case "s3", "r2", "minio":
+			if strings.TrimSpace(cfg.MediaS3Bucket) == "" || strings.TrimSpace(cfg.MediaS3Region) == "" {
+				return StoreConfig{}, fmt.Errorf("MEDIA_S3_BUCKET and MEDIA_S3_REGION are required when media is enabled")
+			}
+			if (cfg.MediaProvider == "r2" || cfg.MediaProvider == "minio") && strings.TrimSpace(cfg.MediaS3Endpoint) == "" {
+				return StoreConfig{}, fmt.Errorf("MEDIA_S3_ENDPOINT is required when MEDIA_PROVIDER=%s", cfg.MediaProvider)
+			}
+			publicURL := cfg.MediaS3PublicBaseURL
+			if cfg.MediaProvider == "r2" {
+				publicURL = cfg.MediaR2PublicBaseURL
+			}
+			if strings.TrimSpace(publicURL) == "" {
+				return StoreConfig{}, fmt.Errorf("a media public base URL is required when media is enabled")
+			}
+		default:
+			return StoreConfig{}, fmt.Errorf("MEDIA_PROVIDER must be s3, minio, r2, or cloudinary when media is enabled")
 		}
 	}
 	return storeConfig, nil

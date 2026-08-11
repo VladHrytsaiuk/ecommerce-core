@@ -48,7 +48,6 @@ import (
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
 	inventoryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	inventoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/repository/postgres"
-	mediaS3 "github.com/VladHrytsaiuk/ecommerce-core/internal/media/adapter/s3"
 	mediaApp "github.com/VladHrytsaiuk/ecommerce-core/internal/media/application"
 	mediaPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/media/repository/postgres"
 	notificationsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/application"
@@ -390,23 +389,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		}
 	}
 	if contains(storeConfig.EnabledModules, "media") {
-		publicBaseURL := cfg.MediaS3PublicBaseURL
-		if cfg.MediaProvider == "r2" {
-			publicBaseURL = cfg.MediaR2PublicBaseURL
-		}
-		store, err := mediaS3.New(context.Background(), mediaS3.Config{
-			Provider: cfg.MediaProvider, Bucket: cfg.MediaS3Bucket, Region: cfg.MediaS3Region,
-			Endpoint: cfg.MediaS3Endpoint, AccessKeyID: cfg.MediaS3AccessKeyID,
-			SecretAccessKey: cfg.MediaS3SecretAccessKey, PublicBaseURL: publicBaseURL,
-			UsePathStyle: cfg.MediaS3UsePathStyle,
-		})
+		store, mediaBucket, err := newMediaObjectStore(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("configure media object store: %w", err)
 		}
 		mediaRepository := mediaPostgres.NewRepository(db)
 		mediaCatalogReader = mediaApp.NewCatalogReader(mediaRepository, store)
 		productService.WithMediaReader(mediaCatalogReader)
-		mediaUploadService, err = mediaApp.NewUploadService(mediaRepository, store, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerMediaProcessor), cfg.MediaProvider, cfg.MediaS3Bucket)
+		mediaUploadService, err = mediaApp.NewUploadService(mediaRepository, store, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerMediaProcessor), cfg.MediaProvider, mediaBucket)
 		if err != nil {
 			return nil, fmt.Errorf("configure media uploads: %w", err)
 		}

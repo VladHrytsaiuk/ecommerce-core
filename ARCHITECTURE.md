@@ -216,15 +216,16 @@ Every asynchronous indexing task is bounded by a 30-second provider deadline;
 timeout failures return to the durable Outbox retry/DLQ lifecycle.
 
 Media is an optional asset module. It owns object metadata, variants and
-processing attempts; image bytes remain in an S3-compatible object store. An
+processing attempts; image bytes remain in a provider-neutral object store. An
 admin upload streams a bounded, magic-byte-validated image to a server-derived
 quarantine key, then atomically appends `media.asset.uploaded.v1` with its
 quarantine metadata. Before decoding, the processor rejects images above
 8192px in either dimension or 16,000,000 pixels; it then runs after commit and
 moves the asset through explicit states. A daily reconciliation worker removes
 unreferenced or failed quarantine objects only after a 24-hour grace period.
-AWS S3, MinIO and Cloudflare R2 share one ObjectStore adapter; future
-Cloudinary support is another adapter, never a domain change.
+AWS S3, MinIO and Cloudflare R2 share one ObjectStore adapter; Cloudinary is
+an independent ObjectStore adapter selected only in Bootstrap, never a domain
+change.
 
 Observability is platform infrastructure, never a domain dependency.
 `internal/platform/observability` installs OpenTelemetry and Gin RED metrics,

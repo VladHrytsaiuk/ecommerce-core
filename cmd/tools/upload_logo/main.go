@@ -4,10 +4,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
+	mediaCloudinary "github.com/VladHrytsaiuk/ecommerce-core/internal/media/adapter/cloudinary"
+	media "github.com/VladHrytsaiuk/ecommerce-core/internal/media/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/storage/cloudinary"
 )
 
 func main() {
@@ -20,8 +22,9 @@ func main() {
 
 	l.Info("Starting logo upload to Cloudinary...")
 
-	// 3. Ініціалізація клієнта Cloudinary
-	storageClient, err := cloudinary.New(cfg.CloudinaryURL, l)
+	// 3. Use the same ObjectStore implementation as the Media module instead
+	// of retaining a parallel legacy Cloudinary client.
+	storageClient, err := mediaCloudinary.New(mediaCloudinary.Config{URL: cfg.MediaCloudinaryURL})
 	if err != nil {
 		l.Fatalw("Failed to init cloudinary client", "error", err)
 	}
@@ -29,14 +32,26 @@ func main() {
 	// 4. Завантаження
 	filePath := "docs/logo.png"
 	ctx := context.Background()
-	folder := "aquawheel/system"
-	filename := "logo"
+	key := "system/logo"
 
-	l.Infow("Uploading file", "path", filePath, "folder", folder, "filename", filename)
+	l.Infow("Uploading file", "path", filePath, "key", key)
+	file, err := os.Open(filePath)
+	if err != nil {
+		l.Fatalw("Failed to open logo", "error", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		l.Fatalw("Failed to stat logo", "error", err)
+	}
 
-	url, err := storageClient.Upload(ctx, filePath, folder, filename)
+	stored, err := storageClient.Put(ctx, media.PutRequest{ObjectRef: media.ObjectRef{Provider: "cloudinary", Key: key}, Body: file, ContentType: "image/png", ContentLength: info.Size()})
 	if err != nil {
 		l.Fatalw("Upload execution failed", "error", err)
+	}
+	url, err := storageClient.PublicURL(ctx, stored.ObjectRef)
+	if err != nil {
+		l.Fatalw("Failed to build logo URL", "error", err)
 	}
 
 	l.Infow("Logo upload completed successfully", "url", url)

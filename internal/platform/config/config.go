@@ -67,8 +67,8 @@ type Config struct {
 	SearchMasterKey   string
 	SearchIndexPrefix string
 
-	// Media is an optional S3-compatible capability. One adapter supports AWS
-	// S3, MinIO and Cloudflare R2; the provider value controls URL selection.
+	// Media is an optional object-storage capability. S3-compatible providers
+	// share credentials; Cloudinary uses its own provider URL.
 	MediaProvider          string
 	MediaS3Bucket          string
 	MediaS3Region          string
@@ -78,6 +78,7 @@ type Config struct {
 	MediaS3PublicBaseURL   string
 	MediaR2PublicBaseURL   string
 	MediaS3UsePathStyle    bool
+	MediaCloudinaryURL     string
 
 	// SendGrid (Email)
 	SendGridAPIKey string
@@ -103,9 +104,8 @@ type Config struct {
 	DHLExpressPackageWidth  float64
 	DHLExpressPackageHeight float64
 
-	// Media Storage
-	CloudinaryURL string
-	StoreLogoURL  string
+	// Store logo is optional branding for legacy transactional email templates.
+	StoreLogoURL string
 
 	// API Host (for Swagger)
 	APIHost string
@@ -299,6 +299,7 @@ func Load() *Config {
 	mediaS3PublicBaseURL := strings.TrimSpace(os.Getenv("MEDIA_S3_PUBLIC_BASE_URL"))
 	mediaR2PublicBaseURL := strings.TrimSpace(os.Getenv("MEDIA_R2_PUBLIC_BASE_URL"))
 	mediaS3UsePathStyle := getEnvBool("MEDIA_S3_USE_PATH_STYLE", false)
+	mediaCloudinaryURL := strings.TrimSpace(os.Getenv("MEDIA_CLOUDINARY_URL"))
 	if redisEnabled && redisURL == "" {
 		log.Fatal("Fatal: REDIS_URL is required when REDIS_ENABLED=true")
 	}
@@ -331,17 +332,7 @@ func Load() *Config {
 	dhlExpressPackageWidth := getEnvFloat("DHL_EXPRESS_PACKAGE_WIDTH_CM", 0)
 	dhlExpressPackageHeight := getEnvFloat("DHL_EXPRESS_PACKAGE_HEIGHT_CM", 0)
 
-	// Cloudinary Config
-	cloudinaryURL := os.Getenv("CLOUDINARY_URL")
-	if cloudinaryURL == "" {
-		log.Println("Warning: CLOUDINARY_URL environment variable is not set. Media storage will not work.")
-	}
-
-	storeLogoURL := os.Getenv("STORE_LOGO_URL")
-	if storeLogoURL == "" {
-		// Fallback to the one we just uploaded if not set
-		storeLogoURL = "https://res.cloudinary.com/dv94l5bvb/image/upload/v1776437405/aquawheel/system/logo.png"
-	}
+	storeLogoURL := strings.TrimSpace(os.Getenv("STORE_LOGO_URL"))
 
 	apiHost := os.Getenv("API_HOST")
 
@@ -569,6 +560,7 @@ func Load() *Config {
 		MediaS3PublicBaseURL:      mediaS3PublicBaseURL,
 		MediaR2PublicBaseURL:      mediaR2PublicBaseURL,
 		MediaS3UsePathStyle:       mediaS3UsePathStyle,
+		MediaCloudinaryURL:        mediaCloudinaryURL,
 		SendGridAPIKey:            sendGridAPIKey,
 		EmailFrom:                 emailFrom,
 		NovaPoshtaAPIKey:          novaPoshtaAPIKey,
@@ -587,7 +579,6 @@ func Load() *Config {
 		DHLExpressPackageLength:   dhlExpressPackageLength,
 		DHLExpressPackageWidth:    dhlExpressPackageWidth,
 		DHLExpressPackageHeight:   dhlExpressPackageHeight,
-		CloudinaryURL:             cloudinaryURL,
 		StoreLogoURL:              storeLogoURL,
 		APIHost:                   apiHost,
 		OTPSendRateLimit:          otpSendRateLimit,

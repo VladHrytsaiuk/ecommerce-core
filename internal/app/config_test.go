@@ -180,9 +180,31 @@ func TestNewStoreConfigValidatesOptionalMedia(t *testing.T) {
 	}
 	cfg.EnabledModules = []string{"inventory", "admin", "media"}
 	cfg.MediaProvider, cfg.MediaS3Bucket, cfg.MediaS3Region = "minio", "media", "us-east-1"
+	cfg.MediaS3Endpoint = "http://minio:9000"
 	cfg.MediaS3PublicBaseURL = "http://minio.local/media"
 	if _, err := NewStoreConfig(cfg); err != nil {
 		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+	cfg.MediaS3Endpoint = ""
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "MEDIA_S3_ENDPOINT") {
+		t.Fatalf("NewStoreConfig() error = %v, want missing MinIO endpoint", err)
+	}
+	cfg.MediaProvider = "r2"
+	cfg.MediaR2PublicBaseURL = "https://media.example.test"
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "MEDIA_S3_ENDPOINT") {
+		t.Fatalf("NewStoreConfig() error = %v, want missing R2 endpoint", err)
+	}
+	cfg.MediaProvider, cfg.MediaCloudinaryURL = "cloudinary", "cloudinary://key:secret@cloud"
+	cfg.MediaS3Bucket, cfg.MediaS3Region, cfg.MediaS3PublicBaseURL, cfg.MediaR2PublicBaseURL = "", "", "", ""
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() cloudinary error = %v", err)
+	}
+}
+
+func TestNewMediaObjectStoreRejectsUnknownProviderEvenWithoutPriorValidation(t *testing.T) {
+	_, _, err := newMediaObjectStore(&config.Config{MediaProvider: "ftp"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported media provider") {
+		t.Fatalf("newMediaObjectStore() error = %v, want unsupported provider", err)
 	}
 }
 

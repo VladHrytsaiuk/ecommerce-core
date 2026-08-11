@@ -38,7 +38,7 @@ type UploadService struct {
 }
 
 func NewUploadService(repository media.AssetRepository, store media.ObjectStore, tx TransactionManager, publisher events.TransactionalEventPublisher, provider, bucket string) (*UploadService, error) {
-	if repository == nil || store == nil || tx == nil || publisher == nil || strings.TrimSpace(provider) == "" || strings.TrimSpace(bucket) == "" {
+	if repository == nil || store == nil || tx == nil || publisher == nil || strings.TrimSpace(provider) == "" {
 		return nil, fmt.Errorf("media upload dependencies are required")
 	}
 	return &UploadService{repository: repository, store: store, tx: tx, publisher: publisher, provider: strings.TrimSpace(provider), bucket: strings.TrimSpace(bucket)}, nil
