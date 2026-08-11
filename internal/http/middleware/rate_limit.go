@@ -88,10 +88,11 @@ type visitor struct {
 
 // IPRateLimiter is a memory-efficient rate limiter based on client IP.
 type IPRateLimiter struct {
-	visitors map[string]*visitor
-	mu       *sync.RWMutex
-	r        rate.Limit
-	b        int
+	visitors    map[string]*visitor
+	mu          *sync.RWMutex
+	r           rate.Limit
+	b           int
+	lastCleanup time.Time
 }
 
 // NewIPRateLimiter creates a new rate limiter that allows r events per second with a burst of b.
@@ -103,24 +104,7 @@ func NewIPRateLimiter(r rate.Limit, b int) *IPRateLimiter {
 		b:        b,
 	}
 
-	// Smart cleanup routine for stale IPs
-	go i.cleanupVisitors()
-
 	return i
-}
-
-// cleanupVisitors checks every minute and removes visitors that haven't been seen for more than 10 minutes.
-func (i *IPRateLimiter) cleanupVisitors() {
-	for {
-		time.Sleep(1 * time.Minute)
-		i.mu.Lock()
-		for ip, v := range i.visitors {
-			if time.Since(v.lastSeen) > 10*time.Minute {
-				delete(i.visitors, ip)
-			}
-		}
-		i.mu.Unlock()
-	}
 }
 
 // GetLimiter returns the rate limiter for the provided IP, creating it if it doesn't exist.
@@ -128,18 +112,27 @@ func (i *IPRateLimiter) cleanupVisitors() {
 func (i *IPRateLimiter) GetLimiter(ip string) *rate.Limiter {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	now := time.Now()
+	if i.lastCleanup.IsZero() || now.Sub(i.lastCleanup) >= time.Minute {
+		for key, entry := range i.visitors {
+			if now.Sub(entry.lastSeen) > 10*time.Minute {
+				delete(i.visitors, key)
+			}
+		}
+		i.lastCleanup = now
+	}
 
 	v, exists := i.visitors[ip]
 	if !exists {
 		limiter := rate.NewLimiter(i.r, i.b)
 		i.visitors[ip] = &visitor{
 			limiter:  limiter,
-			lastSeen: time.Now(),
+			lastSeen: now,
 		}
 		return limiter
 	}
 
-	v.lastSeen = time.Now()
+	v.lastSeen = now
 	return v.limiter
 }
 

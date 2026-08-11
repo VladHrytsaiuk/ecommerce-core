@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
 type UserRepository struct{ db *gorm.DB }
@@ -152,7 +153,7 @@ func (r *OAuthAttemptStore) Create(ctx context.Context, attempt domain.OAuthAtte
 
 func (r *OAuthAttemptStore) Consume(ctx context.Context, provider, state string, now time.Time) (*domain.OAuthAttempt, error) {
 	var record oauthAttemptRecord
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		query := tx.Model(&oauthAttemptRecord{}).Where("provider = ? AND state_hash = ? AND consumed_at IS NULL AND expires_at > ?", normalizeCode(provider), stateDigest(state), now)
 		result := query.Update("consumed_at", now)
 		if result.Error != nil {
@@ -179,7 +180,7 @@ type AuthTransaction struct{ db *gorm.DB }
 func NewAuthTransaction(db *gorm.DB) *AuthTransaction { return &AuthTransaction{db: db} }
 
 func (r *AuthTransaction) WithinTransaction(ctx context.Context, fn func(domain.UserRepository, domain.OAuthIdentityRepository) error) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		return fn(NewUserRepository(tx), NewOAuthIdentityRepository(tx))
 	})
 }

@@ -62,7 +62,15 @@ func run(email, pass, firstName, lastName string, force bool) error {
 	}
 
 	cfg := config.Load()
-	database := db.Connect(cfg.DBURL)
+	database, err := db.Connect(cfg.DBURL, db.DefaultPoolConfig())
+	if err != nil {
+		logger.Log.Fatal("Cannot connect to PostgreSQL")
+	}
+	sqlDB, err := database.DB()
+	if err != nil {
+		logger.Log.Fatal("Cannot obtain PostgreSQL pool")
+	}
+	defer func() { _ = sqlDB.Close() }()
 	logger.Log.Info("✅ Database connection established")
 
 	// 1. Ідемпотентно гарантуємо наявність ролей (сіду ролей у міграціях немає).

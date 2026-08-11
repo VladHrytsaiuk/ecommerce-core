@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
 )
 
@@ -73,7 +74,7 @@ func (r *Repository) MergeGuestWishlist(ctx context.Context, userID, sessionID u
 	if userID == uuid.Nil || sessionID == uuid.Nil {
 		return domain.ErrInvalidOwner
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		if err := tx.Exec(`
 			INSERT INTO wishlist_items (id, user_id, product_variant_id, created_at)
 			SELECT gen_random_uuid(), ?, product_variant_id, created_at

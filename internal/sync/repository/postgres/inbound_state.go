@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 	syncDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/domain"
 )
 
@@ -32,7 +33,7 @@ func (inboundStateRecord) TableName() string { return "sync_external_entity_stat
 
 func (s *InboundStateStore) ClaimStockChange(ctx context.Context, change syncDomain.StockChange, now time.Time, lease time.Duration) (bool, error) {
 	claimed := false
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, s.db, func(tx *gorm.DB) error {
 		var state inboundStateRecord
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("source = ? AND entity_type = ? AND external_id = ?", change.Source, "stock", change.ExternalID).First(&state).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {

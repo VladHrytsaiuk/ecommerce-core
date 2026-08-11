@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
 type Repository struct{ db *gorm.DB }
@@ -37,7 +38,7 @@ func (itemRecord) TableName() string { return "cart_items" }
 
 func (r *Repository) GetOrCreate(ctx context.Context, owner domain.Owner) (*domain.Cart, error) {
 	var result *domain.Cart
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		cart, err := findOrCreate(tx, owner)
 		if err != nil {
 			return err
@@ -87,7 +88,7 @@ func (r *Repository) SetPromoCode(ctx context.Context, owner domain.Owner, code 
 }
 func (r *Repository) mutate(ctx context.Context, owner domain.Owner, change func(*gorm.DB, *cartRecord) error) (*domain.Cart, error) {
 	var result *domain.Cart
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		cart, err := findOrCreate(tx, owner)
 		if err != nil {
 			return err

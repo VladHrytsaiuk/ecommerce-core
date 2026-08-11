@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
 type Repository struct{ db *gorm.DB }
@@ -56,7 +57,7 @@ func (repository *Repository) Add(ctx context.Context, owner domain.Owner, varia
 	if maxItems < 1 {
 		return domain.ErrComparisonAtLimit
 	}
-	return repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, repository.db, func(tx *gorm.DB) error {
 		categoryID, err := productCategory(ctx, tx, variantID)
 		if err != nil {
 			return err
@@ -90,7 +91,7 @@ func (repository *Repository) Remove(ctx context.Context, owner domain.Owner, va
 	if !owner.Valid() {
 		return domain.ErrInvalidOwner
 	}
-	return repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, repository.db, func(tx *gorm.DB) error {
 		var listIDs []uuid.UUID
 		query := tx.Model(&listRecord{})
 		if owner.UserID != nil {
@@ -122,7 +123,7 @@ func (repository *Repository) MergeGuestComparison(ctx context.Context, userID, 
 	if maxItems < 1 {
 		return domain.ErrComparisonAtLimit
 	}
-	return repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, repository.db, func(tx *gorm.DB) error {
 		var guestLists []listRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("session_id = ?", sessionID).Find(&guestLists).Error; err != nil {
 			return err

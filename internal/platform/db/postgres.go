@@ -2,30 +2,51 @@ package db
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-func Connect(dsn string) *gorm.DB {
-	// Підключаємось до БД з увімкненим логуванням SQL-запитів
+type PoolConfig struct {
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+}
+
+func DefaultPoolConfig() PoolConfig {
+	return PoolConfig{MaxOpenConns: 25, MaxIdleConns: 10, ConnMaxLifetime: 30 * time.Minute, ConnMaxIdleTime: 5 * time.Minute}
+}
+
+// Connect creates the production database pool. SQL text and bound values are
+// deliberately disabled because they may contain PII or credentials.
+func Connect(dsn string, pool PoolConfig) (*gorm.DB, error) {
 	// PreferSimpleProtocol вимикає неявне кешування prepared statements у драйвері pgx,
 	// що вирішує помилку "prepared statement already exists (SQLSTATE 42P05)".
 	db, err := gorm.Open(postgres.New(postgres.Config{
 		DSN:                  dsn,
 		PreferSimpleProtocol: true,
 	}), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		return nil, fmt.Errorf("open PostgreSQL connection")
 	}
-
-	log.Println("Successfully connected to PostgreSQL (Supabase)!")
-
-	return db
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("obtain PostgreSQL pool")
+	}
+	if pool.MaxOpenConns <= 0 || pool.MaxIdleConns < 0 || pool.MaxIdleConns > pool.MaxOpenConns || pool.ConnMaxLifetime <= 0 || pool.ConnMaxIdleTime <= 0 {
+		return nil, fmt.Errorf("invalid PostgreSQL pool configuration")
+	}
+	sqlDB.SetMaxOpenConns(pool.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(pool.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(pool.ConnMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(pool.ConnMaxIdleTime)
+	return db, nil
 }
 
 // TxKey — ключ для зберігання транзакції GORM у контексті.

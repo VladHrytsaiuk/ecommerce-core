@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/domain"
 )
 
@@ -47,7 +48,7 @@ func (repository *Repository) ListApproved(ctx context.Context, productID uuid.U
 // reader port; no Catalog repository is imported here.
 func (repository *Repository) SetStatus(ctx context.Context, reviewID uuid.UUID, status domain.Status) (*domain.Review, error) {
 	var updated *domain.Review
-	err := repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, repository.db, func(tx *gorm.DB) error {
 		var record reviewRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, "id = ?", reviewID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -73,7 +74,7 @@ func (repository *Repository) SetStatus(ctx context.Context, reviewID uuid.UUID,
 }
 
 func (repository *Repository) Delete(ctx context.Context, reviewID uuid.UUID) error {
-	return repository.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, repository.db, func(tx *gorm.DB) error {
 		var record reviewRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&record, "id = ?", reviewID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

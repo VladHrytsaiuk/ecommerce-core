@@ -11,6 +11,7 @@ import (
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/badges/domain"
 	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
 type Repository struct{ db *gorm.DB }
@@ -34,7 +35,7 @@ func (r *Repository) List(ctx context.Context) ([]domain.Badge, error) {
 
 func (r *Repository) Create(ctx context.Context, command domain.CreateCommand) (*domain.Badge, error) {
 	record := badgeRecord{ID: uuid.New(), Slug: command.Slug, Color: command.Color}
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		if err := tx.Create(&record).Error; err != nil {
 			return err
 		}
@@ -46,7 +47,7 @@ func (r *Repository) Create(ctx context.Context, command domain.CreateCommand) (
 	return r.find(ctx, record.ID)
 }
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, command domain.UpdateCommand) (*domain.Badge, error) {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		result := tx.Model(&badgeRecord{}).Where("id = ?", id).Updates(map[string]any{"slug": command.Slug, "color": command.Color})
 		if result.Error != nil {
 			return result.Error

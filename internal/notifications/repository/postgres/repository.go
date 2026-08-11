@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	notificationsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/sanitize"
 )
 
@@ -146,7 +147,7 @@ func (r *Repository) RecordAttempt(ctx context.Context, claimed notificationsDom
 	if claimed.ID == uuid.Nil || claimed.LockToken == nil || maxAttempts <= 0 {
 		return fmt.Errorf("invalid notification job attempt")
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		var job jobRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&job, "id = ?", claimed.ID).Error; err != nil {
 			return err

@@ -60,7 +60,15 @@ func main() {
 	}
 
 	// 3. Підключення до бази даних
-	database := db.Connect(cfg.DBURL)
+	database, err := db.Connect(cfg.DBURL, db.DefaultPoolConfig())
+	if err != nil {
+		logger.Log.Fatal("Cannot connect to PostgreSQL")
+	}
+	sqlDB, err := database.DB()
+	if err != nil {
+		logger.Log.Fatal("Cannot obtain PostgreSQL pool")
+	}
+	defer func() { _ = sqlDB.Close() }()
 	logger.Log.Info("✅ Database connection established")
 
 	// 4. Ініціалізація Token Maker для JWT

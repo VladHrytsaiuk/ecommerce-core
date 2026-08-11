@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -50,7 +51,7 @@ type itemRecord struct {
 func (itemRecord) TableName() string { return "order_items" }
 func (s *JobStore) Claim(ctx context.Context, now time.Time) (*domain.DispatchJob, error) {
 	var claimed *domain.DispatchJob
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, s.db, func(tx *gorm.DB) error {
 		if err := tx.Model(&jobRecord{}).Where("status = 'processing' AND locked_at < ?", now.Add(-5*time.Minute)).Updates(map[string]any{"status": "retrying", "available_at": now, "locked_at": nil}).Error; err != nil {
 			return err
 		}
@@ -92,7 +93,7 @@ func (s *JobStore) Claim(ctx context.Context, now time.Time) (*domain.DispatchJo
 	return claimed, err
 }
 func (s *JobStore) Complete(ctx context.Context, id uuid.UUID, result domain.ShipmentResult) error {
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, s.db, func(tx *gorm.DB) error {
 		var job jobRecord
 		if err := tx.First(&job, "id = ? AND status = 'processing'", id).Error; err != nil {
 			return err

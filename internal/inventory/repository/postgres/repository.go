@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
 type Repository struct{ db *gorm.DB }
@@ -26,7 +27,7 @@ func (r *Repository) Reserve(ctx context.Context, request domain.ReservationRequ
 
 func (r *Repository) ReserveBatch(ctx context.Context, requests []domain.ReservationRequest) ([]domain.Reservation, error) {
 	reservations := make([]domain.Reservation, 0, len(requests))
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		for _, request := range requests {
 			reservation, err := reserveInTransaction(tx, request)
 			if err != nil {
@@ -76,7 +77,7 @@ func (r *Repository) Commit(ctx context.Context, reservationID, orderID uuid.UUI
 }
 
 func (r *Repository) transition(ctx context.Context, reservationID uuid.UUID, orderID *uuid.UUID, target string) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		var reservation domain.Reservation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&reservation, "id = ?", reservationID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -141,7 +142,7 @@ func (r *Repository) ReleaseExpiredUnattached(ctx context.Context, now time.Time
 		limit = 100
 	}
 	count := 0
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		var rows []domain.Reservation
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status = ? AND order_id IS NULL AND expires_at <= ?", "active", now).Order("expires_at").Limit(limit).Find(&rows).Error; err != nil {
 			return err
