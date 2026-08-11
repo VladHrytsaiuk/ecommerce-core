@@ -106,6 +106,31 @@ enabled; its in-memory implementation is only the explicit local fallback.
 The PostgreSQL client uses a bounded production pool (25 open / 10 idle
 connections, 30-minute maximum lifetime and 5-minute maximum idle time).
 
+### Optional product search projection
+
+Set `ENABLED_MODULES=...,search` to enable the asynchronous Meilisearch
+projection. It is not a transactional source of truth: Catalog writes a
+minimal product-change event to PostgreSQL Outbox in the same transaction as
+the product mutation, then the Search worker fetches a current Catalog
+snapshot and indexes it. Configure `SEARCH_URL`, `SEARCH_MASTER_KEY` and
+`SEARCH_INDEX_PREFIX`; the application fails before listening if an enabled
+Search module cannot authenticate or configure its index. Locally, start it
+with `docker compose --profile search up` and keep its master key only in
+deployment secrets or `.env`, never in a client application.
+
+Storefront discovery is available only while that module is enabled:
+`GET /api/v1/catalog/{lang}/search` supports `q`, `page`, `limit`, `sort`,
+repeated/comma-separated `brand`, `price_min`, `price_max`, `in_stock`, and
+`attributes[{key}]` filters; its standard pagination metadata includes facet
+counts. `GET /api/v1/catalog/{lang}/suggestions?q=...` supplies autocomplete.
+Use `go run ./cmd/cli search-reindex --batch-size 200` after creating a new
+index or intentionally rebuilding the disposable projection. It reads only
+active Catalog products in bounded UUID-keyset batches (never `OFFSET`) and
+can be safely interrupted. Search accepts at most 256 query characters, 12
+attribute facet keys, 50 values per facet, and 100 facet values in total.
+Every Meilisearch indexing task has a 30-second lifecycle deadline, so an
+unhealthy provider cannot permanently occupy an Outbox worker.
+
 ### Customer identity and optional profiles
 
 Password registration and login are always available at `POST /api/auth/register`

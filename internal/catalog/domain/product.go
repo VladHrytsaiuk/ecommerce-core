@@ -85,6 +85,16 @@ type ProductRepository interface {
 	Create(context.Context, *Product) error
 }
 
+// ProductSnapshotRepository is a narrow read port for asynchronous product
+// projections. Existing Catalog command/query ports remain unchanged.
+type ProductSnapshotRepository interface {
+	FindByID(context.Context, uuid.UUID) (*Product, error)
+}
+
+type ActiveProductRepository interface {
+	ListActiveAfter(context.Context, *uuid.UUID, int) ([]Product, error)
+}
+
 // ProductService is the application-facing port used by delivery adapters.
 // It deliberately exposes translation lists instead of language-specific
 // product fields.
@@ -95,6 +105,15 @@ type ProductService interface {
 	Create(context.Context, *Product) error
 }
 
+type ProductSnapshotService interface {
+	FindByID(context.Context, uuid.UUID) (*Product, error)
+}
+
+type ActiveProductService interface {
+	ListActiveAfter(context.Context, *uuid.UUID, int) ([]Product, error)
+}
+
 type AdminProductRepository interface {
 	Update(context.Context, *Product) error
+	Delete(context.Context, uuid.UUID) error
 }

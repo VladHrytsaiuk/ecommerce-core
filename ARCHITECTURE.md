@@ -61,6 +61,7 @@ flowchart TB
     Bootstrap --> Promos[Promos module\noptional]
     Bootstrap --> Notifications[Notifications module\noptional]
     Bootstrap --> Admin[Admin RBAC module\noptional]
+    Bootstrap --> Search[Search projection module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders
@@ -86,6 +87,7 @@ flowchart TB
     Admin -. durable admin.action.v1 outbox .-> Admin
     Admin -. permission ports .-> Promos
     Admin -. permission ports .-> Orders
+    Catalog -. durable catalog.product.changed.v1 outbox .-> Search
 
     PaymentsPort --> LiqPay[LiqPay adapter]
     PaymentsPort --> Stripe[Stripe adapter]
@@ -193,6 +195,23 @@ orders, payments, inventory, and the transactional Outbox. When Redis is
 disabled, cache calls are no-ops and login limiting uses a documented
 per-process fallback; enabled Redis failures fail startup rather than silently
 degrading distributed protection.
+
+Search is an optional, eventually-consistent product projection. Catalog writes
+`catalog.product.changed.v1` in the same transaction as an Admin Facade product
+mutation; the Search consumer receives only the product identity and reads a
+fresh public Catalog snapshot before indexing. Search never queries Catalog
+tables directly, never participates in Checkout, and is not a source of truth.
+An unavailable enabled search provider fails startup; a temporary indexer
+failure follows the durable Outbox retry/DLQ lifecycle without rolling back an
+already committed catalog mutation.
+
+The maintenance-only Search reindex command reads the Catalog through a
+UUID-keyset cursor (`active product id > cursor`) and a Core partial index,
+never through offset pagination. Public Search requests have bounded query and
+facet cardinality before a provider DSL is formed, preventing client-controlled
+filter expressions from becoming an application or Meilisearch resource sink.
+Every asynchronous indexing task is bounded by a 30-second provider deadline;
+timeout failures return to the durable Outbox retry/DLQ lifecycle.
 
 Observability is platform infrastructure, never a domain dependency.
 `internal/platform/observability` installs OpenTelemetry and Gin RED metrics,

@@ -2121,6 +2121,53 @@
                         }
                     }
                 }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin v1"
+                ],
+                "summary": "Delete a catalog product (v1 admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
             }
         },
         "/api/v1/admin/orders/{id}/cancel": {
@@ -2327,6 +2374,170 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/catalog/{lang}/search": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Search v1"
+                ],
+                "summary": "Search products with filters and facets (v1)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Locale",
+                        "name": "lang",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Full-text query",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 24,
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "relevance, price_asc, price_desc, newest",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "csv",
+                        "description": "Brand filter; repeat or comma-separate values",
+                        "name": "brand",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Minimum price in minor currency units",
+                        "name": "price_min",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum price in minor currency units",
+                        "name": "price_max",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only in-stock products",
+                        "name": "in_stock",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "csv",
+                        "description": "Facet attribute values",
+                        "name": "attributes[color]",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PaginatedResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/catalog/{lang}/suggestions": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Search v1"
+                ],
+                "summary": "Autocomplete product names (v1)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Locale",
+                        "name": "lang",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search prefix",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "maximum": 20,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 8,
+                        "description": "Suggestion limit",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
                         }
@@ -3444,6 +3655,7 @@
                 "CONFLICT",
                 "RATE_LIMITED",
                 "PAYLOAD_TOO_LARGE",
+                "SEARCH_UNAVAILABLE",
                 "INTERNAL_ERROR"
             ],
             "x-enum-varnames": [
@@ -3455,6 +3667,7 @@
                 "CodeConflict",
                 "CodeRateLimited",
                 "CodePayloadTooLarge",
+                "CodeSearchUnavailable",
                 "CodeInternal"
             ]
         },
@@ -3472,6 +3685,17 @@
         "github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PageMetadata": {
             "type": "object",
             "properties": {
+                "facets": {
+                    "description": "Facets is populated by Search only. Keeping it in the standard metadata\npreserves one collection envelope for all v1 clients.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                },
                 "has_next": {
                     "type": "boolean"
                 },

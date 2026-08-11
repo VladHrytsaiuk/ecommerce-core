@@ -70,6 +70,10 @@ import (
 	reviewsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/domain"
 	reviewsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/repository/postgres"
 	reviewsService "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/service"
+	searchCatalog "github.com/VladHrytsaiuk/ecommerce-core/internal/search/adapter/catalog"
+	searchMeili "github.com/VladHrytsaiuk/ecommerce-core/internal/search/adapter/meilisearch"
+	searchApp "github.com/VladHrytsaiuk/ecommerce-core/internal/search/application"
+	searchDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/search/domain"
 	seoDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/domain"
 	seoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/repository/postgres"
 	seoService "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/service"
@@ -110,6 +114,8 @@ type Application struct {
 	DeliveryTracker        *deliveryApp.Tracker
 	OutboxWorker           *eventsApp.OutboxWorker
 	AdminAuditOutboxWorker *eventsApp.OutboxWorker
+	SearchOutboxWorker     *eventsApp.OutboxWorker
+	SearchService          searchDomain.SearchService
 	AdminAuthorizer        adminDomain.Authorizer
 	PromosAdminFacade      *adminApp.PromosAdminFacade
 	CatalogAdminFacade     *adminApp.CatalogAdminFacade
@@ -176,12 +182,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 
 	cacheService := sharedCache.Service(sharedCache.NewNoOpService())
 	loginLimiter := ratelimit.Service(ratelimit.NewLocalService())
-	var resourceCloser io.Closer
+	var resourceClosers []io.Closer
 	var redisClient *platformRedis.Client
 	bootstrapComplete := false
 	defer func() {
-		if !bootstrapComplete && resourceCloser != nil {
-			_ = resourceCloser.Close()
+		if !bootstrapComplete {
+			for _, closer := range resourceClosers {
+				_ = closer.Close()
+			}
 		}
 		if !bootstrapComplete && telemetryShutdown != nil {
 			_ = telemetryShutdown(context.Background())
@@ -193,7 +201,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if redisErr != nil {
 			return nil, fmt.Errorf("configure Redis: %w", redisErr)
 		}
-		resourceCloser = redisClient
+		resourceClosers = append(resourceClosers, redisClient)
 		cacheService = platformCache.NewRedisAdapter(redisClient.Raw(), storeConfig.Code+":")
 		loginLimiter = platformRedis.NewFixedWindowLimiter(redisClient.Raw())
 	}
@@ -266,6 +274,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		enabledComparison = comparisonService.New(comparisonPostgres.NewRepository(db), storeConfig.ComparisonMaxItems)
 	}
 	productService := catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales)
+	searchEnabled := contains(storeConfig.EnabledModules, "search")
 	var enabledSEO seoDomain.Service
 	if contains(storeConfig.EnabledModules, "seo") {
 		repository := seoPostgres.NewRepository(db)
@@ -331,6 +340,31 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var catalogAdminFacade *adminApp.CatalogAdminFacade
 	var ordersAdminFacade *adminApp.OrdersAdminFacade
 	var adminAuditOutboxWorker *eventsApp.OutboxWorker
+	var searchOutboxWorker *eventsApp.OutboxWorker
+	var productEventPublisher eventsDomain.TransactionalEventPublisher
+	var searchService searchDomain.SearchService
+	if searchEnabled {
+		searchStartupCtx, cancelSearchStartup := context.WithTimeout(context.Background(), searchMeili.DefaultTaskTimeout)
+		index, err := searchMeili.New(searchStartupCtx, searchMeili.Config{
+			URL: cfg.SearchURL, MasterKey: cfg.SearchMasterKey,
+			IndexUID: cfg.SearchIndexPrefix + "_" + storeConfig.Code + "_products",
+		})
+		cancelSearchStartup()
+		if err != nil {
+			return nil, fmt.Errorf("configure search index: %w", err)
+		}
+		resourceClosers = append(resourceClosers, index)
+		handler, err := searchApp.NewProductChangedHandler(searchCatalog.NewSnapshotProvider(productService), index)
+		if err != nil {
+			return nil, fmt.Errorf("configure search indexer: %w", err)
+		}
+		searchService, err = searchApp.NewSearchService(index)
+		if err != nil {
+			return nil, fmt.Errorf("configure search service: %w", err)
+		}
+		searchOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerSearchIndexer, time.Minute, logger.Log, handler)
+		productEventPublisher = eventsPostgres.NewPublisher(eventsDomain.ConsumerSearchIndexer)
+	}
 	if adminEnabled {
 		auditHandler := adminApp.NewAdminAuditEventHandler(adminPostgres.NewAuditRepository(db))
 		adminAuditOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerAdminAudit, time.Minute, logger.Log, auditHandler)
@@ -356,6 +390,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if err != nil {
 			return nil, fmt.Errorf("configure admin catalog facade: %w", err)
 		}
+		catalogAdminFacade.WithProductEventPublisher(productEventPublisher)
 		ordersAdminFacade, err = adminApp.NewOrdersAdminFacade(adminAuthorizer, orderWorkflowService, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
 		if err != nil {
 			return nil, fmt.Errorf("configure admin orders facade: %w", err)
@@ -379,7 +414,6 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			},
 		})
 	}
-
 	application := &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: categoryService,
@@ -407,6 +441,8 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		DeliveryTracker:        deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers),
 		OutboxWorker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
 		AdminAuditOutboxWorker: adminAuditOutboxWorker,
+		SearchOutboxWorker:     searchOutboxWorker,
+		SearchService:          searchService,
 		AdminAuthorizer:        adminAuthorizer,
 		PromosAdminFacade:      promosAdminFacade,
 		CatalogAdminFacade:     catalogAdminFacade,
@@ -414,11 +450,25 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		TaxPolicy:              taxPolicy,
 		HTTP:                   httpDependencies,
 		Management:             management.NewServer(cfg.ManagementAddr, readinessChecks...),
-		resourceCloser:         resourceCloser,
+		resourceCloser:         closeAll(resourceClosers),
 		telemetryShutdown:      telemetryShutdown,
 	}
 	bootstrapComplete = true
 	return application, nil
+}
+
+type closeAll []io.Closer
+
+func (closers closeAll) Close() error {
+	var first error
+	for index := len(closers) - 1; index >= 0; index-- {
+		if closer := closers[index]; closer != nil {
+			if err := closer.Close(); err != nil && first == nil {
+				first = err
+			}
+		}
+	}
+	return first
 }
 
 func inventoryMode(value string) inventoryDomain.Mode {

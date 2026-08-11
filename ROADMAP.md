@@ -249,6 +249,27 @@ validation and request-context cancellation through GORM into PostgreSQL.
 The production PostgreSQL client also has a bounded pool and suppresses SQL
 bind-value logging, protecting both database capacity and customer PII.
 
+## Phase 12 — Search projection and discovery
+
+**Status: complete.** The optional `search` module uses Meilisearch as a
+non-authoritative product projection. Product create, update and delete Admin
+Facade mutations append `catalog.product.changed.v1` in their existing SQL
+transaction. A dedicated `search_indexer` Outbox consumer handles idempotent,
+out-of-order delivery by reading a fresh Catalog snapshot for upserts and
+deleting stale or unavailable documents. The Meilisearch adapter configures
+searchable, filterable and sortable document fields on startup, while product
+text, locale, category and future brand/attribute/price/availability facets
+remain provider-neutral in `SearchDocument`. The public `/api/v1/catalog/:lang`
+search and autocomplete endpoints validate bounded pagination and typed facet
+filters, return RFC 9457 `SEARCH_UNAVAILABLE` when the projection is down, and
+include Meilisearch facet distributions in standard pagination metadata. The
+local `search-reindex` CLI restores the projection through UUID keyset batches
+and the Core partial active-product index; it never scans an increasing
+`OFFSET` prefix. Query and facet cardinality limits prevent oversized filter
+expressions from reaching the Search provider. Every provider task has a
+bounded deadline, so a stalled Meilisearch task follows Outbox retry/DLQ
+handling instead of permanently occupying an indexer worker.
+
 ## Global rules
 
 - Do not fork for a store.

@@ -158,6 +158,20 @@ func TestNewStoreConfigAcceptsComparison(t *testing.T) {
 	}
 }
 
+func TestNewStoreConfigValidatesOptionalSearch(t *testing.T) {
+	cfg := validConfig()
+	cfg.EnabledModules = []string{"inventory", "search"}
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "SEARCH_URL") {
+		t.Fatalf("NewStoreConfig() error = %v, want missing Search configuration", err)
+	}
+	cfg.SearchURL = "http://meilisearch:7700"
+	cfg.SearchMasterKey = "test-master-key"
+	cfg.SearchIndexPrefix = "ecommerce"
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v, want valid Search configuration", err)
+	}
+}
+
 func TestNewStoreConfigRejectsTrailingProfilePolicyJSON(t *testing.T) {
 	cfg := validConfig()
 	cfg.EnabledModules = []string{"inventory", "user_profiles"}

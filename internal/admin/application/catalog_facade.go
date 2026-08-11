@@ -17,6 +17,9 @@ type CatalogProducts interface {
 	Create(context.Context, *domain.Product) error
 	Update(context.Context, *domain.Product) error
 }
+type CatalogProductDeleter interface {
+	Delete(context.Context, uuid.UUID) error
+}
 type CatalogProductSnapshots interface {
 	FindByIDForUpdate(context.Context, uuid.UUID) (*domain.Product, error)
 }
@@ -29,18 +32,28 @@ type CatalogCategorySnapshots interface {
 }
 
 type CatalogAdminFacade struct {
-	authorizer adminDomain.Authorizer
-	products   CatalogProducts
-	categories CatalogCategories
-	tx         TransactionManager
-	publisher  events.TransactionalEventPublisher
+	authorizer    adminDomain.Authorizer
+	products      CatalogProducts
+	categories    CatalogCategories
+	tx            TransactionManager
+	publisher     events.TransactionalEventPublisher
+	productEvents events.TransactionalEventPublisher
+}
+
+// WithProductEventPublisher attaches the optional Search projection publisher.
+// It is selected only by Bootstrap when the Search module is enabled.
+func (f *CatalogAdminFacade) WithProductEventPublisher(publisher events.TransactionalEventPublisher) *CatalogAdminFacade {
+	if f != nil {
+		f.productEvents = publisher
+	}
+	return f
 }
 
 func NewCatalogAdminFacade(a adminDomain.Authorizer, p CatalogProducts, c CatalogCategories, tx TransactionManager, publisher events.TransactionalEventPublisher) (*CatalogAdminFacade, error) {
 	if a == nil || p == nil || c == nil || tx == nil || publisher == nil {
 		return nil, fmt.Errorf("catalog admin facade is not configured")
 	}
-	return &CatalogAdminFacade{a, p, c, tx, publisher}, nil
+	return &CatalogAdminFacade{authorizer: a, products: p, categories: c, tx: tx, publisher: publisher}, nil
 }
 
 type CatalogCommand struct {
@@ -88,8 +101,60 @@ func (f *CatalogAdminFacade) product(ctx context.Context, cmd CatalogCommand, p 
 		if err != nil {
 			return err
 		}
-		return f.publisher.Publish(tx, e)
+		if err := f.publisher.Publish(tx, e); err != nil {
+			return err
+		}
+		return f.publishProductChanged(tx, cmd.EventKey, p.ID, domain.ProductChangeUpsert)
 	})
+}
+
+func (f *CatalogAdminFacade) DeleteProduct(ctx context.Context, cmd CatalogCommand, productID uuid.UUID) error {
+	if err := f.authorizer.Require(ctx, cmd.ActorUserID, PermissionCatalogWrite); err != nil {
+		return err
+	}
+	if productID == uuid.Nil {
+		return fmt.Errorf("catalog product ID is required")
+	}
+	if cmd.EventKey == uuid.Nil {
+		cmd.EventKey = uuid.New()
+	}
+	return f.tx.WithinTransaction(ctx, func(tx context.Context) error {
+		reader, ok := f.products.(CatalogProductSnapshots)
+		if !ok {
+			return fmt.Errorf("catalog product snapshot reader is not configured")
+		}
+		previous, err := reader.FindByIDForUpdate(tx, productID)
+		if err != nil {
+			return err
+		}
+		deleter, ok := f.products.(CatalogProductDeleter)
+		if !ok {
+			return fmt.Errorf("catalog product delete is not configured")
+		}
+		if err := deleter.Delete(tx, productID); err != nil {
+			return err
+		}
+		old, _ := json.Marshal(previous)
+		e, err := adminDomain.NewAdminActionEvent(cmd.EventKey, cmd.ActorUserID, "catalog.product.delete", "product", productID, old, nil, cmd.IPAddress, nil, nowUTC())
+		if err != nil {
+			return err
+		}
+		if err := f.publisher.Publish(tx, e); err != nil {
+			return err
+		}
+		return f.publishProductChanged(tx, cmd.EventKey, productID, domain.ProductChangeDelete)
+	})
+}
+
+func (f *CatalogAdminFacade) publishProductChanged(ctx context.Context, eventKey, productID uuid.UUID, operation domain.ProductChangeOperation) error {
+	if f.productEvents == nil {
+		return nil
+	}
+	event, err := domain.NewProductChangedEvent(eventKey, productID, operation, nowUTC())
+	if err != nil {
+		return err
+	}
+	return f.productEvents.Publish(ctx, event)
 }
 func (f *CatalogAdminFacade) CreateCategory(ctx context.Context, cmd CatalogCommand, c *domain.Category) error {
 	return f.category(ctx, cmd, c, false)

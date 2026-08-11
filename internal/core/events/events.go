@@ -20,7 +20,10 @@ const (
 	// mutations. It deliberately has its own delivery so a notification failure
 	// cannot delay or suppress an audit trail.
 	ConsumerAdminAudit = "admin_audit"
-	TopicOrderPaid     = "orders.paid.v1"
+	// ConsumerSearchIndexer owns the asynchronous projection of Catalog
+	// products into an optional external search engine.
+	ConsumerSearchIndexer = "search_indexer"
+	TopicOrderPaid        = "orders.paid.v1"
 )
 
 // DomainEvent is an immutable versioned message. Its payload must contain

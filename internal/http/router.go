@@ -15,6 +15,7 @@ import (
 	ordersHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	searchHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/search/delivery/http"
 	wishlistHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/delivery/http"
 )
 
@@ -54,6 +55,9 @@ func InitRouter(application *app.Application) *gin.Engine {
 	v1Catalog := v1.Group("/catalog/:lang")
 	v1Catalog.Use(application.HTTP.LocaleMiddleware)
 	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer)
+	if application.SearchService != nil {
+		searchHTTP.RegisterV1Routes(v1Catalog, application.SearchService, application.HTTP.ErrorRenderer)
+	}
 	v1Checkout := v1.Group("/checkout/:lang")
 	v1Checkout.Use(application.HTTP.LocaleMiddleware, application.HTTP.OptionalAuth, sensitiveLimit)
 	checkoutHTTP.RegisterV1Routes(v1Checkout, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID, application.Config.CookieSecure, application.HTTP.ErrorRenderer)

@@ -12,6 +12,27 @@ services:
     profiles: ["redis"]
     restart: unless-stopped
 
+  # Product-search projection. It is opt-in and stores no transactional source
+  # of truth; enable with `docker compose --profile search up`.
+  meilisearch:
+    image: getmeili/meilisearch:v1.6
+    environment:
+      MEILI_ENV: production
+      # The application refuses to enable Search without SEARCH_MASTER_KEY.
+      # A local-only fallback keeps unrelated Compose profiles usable.
+      MEILI_MASTER_KEY: ${SEARCH_MASTER_KEY:-development-master-key-change-before-production}
+    volumes:
+      - meilisearch-data:/meili_data
+    ports:
+      - "127.0.0.1:7700:7700"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    profiles: ["search"]
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -48,6 +69,10 @@ services:
       MANAGEMENT_ADDR: ":9090"
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4318}
+      # Containers resolve the opt-in Search service by Docker DNS; local
+      # `go run` continues to use SEARCH_URL from .env (localhost:7700).
+      SEARCH_URL: ${SEARCH_COMPOSE_URL:-http://meilisearch:7700}
+      SEARCH_MASTER_KEY: ${SEARCH_MASTER_KEY:-}
     ports:
       - "127.0.0.1:8080:8080"
     env_file:
@@ -124,3 +149,4 @@ volumes:
   prometheus-data:
   grafana-data:
   tempo-data:
+  meilisearch-data:

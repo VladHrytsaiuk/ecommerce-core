@@ -40,6 +40,32 @@ func (s *ProductService) WithBadgeReader(reader domain.ProductBadgeReader) *Prod
 	return s
 }
 
+// FindByID is a narrow application port for asynchronous projections such as
+// Search. It returns the authoritative aggregate, not an HTTP representation.
+func (s *ProductService) FindByID(ctx context.Context, id uuid.UUID) (*domain.Product, error) {
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("%w: product id is required", domain.ErrInvalidProduct)
+	}
+	repository, ok := s.repo.(domain.ProductSnapshotRepository)
+	if !ok {
+		return nil, fmt.Errorf("catalog product snapshot is not configured")
+	}
+	return repository.FindByID(ctx, id)
+}
+
+// ListActiveAfter is a maintenance-only keyset query used by Search reindexing.
+// It must not be used by HTTP handlers to materialize a catalog.
+func (s *ProductService) ListActiveAfter(ctx context.Context, after *uuid.UUID, limit int) ([]domain.Product, error) {
+	if limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("%w: reindex limit is invalid", domain.ErrInvalidProduct)
+	}
+	repository, ok := s.repo.(domain.ActiveProductRepository)
+	if !ok {
+		return nil, fmt.Errorf("catalog active product listing is not configured")
+	}
+	return repository.ListActiveAfter(ctx, after, limit)
+}
+
 func (s *ProductService) FindBySlug(ctx context.Context, locale, slug string) (*domain.Product, error) {
 	locale = normalize(locale)
 	slug = strings.TrimSpace(slug)
@@ -170,6 +196,17 @@ func (s *ProductService) Update(ctx context.Context, product *domain.Product) er
 		return fmt.Errorf("catalog product update is not configured")
 	}
 	return repository.Update(ctx, product)
+}
+
+func (s *ProductService) Delete(ctx context.Context, id uuid.UUID) error {
+	if id == uuid.Nil {
+		return fmt.Errorf("%w: product id is required", domain.ErrInvalidProduct)
+	}
+	repository, ok := s.repo.(domain.AdminProductRepository)
+	if !ok {
+		return fmt.Errorf("catalog product delete is not configured")
+	}
+	return repository.Delete(ctx, id)
 }
 
 func (s *ProductService) validate(product *domain.Product) error {

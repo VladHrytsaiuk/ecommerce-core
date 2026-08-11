@@ -52,6 +52,10 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.AdminAuditOutboxWorker.Run(workerCtx, 5*time.Second) }()
 	}
+	if a.SearchOutboxWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.SearchOutboxWorker.Run(workerCtx, 5*time.Second) }()
+	}
 }
 
 func (a *Application) Stop() { _ = a.StopContext(context.Background()) }

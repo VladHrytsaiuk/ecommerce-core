@@ -14,15 +14,18 @@ active_paths=(
   internal/inventory
   internal/orders
   internal/payments
+  internal/search
   internal/sync
   migrations/core
   migrations/modules
 )
 
-# The Identity profile module deliberately stores a validated, per-store
-# attribute document. It is not multilingual content and is the one approved
-# JSONB exception; translated business content remains normalized everywhere.
-if rg -n -i 'jsonb' migrations/core migrations/modules --glob '!migrations/modules/user_profiles/**'; then
+# User-profile schemas and sanitized Admin audit payloads deliberately use
+# JSONB. Neither stores translatable business content; translations remain
+# normalized everywhere else in the active migration graph.
+if rg -n -i 'jsonb' migrations/core migrations/modules \
+  --glob '!migrations/modules/user_profiles/**' \
+  --glob '!migrations/modules/admin/**'; then
   echo 'Active migrations must not store multilingual content in JSONB.' >&2
   exit 1
 fi

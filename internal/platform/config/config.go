@@ -61,6 +61,12 @@ type Config struct {
 	RedisEnabled bool
 	RedisURL     string
 
+	// Search is an opt-in external read projection. PostgreSQL remains the
+	// source of truth; these credentials are validated only when enabled.
+	SearchURL         string
+	SearchMasterKey   string
+	SearchIndexPrefix string
+
 	// SendGrid (Email)
 	SendGridAPIKey string
 	EmailFrom      string
@@ -269,6 +275,9 @@ func Load() *Config {
 	notificationEncryptionKey := strings.TrimSpace(os.Getenv("NOTIFICATION_ENCRYPTION_KEY"))
 	redisEnabled := getEnvBool("REDIS_ENABLED", false)
 	redisURL := strings.TrimSpace(os.Getenv("REDIS_URL"))
+	searchURL := strings.TrimSpace(os.Getenv("SEARCH_URL"))
+	searchMasterKey := strings.TrimSpace(os.Getenv("SEARCH_MASTER_KEY"))
+	searchIndexPrefix := getEnvString("SEARCH_INDEX_PREFIX", "ecommerce")
 	if redisEnabled && redisURL == "" {
 		log.Fatal("Fatal: REDIS_URL is required when REDIS_ENABLED=true")
 	}
@@ -527,6 +536,9 @@ func Load() *Config {
 		NotificationEncryptionKey: notificationEncryptionKey,
 		RedisEnabled:              redisEnabled,
 		RedisURL:                  redisURL,
+		SearchURL:                 searchURL,
+		SearchMasterKey:           searchMasterKey,
+		SearchIndexPrefix:         searchIndexPrefix,
 		SendGridAPIKey:            sendGridAPIKey,
 		EmailFrom:                 emailFrom,
 		NovaPoshtaAPIKey:          novaPoshtaAPIKey,

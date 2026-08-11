@@ -24,6 +24,7 @@ const (
 	CodeConflict         Code = "CONFLICT"
 	CodeRateLimited      Code = "RATE_LIMITED"
 	CodePayloadTooLarge  Code = "PAYLOAD_TOO_LARGE"
+	CodeSearchUnavailable Code = "SEARCH_UNAVAILABLE"
 	CodeInternal         Code = "INTERNAL_ERROR"
 )
 
@@ -88,6 +89,10 @@ func Forbidden(cause error) *PublicError {
 
 func Unavailable(cause error) *PublicError {
 	return &PublicError{Cause: cause, Status: http.StatusServiceUnavailable, Code: CodeInternal, Title: "Service unavailable", Detail: "The authorization service is temporarily unavailable."}
+}
+
+func SearchUnavailable(cause error) *PublicError {
+	return &PublicError{Cause: cause, Status: http.StatusServiceUnavailable, Code: CodeSearchUnavailable, Title: "Search unavailable", Detail: "Product search is temporarily unavailable."}
 }
 
 func RateLimited(cause error) *PublicError {

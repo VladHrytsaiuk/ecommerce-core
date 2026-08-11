@@ -20,6 +20,7 @@ import (
 var storeCodePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 var localeCodePattern = regexp.MustCompile(`^[a-z]{2,3}(-[a-z0-9]{2,8})*$`)
 var profileFieldKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+var searchIndexPrefixPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 // StoreConfig is the normalized, provider-neutral configuration consumed by the
 // Composition Root. It coexists with platform/config.Config while legacy
@@ -96,6 +97,14 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 	}
 	if err := validateEnabledAdapters(cfg, storeConfig); err != nil {
 		return StoreConfig{}, err
+	}
+	if contains(storeConfig.EnabledModules, "search") {
+		if strings.TrimSpace(cfg.SearchURL) == "" || strings.TrimSpace(cfg.SearchMasterKey) == "" {
+			return StoreConfig{}, fmt.Errorf("SEARCH_URL and SEARCH_MASTER_KEY are required when search is enabled")
+		}
+		if !searchIndexPrefixPattern.MatchString(strings.TrimSpace(cfg.SearchIndexPrefix)) {
+			return StoreConfig{}, fmt.Errorf("SEARCH_INDEX_PREFIX must contain lowercase letters, digits, underscores, or hyphens")
+		}
 	}
 	return storeConfig, nil
 }

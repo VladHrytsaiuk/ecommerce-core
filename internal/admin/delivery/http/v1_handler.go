@@ -28,11 +28,45 @@ func RegisterV1Routes(g *gin.RouterGroup, authorizer adminDomain.Authorizer, pro
 	if catalog != nil {
 		g.POST("/catalog/products", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), catalogProductV1(catalog, false, renderer))
 		g.PUT("/catalog/products/:id", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), catalogProductV1(catalog, true, renderer))
+		g.DELETE("/catalog/products/:id", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), deleteCatalogProductV1(catalog, renderer))
 		g.POST("/catalog/categories", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), catalogCategoryV1(catalog, false, renderer))
 		g.PUT("/catalog/categories/:id", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), catalogCategoryV1(catalog, true, renderer))
 	}
 	if orders != nil {
 		g.POST("/orders/:id/cancel", RequirePermissionV1(authorizer, adminApp.PermissionOrdersWrite, renderer), cancelOrderV1(orders, renderer))
+	}
+}
+
+// deleteCatalogProductV1 godoc
+// @Summary Delete a catalog product (v1 admin)
+// @Tags Admin v1
+// @Produce json
+// @Param id path string true "Product ID"
+// @Success 204
+// @Failure 400,401,403,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/catalog/products/{id} [delete]
+func deleteCatalogProductV1(f *adminApp.CatalogAdminFacade, errors *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, ok := shared.AuthenticatedUserID(c)
+		if !ok {
+			errors.Abort(c, apiresponse.Unauthenticated(nil))
+			return
+		}
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil || id == uuid.Nil {
+			errors.Abort(c, apiresponse.InvalidPayload(err))
+			return
+		}
+		eventKey, err := v1Idempotency(c)
+		if err != nil {
+			errors.Abort(c, apiresponse.InvalidPayload(err))
+			return
+		}
+		if err := f.DeleteProduct(c.Request.Context(), adminApp.CatalogCommand{ActorUserID: actor, EventKey: eventKey, IPAddress: c.ClientIP()}, id); err != nil {
+			errors.Abort(c, apiresponse.ValidationFailed(err))
+			return
+		}
+		c.Status(http.StatusNoContent)
 	}
 }
 

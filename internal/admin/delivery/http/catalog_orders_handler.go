@@ -16,8 +16,29 @@ func RegisterCatalogRoutes(g *gin.RouterGroup, a adminDomain.Authorizer, f *admi
 	}
 	g.POST("/catalog/products", RequirePermission(a, adminApp.PermissionCatalogWrite), catalogProduct(f, false))
 	g.PUT("/catalog/products/:id", RequirePermission(a, adminApp.PermissionCatalogWrite), catalogProduct(f, true))
+	g.DELETE("/catalog/products/:id", RequirePermission(a, adminApp.PermissionCatalogWrite), deleteCatalogProduct(f))
 	g.POST("/catalog/categories", RequirePermission(a, adminApp.PermissionCatalogWrite), catalogCategory(f, false))
 	g.PUT("/catalog/categories/:id", RequirePermission(a, adminApp.PermissionCatalogWrite), catalogCategory(f, true))
+}
+
+func deleteCatalogProduct(f *adminApp.CatalogAdminFacade) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, ok := shared.AuthenticatedUserID(c)
+		if !ok {
+			c.Status(http.StatusUnauthorized)
+			return
+		}
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil || id == uuid.Nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_ID"})
+			return
+		}
+		if err := f.DeleteProduct(c, adminApp.CatalogCommand{ActorUserID: actor, EventKey: idempotency(c), IPAddress: c.ClientIP()}, id); err != nil {
+			catalogError(c, err)
+			return
+		}
+		c.Status(http.StatusNoContent)
+	}
 }
 func catalogProduct(f *adminApp.CatalogAdminFacade, update bool) gin.HandlerFunc {
 	return func(c *gin.Context) {

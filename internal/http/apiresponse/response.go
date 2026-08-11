@@ -26,6 +26,9 @@ type PageMetadata struct {
 	TotalPages  int   `json:"total_pages"`
 	HasNext     bool  `json:"has_next"`
 	HasPrevious bool  `json:"has_previous"`
+	// Facets is populated by Search only. Keeping it in the standard metadata
+	// preserves one collection envelope for all v1 clients.
+	Facets map[string]map[string]int64 `json:"facets,omitempty"`
 }
 
 // PaginatedResponse is the standard v1 envelope for collection resources.

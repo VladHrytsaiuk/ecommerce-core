@@ -113,6 +113,7 @@ definitions:
     - CONFLICT
     - RATE_LIMITED
     - PAYLOAD_TOO_LARGE
+    - SEARCH_UNAVAILABLE
     - INTERNAL_ERROR
     type: string
     x-enum-varnames:
@@ -124,6 +125,7 @@ definitions:
     - CodeConflict
     - CodeRateLimited
     - CodePayloadTooLarge
+    - CodeSearchUnavailable
     - CodeInternal
   github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.InvalidParam:
     properties:
@@ -134,6 +136,16 @@ definitions:
     type: object
   github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PageMetadata:
     properties:
+      facets:
+        additionalProperties:
+          additionalProperties:
+            format: int64
+            type: integer
+          type: object
+        description: |-
+          Facets is populated by Search only. Keeping it in the standard metadata
+          preserves one collection envelope for all v1 clients.
+        type: object
       has_next:
         type: boolean
       has_previous:
@@ -2767,6 +2779,37 @@ paths:
       tags:
       - Admin v1
   /api/v1/admin/catalog/products/{id}:
+    delete:
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Delete a catalog product (v1 admin)
+      tags:
+      - Admin v1
     put:
       consumes:
       - application/json
@@ -2951,6 +2994,118 @@ paths:
       summary: Get a catalog product by slug (v1)
       tags:
       - Catalog v1
+  /api/v1/catalog/{lang}/search:
+    get:
+      parameters:
+      - description: Locale
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Full-text query
+        in: query
+        name: q
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        maximum: 1000
+        minimum: 1
+        name: page
+        type: integer
+      - default: 24
+        description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      - description: relevance, price_asc, price_desc, newest
+        in: query
+        name: sort
+        type: string
+      - collectionFormat: csv
+        description: Brand filter; repeat or comma-separate values
+        in: query
+        items:
+          type: string
+        name: brand
+        type: array
+      - description: Minimum price in minor currency units
+        in: query
+        name: price_min
+        type: integer
+      - description: Maximum price in minor currency units
+        in: query
+        name: price_max
+        type: integer
+      - description: Only in-stock products
+        in: query
+        name: in_stock
+        type: boolean
+      - collectionFormat: csv
+        description: Facet attribute values
+        in: query
+        items:
+          type: string
+        name: attributes[color]
+        type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PaginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Search products with filters and facets (v1)
+      tags:
+      - Search v1
+  /api/v1/catalog/{lang}/suggestions:
+    get:
+      parameters:
+      - description: Locale
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Search prefix
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 8
+        description: Suggestion limit
+        in: query
+        maximum: 20
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Autocomplete product names (v1)
+      tags:
+      - Search v1
   /api/v1/checkout/{lang}/delivery-options:
     post:
       consumes:
