@@ -40,6 +40,34 @@ func (r *ProductRepository) List(ctx context.Context) ([]domain.Product, error) 
 	return products, nil
 }
 
+// ListProducts applies LIMIT/OFFSET in PostgreSQL and counts the same
+// locale-visible product set. A product without a translation for the
+// requested locale is deliberately not exposed through that localized API.
+func (r *ProductRepository) ListProducts(ctx context.Context, locale string, page, limit int) ([]domain.Product, int64, error) {
+	db := r.database(ctx)
+	visible := db.Model(&domain.Product{}).
+		Joins("JOIN product_translations pt ON pt.product_id = products.id").
+		Where("pt.locale = ?", locale)
+
+	var total int64
+	if err := visible.Distinct("products.id").Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var products []domain.Product
+	offset := (page - 1) * limit
+	if err := visible.
+		Distinct("products.*").
+		Preload("Translations").
+		Order("products.created_at DESC, products.id DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&products).Error; err != nil {
+		return nil, 0, err
+	}
+	return products, total, nil
+}
+
 func (r *ProductRepository) Create(ctx context.Context, product *domain.Product) error {
 	if product.ID == uuid.Nil {
 		product.ID = uuid.New()

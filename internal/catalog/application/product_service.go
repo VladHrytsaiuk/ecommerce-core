@@ -80,6 +80,28 @@ func (s *ProductService) List(ctx context.Context, locale string) ([]domain.Prod
 	return products, nil
 }
 
+// ListProducts returns exactly one database-backed catalog page and its total.
+// Pagination intentionally belongs below the HTTP layer: loading a large
+// catalog only to trim it in memory is both expensive and unsafe.
+func (s *ProductService) ListProducts(ctx context.Context, locale string, page, limit int) ([]domain.Product, int64, error) {
+	locale = normalize(locale)
+	if locale == "" || !s.locales.allows(locale) || page < 1 || limit < 1 {
+		return nil, 0, fmt.Errorf("%w: locale, page and limit are invalid", domain.ErrInvalidProduct)
+	}
+	products, total, err := s.repo.ListProducts(ctx, locale, page, limit)
+	if err != nil || len(products) == 0 {
+		return products, total, err
+	}
+	pointers := make([]*domain.Product, 0, len(products))
+	for index := range products {
+		pointers = append(pointers, &products[index])
+	}
+	if err := s.enrich(ctx, pointers, locale); err != nil {
+		return nil, 0, err
+	}
+	return products, total, nil
+}
+
 func (s *ProductService) enrich(ctx context.Context, products []*domain.Product, locale string) error {
 	ids := make([]uuid.UUID, 0, len(products))
 	for _, product := range products {

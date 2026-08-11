@@ -2,11 +2,14 @@ package postgres
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
 type Repository struct {
@@ -29,6 +32,7 @@ type orderRecord struct {
 	TotalAmount      int64
 	PaymentProvider  string
 	DeliveryProvider string
+	CreatedAt        time.Time
 }
 
 func (orderRecord) TableName() string {
@@ -53,9 +57,36 @@ func (itemRecord) TableName() string {
 }
 
 func (r *Repository) Create(ctx context.Context, order *domain.Order) error {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return createInTransaction(tx.WithContext(ctx), order)
+	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return createInTransaction(tx, order)
 	})
+}
+
+func (r *Repository) ListByCustomer(ctx context.Context, customerID uuid.UUID, page, limit int) (domain.Page, error) {
+	db := r.database(ctx).Where("customer_id = ?", customerID)
+	var total int64
+	if err := db.Model(&orderRecord{}).Count(&total).Error; err != nil {
+		return domain.Page{}, err
+	}
+	var records []orderRecord
+	if err := db.Order("created_at DESC, id DESC").Limit(limit).Offset((page - 1) * limit).Find(&records).Error; err != nil {
+		return domain.Page{}, err
+	}
+	orders := make([]domain.Order, 0, len(records))
+	for _, record := range records {
+		orders = append(orders, domain.Order{ID: record.ID, Number: record.Number, CustomerID: record.CustomerID, Status: record.Status, Total: money.Money{Amount: record.TotalAmount, Currency: record.Currency}, CreatedAt: record.CreatedAt})
+	}
+	return domain.Page{Orders: orders, Total: total}, nil
+}
+
+func (r *Repository) database(ctx context.Context) *gorm.DB {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return tx.WithContext(ctx)
+	}
+	return r.db.WithContext(ctx)
 }
 
 func createInTransaction(tx *gorm.DB, order *domain.Order) error {

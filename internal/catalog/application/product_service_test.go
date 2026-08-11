@@ -147,6 +147,10 @@ func (r *fakeProductRepository) List(_ context.Context) ([]domain.Product, error
 	}
 	return []domain.Product{*r.product}, nil
 }
+func (r *fakeProductRepository) ListProducts(_ context.Context, _ string, _, _ int) ([]domain.Product, int64, error) {
+	products, err := r.List(context.Background())
+	return products, int64(len(products)), err
+}
 
 type listProductRepository struct{ products []domain.Product }
 
@@ -155,6 +159,9 @@ func (r *listProductRepository) FindBySlug(context.Context, string, string) (*do
 }
 func (r *listProductRepository) List(context.Context) ([]domain.Product, error) {
 	return r.products, nil
+}
+func (r *listProductRepository) ListProducts(context.Context, string, int, int) ([]domain.Product, int64, error) {
+	return r.products, int64(len(r.products)), nil
 }
 func (r *listProductRepository) Create(context.Context, *domain.Product) error { return nil }
 

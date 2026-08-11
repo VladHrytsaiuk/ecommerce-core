@@ -194,6 +194,20 @@ disabled, cache calls are no-ops and login limiting uses a documented
 per-process fallback; enabled Redis failures fail startup rather than silently
 degrading distributed protection.
 
+Observability is platform infrastructure, never a domain dependency.
+`internal/platform/observability` installs OpenTelemetry and Gin RED metrics,
+while `internal/platform/management` provides the private health and Prometheus
+listener. The management address defaults to loopback and is exposed to an
+orchestrator or monitoring network, never registered on the public API router.
+Transport adapters enrich structured logs with trace and request identifiers;
+domain/application ports remain independent of OpenTelemetry and logging SDKs.
+
+The public HTTP boundary evolves through additive versioned route groups. The
+active `/api/v1` contract owns response envelopes, RFC 9457 problem documents,
+CORS and security headers in `internal/http`; it maps domain errors through
+transport classifiers and never introduces HTTP types into application/domain
+services. Legacy `/api` routes remain available until their clients migrate.
+
 `DEFAULT_WAREHOUSE_ID` is the initial inventory-allocation policy: the UUID of
 an active local warehouse from which checkout reserves stock. It is not a
 carrier sender address. Carrier-specific sender references remain adapter

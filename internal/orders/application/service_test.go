@@ -2,9 +2,12 @@ package application
 
 import (
 	"context"
+	"testing"
+
+	"github.com/google/uuid"
+
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
-	"testing"
 )
 
 func TestCreateStoresValidatedPendingPaymentSnapshot(t *testing.T) {
@@ -21,3 +24,6 @@ func TestCreateStoresValidatedPendingPaymentSnapshot(t *testing.T) {
 type fakeRepo struct{ created bool }
 
 func (r *fakeRepo) Create(context.Context, *domain.Order) error { r.created = true; return nil }
+func (r *fakeRepo) ListByCustomer(context.Context, uuid.UUID, int, int) (domain.Page, error) {
+	return domain.Page{}, nil
+}

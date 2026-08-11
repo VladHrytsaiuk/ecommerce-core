@@ -25,6 +25,13 @@ func (s *Service) Create(ctx context.Context, draft domain.Draft) (*domain.Order
 	return order, nil
 }
 
+func (s *Service) ListByCustomer(ctx context.Context, customerID uuid.UUID, page, limit int) (domain.Page, error) {
+	if customerID == uuid.Nil || page < 1 || limit < 1 {
+		return domain.Page{}, fmt.Errorf("invalid order list request")
+	}
+	return s.repo.ListByCustomer(ctx, customerID, page, limit)
+}
+
 // NewPendingOrder validates the immutable commercial snapshot before any
 // persistence adapter or cross-module workflow receives it.
 func NewPendingOrder(draft domain.Draft) (*domain.Order, error) {

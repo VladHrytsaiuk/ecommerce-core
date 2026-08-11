@@ -1,27 +1,188 @@
 basePath: /
 definitions:
-  gitlab_com_aquawheel-store_internal_shared_pagination.Metadata:
+  github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Category:
     properties:
-      current_page:
-        type: integer
-      has_next_page:
+      created_at:
+        type: string
+      id:
+        type: string
+      is_active:
         type: boolean
-      has_prev_page:
-        type: boolean
-      page_size:
+      parent_id:
+        type: string
+      sort_order:
         type: integer
-      total_items:
+      translations:
+        items:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.CategoryTranslation'
+        type: array
+      updated_at:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.CategoryTranslation:
+    properties:
+      category_id:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      locale:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Product:
+    properties:
+      badges:
+        items:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductBadge'
+        type: array
+      category_id:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      rating:
+        $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductRating'
+      seo:
+        $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductSEO'
+      status:
+        type: string
+      translations:
+        items:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductTranslation'
+        type: array
+      updated_at:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductBadge:
+    properties:
+      color:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductRating:
+    properties:
+      average_hundredths:
+        type: integer
+      review_count:
+        type: integer
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductSEO:
+    properties:
+      description:
+        type: string
+      keywords:
+        type: string
+      og_image_ref:
+        type: string
+      title:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductTranslation:
+    properties:
+      description:
+        type: string
+      id:
+        type: string
+      locale:
+        type: string
+      name:
+        type: string
+      product_id:
+        type: string
+      slug:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.Code:
+    enum:
+    - INVALID_PAYLOAD
+    - VALIDATION_FAILED
+    - UNAUTHENTICATED
+    - FORBIDDEN
+    - RESOURCE_NOT_FOUND
+    - CONFLICT
+    - RATE_LIMITED
+    - PAYLOAD_TOO_LARGE
+    - INTERNAL_ERROR
+    type: string
+    x-enum-varnames:
+    - CodeInvalidPayload
+    - CodeValidationFailed
+    - CodeUnauthenticated
+    - CodeForbidden
+    - CodeNotFound
+    - CodeConflict
+    - CodeRateLimited
+    - CodePayloadTooLarge
+    - CodeInternal
+  github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.InvalidParam:
+    properties:
+      code:
+        type: string
+      field:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PageMetadata:
+    properties:
+      has_next:
+        type: boolean
+      has_previous:
+        type: boolean
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
         type: integer
       total_pages:
         type: integer
     type: object
-  gitlab_com_aquawheel-store_internal_shared_pagination.PagedResponse:
+  github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PaginatedResponse:
     properties:
       data: {}
-      metadata:
-        $ref: '#/definitions/gitlab_com_aquawheel-store_internal_shared_pagination.Metadata'
+      meta:
+        $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PageMetadata'
+      request_id:
+        type: string
     type: object
-  internal_cart_delivery_http.AddToCartRequest:
+  github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails:
+    properties:
+      code:
+        $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.Code'
+      detail:
+        type: string
+      errors:
+        items:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.InvalidParam'
+        type: array
+      instance:
+        type: string
+      request_id:
+        type: string
+      status:
+        type: integer
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse:
+    properties:
+      data: {}
+      request_id:
+        type: string
+    type: object
+  http.AddToCartRequest:
     properties:
       quantity:
         minimum: 1
@@ -32,14 +193,32 @@ definitions:
     - quantity
     - variation_id
     type: object
-  internal_cart_delivery_http.ApplyPromoRequest:
+  http.ApplyPromoRequest:
     properties:
       code:
         type: string
     required:
     - code
     type: object
-  internal_cart_delivery_http.CartItemResponse:
+  http.AreaResponse:
+    properties:
+      description:
+        type: string
+      ref:
+        type: string
+    type: object
+  http.AuthResponse:
+    properties:
+      access_token:
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+      refresh_token:
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+      user:
+        $ref: '#/definitions/http.UserResponse'
+    type: object
+  http.CartItemResponse:
     properties:
       brand_name:
         type: string
@@ -78,170 +257,136 @@ definitions:
       variation_id:
         type: string
     type: object
-  internal_cart_delivery_http.CartResponse:
+  http.CartResponse:
     properties:
       discount_amount:
         type: integer
       items:
         items:
-          $ref: '#/definitions/internal_cart_delivery_http.CartItemResponse'
+          $ref: '#/definitions/http.CartItemResponse'
         type: array
       original_total_price:
         type: integer
       promo_code:
         type: string
       shipping:
-        $ref: '#/definitions/internal_cart_delivery_http.ShippingResponse'
+        $ref: '#/definitions/http.ShippingResponse'
       total_count:
         type: integer
       total_price:
         type: integer
     type: object
-  internal_cart_delivery_http.ErrorResponse:
+  http.CityResponse:
     properties:
-      details: {}
-      error:
+      area_ref:
         type: string
-      message:
+      description:
+        type: string
+      ref:
         type: string
     type: object
-  internal_cart_delivery_http.ShippingResponse:
+  http.ConfirmPhoneRequest:
     properties:
-      is_free_shipping:
+      code:
+        example: "123456"
+        type: string
+      phone:
+        example: "+380991112233"
+        type: string
+    required:
+    - code
+    - phone
+    type: object
+  http.CreateAddressRequest:
+    properties:
+      address_name:
+        example: Дім
+        type: string
+      area_name:
+        example: Київська
+        type: string
+      area_ref:
+        example: 71000000-0000-0000-0000-000000000000
+        type: string
+      city_name:
+        example: Київ
+        type: string
+      city_ref:
+        example: 8d5a980d-391c-11dd-90d9-001a92567626
+        type: string
+      delivery_type:
+        example: BRANCH
+        type: string
+      is_default:
+        example: true
         type: boolean
-      min_order_amount:
-        description: мінімальна сума замовлення (копійки)
-        type: integer
-      remaining_amount:
-        description: скільки ще потрібно додати (копійки)
-        type: integer
-      threshold:
-        description: мінімальна сума для безкоштовної доставки (копійки)
-        type: integer
-    type: object
-  internal_cart_delivery_http.SyncCartRequest:
-    properties:
-      session_id:
-        description: опціонально, можемо брати з куки
+      provider:
+        example: NOVA_POSHTA
         type: string
-    type: object
-  internal_cart_delivery_http.UnitResponse:
-    properties:
-      id:
-        type: integer
-      name:
+      warehouse_name:
+        example: Відділення №5
         type: string
-      short_name:
+      warehouse_ref:
+        example: 1ec09d88-e1c2-11e3-8c4a-0050568002cf
         type: string
+    required:
+    - city_name
+    - city_ref
+    - delivery_type
+    - provider
+    - warehouse_name
+    - warehouse_ref
     type: object
-  internal_cart_delivery_http.UpdateCartItemRequest:
+  http.CreateAdminRequest:
     properties:
-      quantity:
-        minimum: 1
+      email:
+        example: ivan@example.com
+        type: string
+      first_name:
+        example: Іван
+        type: string
+      last_name:
+        example: Франко
+        type: string
+      password:
+        example: Secret123!
+        minLength: 8
+        type: string
+      role_id:
+        enum:
+        - 2
+        - 3
+        example: 2
         type: integer
     required:
-    - quantity
+    - email
+    - first_name
+    - last_name
+    - password
+    - role_id
     type: object
-  internal_category_delivery_http.CategoryResponse:
+  http.CreateFeedbackResponse:
     properties:
+      content:
+        example: There is a bug on the checkout page.
+        type: string
       created_at:
+        example: "2026-06-19T07:44:30Z"
         type: string
-      icon_url:
+      email:
+        example: user@example.com
         type: string
       id:
+        example: 9b42f4de-22cb-4f3a-9a9c-6e46139fd799
         type: string
-      meta_description:
+      media_url:
+        example: https://res.cloudinary.com/.../file.png
         type: string
-      meta_keywords:
-        type: string
-      meta_title:
-        type: string
-      name:
-        type: string
-      parent_id:
-        type: string
-      slug:
-        type: string
-      slugs:
-        additionalProperties:
-          type: string
-        type: object
-      sort_order:
-        type: integer
-    type: object
-  internal_category_delivery_http.CreateCategoryRequest:
-    properties:
-      icon_url:
-        type: string
-      meta_description_en:
-        type: string
-      meta_description_uk:
-        type: string
-      meta_keywords_en:
-        type: string
-      meta_keywords_uk:
-        type: string
-      meta_title_en:
-        type: string
-      meta_title_uk:
-        type: string
-      name_en:
-        type: string
-      name_uk:
-        type: string
-      parent_id:
-        type: string
-      slug:
-        type: string
-      sort_order:
-        type: integer
-    required:
-    - name_uk
-    type: object
-  internal_category_delivery_http.ErrorResponse:
-    properties:
-      error:
-        type: string
-      message:
+      type:
+        example: bug
         type: string
     type: object
-  internal_category_delivery_http.ReorderCategoriesRequest:
-    properties:
-      ids:
-        items:
-          type: string
-        type: array
-    required:
-    - ids
-    type: object
-  internal_category_delivery_http.UpdateCategoryRequest:
-    properties:
-      icon_url:
-        type: string
-      meta_description_en:
-        type: string
-      meta_description_uk:
-        type: string
-      meta_keywords_en:
-        type: string
-      meta_keywords_uk:
-        type: string
-      meta_title_en:
-        type: string
-      meta_title_uk:
-        type: string
-      name_en:
-        type: string
-      name_uk:
-        type: string
-      parent_id:
-        type: string
-      slug:
-        type: string
-      sort_order:
-        type: integer
-    type: object
-  internal_discount_delivery_http.CreatePromoRequest:
+  http.CreatePromoRequest:
     properties:
       brand_ids:
         items:
@@ -284,15 +429,48 @@ definitions:
     - discount_type
     - discount_value
     type: object
-  internal_discount_delivery_http.ErrorResponse:
+  http.ForgotPasswordRequest:
     properties:
-      details: {}
-      error:
+      email:
+        example: ivan@example.com
         type: string
+    required:
+    - email
+    type: object
+  http.GoogleLoginRequest:
+    properties:
+      id_token:
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+    required:
+    - id_token
+    type: object
+  http.LoginRequest:
+    properties:
+      email:
+        example: ivan@example.com
+        type: string
+      password:
+        example: Secret123!
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  http.MessageResponse:
+    properties:
       message:
+        example: Операцію успішно виконано
         type: string
     type: object
-  internal_discount_delivery_http.PromoResponse:
+  http.MockPaymentRequest:
+    properties:
+      order_id:
+        type: string
+    required:
+    - order_id
+    type: object
+  http.PromoResponse:
     properties:
       brand_ids:
         items:
@@ -335,7 +513,185 @@ definitions:
       usage_limit_per_user:
         type: integer
     type: object
-  internal_discount_delivery_http.UpdatePromoRequest:
+  http.RefreshRequest:
+    properties:
+      refresh_token:
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+    required:
+    - refresh_token
+    type: object
+  http.RegisterRequest:
+    properties:
+      email:
+        example: ivan@example.com
+        type: string
+      first_name:
+        example: Іван
+        type: string
+      last_name:
+        example: Франко
+        type: string
+      password:
+        example: Secret123!
+        minLength: 8
+        type: string
+    required:
+    - email
+    - first_name
+    - last_name
+    - password
+    type: object
+  http.RegisterResponse:
+    properties:
+      message:
+        example: Registration successful. Please check your email for verification
+          link.
+        type: string
+      user:
+        $ref: '#/definitions/http.UserResponse'
+    type: object
+  http.ResetPasswordRequest:
+    properties:
+      code:
+        example: "123456"
+        type: string
+      email:
+        example: ivan@example.com
+        type: string
+      new_password:
+        example: NewSecret123!
+        minLength: 8
+        type: string
+    required:
+    - code
+    - email
+    - new_password
+    type: object
+  http.SaveCheckoutAddressRequest:
+    properties:
+      area_name:
+        example: Київська
+        type: string
+      area_ref:
+        example: 71000000-0000-0000-0000-000000000000
+        type: string
+      city_name:
+        example: Київ
+        type: string
+      city_ref:
+        example: 8d5a980d-391c-11dd-90d9-001a92567626
+        type: string
+      delivery_type:
+        example: BRANCH
+        type: string
+      provider:
+        example: NOVA_POSHTA
+        type: string
+      warehouse_name:
+        example: Відділення №5
+        type: string
+      warehouse_ref:
+        example: 1ec09d88-e1c2-11e3-8c4a-0050568002cf
+        type: string
+    required:
+    - city_name
+    - city_ref
+    - delivery_type
+    - provider
+    - warehouse_name
+    - warehouse_ref
+    type: object
+  http.SetupPasswordRequest:
+    properties:
+      password:
+        example: MySecurePassword123!
+        minLength: 8
+        type: string
+      setup_token:
+        example: a1b2c3d4-...
+        type: string
+    required:
+    - password
+    - setup_token
+    type: object
+  http.ShippingConfigResponse:
+    properties:
+      free_shipping_threshold:
+        description: в копійках
+        type: integer
+      min_order_amount:
+        description: в копійках
+        type: integer
+    type: object
+  http.ShippingResponse:
+    properties:
+      is_free_shipping:
+        type: boolean
+      min_order_amount:
+        description: мінімальна сума замовлення (копійки)
+        type: integer
+      remaining_amount:
+        description: скільки ще потрібно додати (копійки)
+        type: integer
+      threshold:
+        description: мінімальна сума для безкоштовної доставки (копійки)
+        type: integer
+    type: object
+  http.SyncCartRequest:
+    properties:
+      session_id:
+        description: опціонально, можемо брати з куки
+        type: string
+    type: object
+  http.SyncWishlistRequest:
+    properties:
+      session_id:
+        description: тепер опціонально, можемо брати з куки
+        type: string
+    type: object
+  http.UpdateAddressRequest:
+    properties:
+      address_name:
+        example: Робота
+        type: string
+      area_name:
+        example: Київська
+        type: string
+      area_ref:
+        example: 71000000-0000-0000-0000-000000000000
+        type: string
+      city_name:
+        example: Київ
+        type: string
+      city_ref:
+        example: 8d5a980d-391c-11dd-90d9-001a92567626
+        type: string
+      delivery_type:
+        example: BRANCH
+        type: string
+      is_default:
+        example: false
+        type: boolean
+      provider:
+        example: NOVA_POSHTA
+        type: string
+      warehouse_name:
+        example: Відділення №10
+        type: string
+      warehouse_ref:
+        example: 1ec09d88-e1c2-11e3-8c4a-0050568002cf
+        type: string
+    type: object
+  http.UpdateCartItemRequest:
+    properties:
+      quantity:
+        minimum: 1
+        type: integer
+    required:
+    - quantity
+    type: object
+  http.UpdatePromoRequest:
     properties:
       brand_ids:
         items:
@@ -372,1166 +728,7 @@ definitions:
       usage_limit_per_user:
         type: integer
     type: object
-  internal_document_delivery_http.AdminDocumentDetailResponse:
-    properties:
-      created_at:
-        type: string
-      current_version:
-        $ref: '#/definitions/internal_document_delivery_http.DocumentVersionResponse'
-      id:
-        type: string
-      slug:
-        type: string
-      title:
-        additionalProperties:
-          type: string
-        type: object
-      updated_at:
-        type: string
-      versions:
-        items:
-          $ref: '#/definitions/internal_document_delivery_http.DocumentVersionResponse'
-        type: array
-    type: object
-  internal_document_delivery_http.CreateDocumentRequest:
-    properties:
-      changelog:
-        type: string
-      content:
-        type: object
-      slug:
-        type: string
-      title:
-        additionalProperties:
-          type: string
-        type: object
-    required:
-    - content
-    - title
-    type: object
-  internal_document_delivery_http.DocumentListResponse:
-    properties:
-      current_version_id:
-        type: string
-      id:
-        type: string
-      slug:
-        type: string
-      title:
-        additionalProperties:
-          type: string
-        type: object
-      updated_at:
-        type: string
-      version_number:
-        type: integer
-    type: object
-  internal_document_delivery_http.DocumentVersionResponse:
-    properties:
-      changelog:
-        type: string
-      content:
-        type: object
-      created_at:
-        type: string
-      created_by:
-        type: string
-      created_by_name:
-        type: string
-      id:
-        type: string
-      version_number:
-        type: integer
-    type: object
-  internal_document_delivery_http.PublicDocumentResponse:
-    properties:
-      content:
-        type: object
-      id:
-        type: string
-      is_fallback:
-        type: boolean
-      slug:
-        type: string
-      title:
-        type: string
-      updated_at:
-        type: string
-      version_number:
-        type: integer
-    type: object
-  internal_document_delivery_http.SaveVersionRequest:
-    properties:
-      changelog:
-        type: string
-      content:
-        type: object
-    required:
-    - content
-    type: object
-  internal_document_delivery_http.SetActiveVersionRequest:
-    properties:
-      version_id:
-        type: string
-    required:
-    - version_id
-    type: object
-  internal_feedback_delivery_http.CreateFeedbackResponse:
-    properties:
-      content:
-        example: There is a bug on the checkout page.
-        type: string
-      created_at:
-        example: "2026-06-19T07:44:30Z"
-        type: string
-      email:
-        example: user@example.com
-        type: string
-      id:
-        example: 9b42f4de-22cb-4f3a-9a9c-6e46139fd799
-        type: string
-      media_url:
-        example: https://res.cloudinary.com/.../file.png
-        type: string
-      type:
-        example: bug
-        type: string
-    type: object
-  internal_feedback_delivery_http.ErrorResponse:
-    properties:
-      error:
-        example: Bad Request
-        type: string
-      message:
-        example: MIME type is not allowed
-        type: string
-    type: object
-  internal_order_delivery_http.CreateOrderRequest:
-    properties:
-      admin_comment:
-        type: string
-      customer:
-        $ref: '#/definitions/internal_order_delivery_http.CustomerRequest'
-      delivery:
-        $ref: '#/definitions/internal_order_delivery_http.DeliveryRequest'
-      paytypes:
-        type: string
-    required:
-    - customer
-    - delivery
-    type: object
-  internal_order_delivery_http.CreateOrderResponse:
-    properties:
-      is_new_user:
-        type: boolean
-      order_id:
-        type: string
-      order_number:
-        type: integer
-      payment_url:
-        type: string
-      setup_token:
-        type: string
-      status:
-        type: string
-      total_price:
-        type: integer
-    type: object
-  internal_order_delivery_http.CustomerRequest:
-    properties:
-      email:
-        type: string
-      first_name:
-        minLength: 1
-        type: string
-      last_name:
-        minLength: 1
-        type: string
-      phone:
-        type: string
-    required:
-    - email
-    - first_name
-    - last_name
-    - phone
-    type: object
-  internal_order_delivery_http.DeliveryDTO:
-    properties:
-      city_name:
-        type: string
-      delivery_type:
-        type: string
-      provider:
-        type: string
-      status:
-        type: string
-      tracking_number:
-        type: string
-      warehouse_name:
-        type: string
-    type: object
-  internal_order_delivery_http.DeliveryRequest:
-    properties:
-      city_name:
-        type: string
-      city_ref:
-        type: string
-      delivery_type:
-        type: string
-      provider:
-        type: string
-      warehouse_name:
-        type: string
-      warehouse_ref:
-        type: string
-    required:
-    - city_name
-    - city_ref
-    - delivery_type
-    - provider
-    - warehouse_name
-    - warehouse_ref
-    type: object
-  internal_order_delivery_http.ErrorResponse:
-    properties:
-      error:
-        type: string
-      message:
-        type: string
-    type: object
-  internal_order_delivery_http.ManagerItemDTO:
-    properties:
-      id:
-        type: string
-      image_url:
-        type: string
-      price:
-        type: integer
-      product_name:
-        type: string
-      quantity:
-        type: integer
-      total_price:
-        type: integer
-      variation_id:
-        type: string
-    type: object
-  internal_order_delivery_http.ManagerOrderResponse:
-    properties:
-      created_at:
-        type: string
-      delivery:
-        $ref: '#/definitions/internal_order_delivery_http.DeliveryDTO'
-      email:
-        type: string
-      first_name:
-        type: string
-      id:
-        type: string
-      items:
-        items:
-          $ref: '#/definitions/internal_order_delivery_http.ManagerItemDTO'
-        type: array
-      last_name:
-        type: string
-      order_number:
-        type: integer
-      phone:
-        type: string
-      status:
-        $ref: '#/definitions/internal_order_delivery_http.OrderStatusDTO'
-      total_price:
-        type: integer
-      ttn_created_at:
-        type: string
-      ttn_number:
-        type: string
-    type: object
-  internal_order_delivery_http.OrderItemDTO:
-    properties:
-      discount_amount:
-        type: integer
-      final_total_price:
-        type: integer
-      id:
-        type: string
-      image_url:
-        type: string
-      price:
-        type: integer
-      product_name:
-        type: string
-      quantity:
-        type: integer
-      slug:
-        type: string
-      total_price:
-        type: integer
-      variation_id:
-        type: string
-    type: object
-  internal_order_delivery_http.OrderPaymentStatusResponse:
-    properties:
-      status:
-        description: Статус оплати (pending, paid, failed)
-        example: paid
-        type: string
-    type: object
-  internal_order_delivery_http.OrderResponse:
-    properties:
-      admin_comment:
-        type: string
-      created_at:
-        type: string
-      delivery:
-        $ref: '#/definitions/internal_order_delivery_http.DeliveryDTO'
-      discount_amount:
-        type: integer
-      email:
-        type: string
-      first_name:
-        type: string
-      id:
-        type: string
-      items:
-        items:
-          $ref: '#/definitions/internal_order_delivery_http.OrderItemDTO'
-        type: array
-      last_name:
-        type: string
-      order_number:
-        type: integer
-      payment_url:
-        type: string
-      phone:
-        type: string
-      promo_code:
-        type: string
-      status:
-        $ref: '#/definitions/internal_order_delivery_http.OrderStatusDTO'
-      total_price:
-        type: integer
-    type: object
-  internal_order_delivery_http.OrderStatusDTO:
-    properties:
-      code:
-        type: string
-      id:
-        type: integer
-      name:
-        type: string
-    type: object
-  internal_order_delivery_http.TTNCreatedResponse:
-    properties:
-      message:
-        type: string
-      order_number:
-        type: integer
-      status:
-        type: string
-      ttn_number:
-        type: string
-    type: object
-  internal_payment_delivery_http.MockPaymentRequest:
-    properties:
-      order_id:
-        type: string
-    required:
-    - order_id
-    type: object
-  internal_product_delivery_http.AdminBadgeResponse:
-    properties:
-      color_hex:
-        type: string
-      created_at:
-        type: string
-      id:
-        type: integer
-      name:
-        additionalProperties:
-          type: string
-        type: object
-      sort_order:
-        type: integer
-    type: object
-  internal_product_delivery_http.AttrValueDTO:
-    properties:
-      code:
-        type: string
-      count:
-        type: integer
-      label:
-        type: string
-    type: object
-  internal_product_delivery_http.AttrValueOptionResponse:
-    properties:
-      code:
-        type: string
-      count:
-        type: integer
-      label:
-        type: string
-    type: object
-  internal_product_delivery_http.AttributeFilterDTO:
-    properties:
-      code:
-        type: string
-      id:
-        type: integer
-      name:
-        type: string
-      values:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.AttrValueDTO'
-        type: array
-    type: object
-  internal_product_delivery_http.AttributeInput:
-    properties:
-      attribute_id:
-        type: integer
-      unit_id:
-        type: integer
-      value_code:
-        description: дискретний код для фільтрації; якщо порожній — виводиться зі
-          value_string
-        type: string
-      value_numeric:
-        type: number
-      value_string_en:
-        type: string
-      value_string_uk:
-        type: string
-    required:
-    - attribute_id
-    type: object
-  internal_product_delivery_http.AttributeResponse:
-    properties:
-      code:
-        type: string
-      id:
-        type: integer
-      is_filterable:
-        type: boolean
-      is_variant_specific:
-        type: boolean
-      name:
-        type: string
-      sort_order:
-        type: integer
-      unit:
-        $ref: '#/definitions/internal_product_delivery_http.UnitResponse'
-    type: object
-  internal_product_delivery_http.BadgeResponse:
-    properties:
-      color_hex:
-        type: string
-      id:
-        type: integer
-      name:
-        type: string
-    type: object
-  internal_product_delivery_http.BrandResponse:
-    properties:
-      count:
-        type: integer
-      id:
-        type: string
-      name:
-        type: string
-      slug:
-        type: string
-    type: object
-  internal_product_delivery_http.BreadcrumbResponse:
-    properties:
-      id:
-        type: string
-      name:
-        type: string
-      slug:
-        type: string
-      slugs:
-        additionalProperties:
-          type: string
-        type: object
-    type: object
-  internal_product_delivery_http.BundleItemInput:
-    properties:
-      quantity:
-        minimum: 1
-        type: integer
-      variation_id:
-        type: string
-    required:
-    - quantity
-    - variation_id
-    type: object
-  internal_product_delivery_http.BundleItemResponse:
-    properties:
-      characteristics:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.CharacteristicResponse'
-        type: array
-      image_url:
-        type: string
-      price:
-        type: integer
-      product_id:
-        type: string
-      product_name:
-        type: string
-      product_slug:
-        type: string
-      quantity:
-        type: integer
-      quantity_value:
-        type: number
-      sku:
-        type: string
-      unit:
-        $ref: '#/definitions/internal_product_delivery_http.UnitResponse'
-      variation_id:
-        type: string
-    type: object
-  internal_product_delivery_http.CharacteristicResponse:
-    properties:
-      attribute_id:
-        type: integer
-      attribute_value_id:
-        type: string
-      code:
-        type: string
-      is_filterable:
-        type: boolean
-      name:
-        type: string
-      sort_order:
-        type: integer
-      unit:
-        $ref: '#/definitions/internal_product_delivery_http.UnitResponse'
-      value_numeric:
-        type: number
-      value_string:
-        type: string
-    type: object
-  internal_product_delivery_http.CreateAttributeRequest:
-    properties:
-      code:
-        maxLength: 50
-        type: string
-      is_filterable:
-        type: boolean
-      is_variant_specific:
-        type: boolean
-      name_en:
-        type: string
-      name_uk:
-        maxLength: 100
-        type: string
-      sort_order:
-        type: integer
-      unit_id:
-        type: integer
-    required:
-    - code
-    - name_uk
-    type: object
-  internal_product_delivery_http.CreateBadgeRequest:
-    properties:
-      color_hex:
-        maxLength: 10
-        type: string
-      name_en:
-        type: string
-      name_uk:
-        maxLength: 100
-        type: string
-      sort_order:
-        type: integer
-    required:
-    - color_hex
-    - name_uk
-    type: object
-  internal_product_delivery_http.CreateBrandRequest:
-    properties:
-      name:
-        maxLength: 100
-        type: string
-      slug:
-        type: string
-    required:
-    - name
-    type: object
-  internal_product_delivery_http.CreateProductRequest:
-    properties:
-      attribute_values:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.AttributeInput'
-        type: array
-      badge_ids:
-        items:
-          type: integer
-        type: array
-      brand_id:
-        type: string
-      bundle_items:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.BundleItemInput'
-        type: array
-      category_id:
-        type: string
-      description_en:
-        type: string
-      description_uk:
-        type: string
-      images_meta:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.ImageMeta'
-        type: array
-      is_active:
-        type: boolean
-      is_bundle:
-        type: boolean
-      is_recommended:
-        type: boolean
-      meta_description_en:
-        type: string
-      meta_description_uk:
-        type: string
-      meta_keywords_en:
-        type: string
-      meta_keywords_uk:
-        type: string
-      meta_title_en:
-        type: string
-      meta_title_uk:
-        type: string
-      name_en:
-        description: optional, fallback to Uk in service
-        type: string
-      name_uk:
-        type: string
-      price_strategy:
-        type: string
-      usage_instructions_en:
-        type: string
-      usage_instructions_uk:
-        type: string
-      variations:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.VariationInput'
-        minItems: 1
-        type: array
-    required:
-    - brand_id
-    - category_id
-    - is_active
-    - name_uk
-    - variations
-    type: object
-  internal_product_delivery_http.CreateReviewRequest:
-    properties:
-      comment:
-        maxLength: 2000
-        type: string
-      parent_id:
-        type: string
-      rating:
-        description: optional for replies
-        maximum: 5
-        minimum: 1
-        type: integer
-    required:
-    - comment
-    type: object
-  internal_product_delivery_http.ErrorResponse:
-    properties:
-      error:
-        type: string
-      message:
-        type: string
-    type: object
-  internal_product_delivery_http.FilterDiscoveryResponse:
-    properties:
-      attributes:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.AttributeFilterDTO'
-        type: array
-      brands:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.BrandResponse'
-        type: array
-      price:
-        $ref: '#/definitions/internal_product_delivery_http.PriceFilterDTO'
-      quantities:
-        additionalProperties:
-          items:
-            $ref: '#/definitions/internal_product_delivery_http.QuantityValueDTO'
-          type: array
-        type: object
-    type: object
-  internal_product_delivery_http.ImageMeta:
-    properties:
-      alt_text_en:
-        type: string
-      alt_text_uk:
-        type: string
-      is_hover:
-        type: boolean
-      is_primary:
-        type: boolean
-      key:
-        description: Key in multipart form (e.g. "image_1")
-        type: string
-      sort_order:
-        type: integer
-      variation_id:
-        type: string
-    type: object
-  internal_product_delivery_http.PriceFilterDTO:
-    properties:
-      max:
-        type: integer
-      min:
-        type: integer
-    type: object
-  internal_product_delivery_http.ProductBriefResponse:
-    properties:
-      average_rating:
-        type: number
-      badges:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.BadgeResponse'
-        type: array
-      brand_id:
-        type: string
-      brand_name:
-        type: string
-      hover_image_url:
-        type: string
-      id:
-        type: string
-      image_url:
-        type: string
-      is_bundle:
-        type: boolean
-      is_recommended:
-        type: boolean
-      name:
-        type: string
-      old_price:
-        type: integer
-      price:
-        type: integer
-      product_id:
-        type: string
-      quantity_value:
-        type: number
-      reviews_count:
-        type: integer
-      sku:
-        type: string
-      slug:
-        type: string
-      slugs:
-        additionalProperties:
-          type: string
-        type: object
-      unit:
-        $ref: '#/definitions/internal_product_delivery_http.UnitResponse'
-    type: object
-  internal_product_delivery_http.ProductImageResponse:
-    properties:
-      alt_text:
-        type: string
-      id:
-        type: string
-      image_url:
-        type: string
-      is_hover:
-        type: boolean
-      is_primary:
-        type: boolean
-      sort_order:
-        type: integer
-    type: object
-  internal_product_delivery_http.ProductResponse:
-    properties:
-      average_rating:
-        type: number
-      badges:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.BadgeResponse'
-        type: array
-      brand_id:
-        type: string
-      brand_name:
-        type: string
-      breadcrumbs:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.BreadcrumbResponse'
-        type: array
-      bundle_items:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.BundleItemResponse'
-        type: array
-      category_id:
-        type: string
-      category_name:
-        type: string
-      description:
-        type: string
-      id:
-        type: string
-      images:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.ProductImageResponse'
-        type: array
-      is_active:
-        type: boolean
-      is_bundle:
-        type: boolean
-      is_recommended:
-        type: boolean
-      meta_description:
-        type: string
-      meta_keywords:
-        type: string
-      meta_title:
-        type: string
-      name:
-        type: string
-      price_strategy:
-        type: string
-      reviews_count:
-        type: integer
-      slug:
-        type: string
-      slugs:
-        additionalProperties:
-          type: string
-        type: object
-      usage_instructions:
-        type: string
-      variations:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.ProductVariationResponse'
-        type: array
-    type: object
-  internal_product_delivery_http.ProductReviewResponse:
-    properties:
-      comment:
-        type: string
-      created_at:
-        type: string
-      id:
-        type: string
-      parent_id:
-        type: string
-      product_id:
-        type: string
-      product_name:
-        type: string
-      product_slug:
-        type: string
-      rating:
-        description: null for replies (parent_id != nil)
-        type: integer
-      user_first_name:
-        type: string
-      user_id:
-        type: string
-      user_last_name:
-        type: string
-    type: object
-  internal_product_delivery_http.ProductVariationResponse:
-    properties:
-      badges:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.BadgeResponse'
-        type: array
-      barcode:
-        type: string
-      characteristics:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.CharacteristicResponse'
-        type: array
-      id:
-        type: string
-      images:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.ProductImageResponse'
-        type: array
-      name:
-        description: власна назва варіації або (fallback) назва товару
-        type: string
-      old_price:
-        type: integer
-      price:
-        type: integer
-      quantity_value:
-        type: number
-      sku:
-        type: string
-      slug:
-        type: string
-      unit:
-        $ref: '#/definitions/internal_product_delivery_http.UnitResponse'
-      weight:
-        type: number
-    type: object
-  internal_product_delivery_http.QuantityValueDTO:
-    properties:
-      count:
-        type: integer
-      unit_id:
-        type: integer
-      value:
-        type: number
-    type: object
-  internal_product_delivery_http.QuickSearchResponse:
-    properties:
-      id:
-        type: string
-      image_url:
-        type: string
-      name:
-        type: string
-      old_price:
-        type: integer
-      price:
-        type: integer
-      sku:
-        type: string
-      slug:
-        type: string
-    type: object
-  internal_product_delivery_http.ReorderAttributesRequest:
-    properties:
-      ids:
-        description: Масив ID атрибутів у бажаному порядку.
-        example:
-        - 10
-        - 5
-        - 8
-        items:
-          type: number
-        type: array
-    required:
-    - ids
-    type: object
-  internal_product_delivery_http.ReorderImagesRequest:
-    properties:
-      ids:
-        items:
-          type: string
-        type: array
-    required:
-    - ids
-    type: object
-  internal_product_delivery_http.UnitResponse:
-    properties:
-      id:
-        type: integer
-      name:
-        type: string
-      short_name:
-        type: string
-    type: object
-  internal_product_delivery_http.UpdateAttributeRequest:
-    properties:
-      code:
-        maxLength: 50
-        type: string
-      is_filterable:
-        type: boolean
-      is_variant_specific:
-        type: boolean
-      name_en:
-        type: string
-      name_uk:
-        maxLength: 100
-        type: string
-      sort_order:
-        type: integer
-      unit_id:
-        type: integer
-    type: object
-  internal_product_delivery_http.UpdateBadgeRequest:
-    properties:
-      color_hex:
-        maxLength: 10
-        type: string
-      name_en:
-        type: string
-      name_uk:
-        maxLength: 100
-        type: string
-      sort_order:
-        type: integer
-    type: object
-  internal_product_delivery_http.UpdateBrandRequest:
-    properties:
-      name:
-        maxLength: 100
-        type: string
-      slug:
-        type: string
-    type: object
-  internal_product_delivery_http.UpdateImageRequest:
-    properties:
-      alt_text_en:
-        type: string
-      alt_text_uk:
-        type: string
-      is_hover:
-        type: boolean
-      is_primary:
-        type: boolean
-      sort_order:
-        type: integer
-      variation_id:
-        description: nil = загальне фото; uuid = фото варіації
-        type: string
-      variation_id_set:
-        description: true = застосувати variation_id
-        type: boolean
-    type: object
-  internal_product_delivery_http.UpdateProductRequest:
-    properties:
-      attribute_values:
-        description: nil = не чіпати; [] = видалити всі; [...] = full sync
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.AttributeInput'
-        type: array
-      badge_ids:
-        description: nil = не чіпати; [] = видалити всі; [...] = full sync
-        items:
-          type: integer
-        type: array
-      brand_id:
-        type: string
-      bundle_items:
-        description: nil = не чіпати; [] = видалити всі; [...] = full sync
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.BundleItemInput'
-        type: array
-      category_id:
-        type: string
-      description_en:
-        type: string
-      description_uk:
-        type: string
-      images_meta:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.ImageMeta'
-        type: array
-      images_to_delete:
-        description: IDs of existing images to remove
-        items:
-          type: string
-        type: array
-      is_active:
-        type: boolean
-      is_bundle:
-        type: boolean
-      is_recommended:
-        type: boolean
-      meta_description_en:
-        type: string
-      meta_description_uk:
-        type: string
-      meta_keywords_en:
-        type: string
-      meta_keywords_uk:
-        type: string
-      meta_title_en:
-        type: string
-      meta_title_uk:
-        type: string
-      name_en:
-        type: string
-      name_uk:
-        type: string
-      price_strategy:
-        type: string
-      usage_instructions_en:
-        type: string
-      usage_instructions_uk:
-        type: string
-      variations:
-        description: nil = не чіпати; [] = видалити всі; [...] = full sync
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.VariationInput'
-        type: array
-    type: object
-  internal_product_delivery_http.VariationInput:
-    properties:
-      attribute_values:
-        items:
-          $ref: '#/definitions/internal_product_delivery_http.AttributeInput'
-        type: array
-      badge_ids:
-        items:
-          type: integer
-        type: array
-      barcode:
-        type: string
-      id:
-        description: For updates, nil means new variation
-        type: string
-      is_active:
-        type: boolean
-      name_en:
-        type: string
-      name_uk:
-        description: власна назва варіації (опційно); порожня → назва товару
-        type: string
-      old_price:
-        type: integer
-      price:
-        type: integer
-      quantity_value:
-        type: number
-      sku:
-        type: string
-      unit_id:
-        type: integer
-      weight:
-        type: number
-    type: object
-  internal_shipment_delivery_http.AreaResponse:
-    properties:
-      description:
-        type: string
-      ref:
-        type: string
-    type: object
-  internal_shipment_delivery_http.CityResponse:
-    properties:
-      area_ref:
-        type: string
-      description:
-        type: string
-      ref:
-        type: string
-    type: object
-  internal_shipment_delivery_http.ErrorResponse:
-    properties:
-      error:
-        type: string
-      message:
-        type: string
-    type: object
-  internal_shipment_delivery_http.ShippingConfigResponse:
-    properties:
-      free_shipping_threshold:
-        description: в копійках
-        type: integer
-      min_order_amount:
-        description: в копійках
-        type: integer
-    type: object
-  internal_shipment_delivery_http.UpdateShippingRuleRequest:
+  http.UpdateShippingRuleRequest:
     properties:
       min_order_amount:
         minimum: 0
@@ -1541,261 +738,7 @@ definitions:
     required:
     - provider
     type: object
-  internal_shipment_delivery_http.WarehouseResponse:
-    properties:
-      description:
-        type: string
-      number:
-        type: string
-      ref:
-        type: string
-      short_address:
-        type: string
-      type_of_warehouse:
-        type: string
-    type: object
-  internal_user_delivery_http.AuthResponse:
-    properties:
-      access_token:
-        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        type: string
-      refresh_token:
-        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        type: string
-      user:
-        $ref: '#/definitions/internal_user_delivery_http.UserResponse'
-    type: object
-  internal_user_delivery_http.ConfirmPhoneRequest:
-    properties:
-      code:
-        example: "123456"
-        type: string
-      phone:
-        example: "+380991112233"
-        type: string
-    required:
-    - code
-    - phone
-    type: object
-  internal_user_delivery_http.CreateAddressRequest:
-    properties:
-      address_name:
-        example: Дім
-        type: string
-      area_name:
-        example: Київська
-        type: string
-      area_ref:
-        example: 71000000-0000-0000-0000-000000000000
-        type: string
-      city_name:
-        example: Київ
-        type: string
-      city_ref:
-        example: 8d5a980d-391c-11dd-90d9-001a92567626
-        type: string
-      delivery_type:
-        example: BRANCH
-        type: string
-      is_default:
-        example: true
-        type: boolean
-      provider:
-        example: NOVA_POSHTA
-        type: string
-      warehouse_name:
-        example: Відділення №5
-        type: string
-      warehouse_ref:
-        example: 1ec09d88-e1c2-11e3-8c4a-0050568002cf
-        type: string
-    required:
-    - city_name
-    - city_ref
-    - delivery_type
-    - provider
-    - warehouse_name
-    - warehouse_ref
-    type: object
-  internal_user_delivery_http.ErrorResponse:
-    properties:
-      error:
-        example: Unauthorized
-        type: string
-      message:
-        example: Детальний опис помилки
-        type: string
-    type: object
-  internal_user_delivery_http.ForgotPasswordRequest:
-    properties:
-      email:
-        example: ivan@example.com
-        type: string
-    required:
-    - email
-    type: object
-  internal_user_delivery_http.GoogleLoginRequest:
-    properties:
-      id_token:
-        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        type: string
-    required:
-    - id_token
-    type: object
-  internal_user_delivery_http.LoginRequest:
-    properties:
-      email:
-        example: ivan@example.com
-        type: string
-      password:
-        example: Secret123!
-        type: string
-    required:
-    - email
-    - password
-    type: object
-  internal_user_delivery_http.MessageResponse:
-    properties:
-      message:
-        example: Операцію успішно виконано
-        type: string
-    type: object
-  internal_user_delivery_http.RefreshRequest:
-    properties:
-      refresh_token:
-        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        type: string
-    required:
-    - refresh_token
-    type: object
-  internal_user_delivery_http.RegisterRequest:
-    properties:
-      email:
-        example: ivan@example.com
-        type: string
-      first_name:
-        example: Іван
-        type: string
-      last_name:
-        example: Франко
-        type: string
-      password:
-        example: Secret123!
-        minLength: 8
-        type: string
-    required:
-    - email
-    - first_name
-    - last_name
-    - password
-    type: object
-  internal_user_delivery_http.RegisterResponse:
-    properties:
-      message:
-        example: Registration successful. Please check your email for verification
-          link.
-        type: string
-      user:
-        $ref: '#/definitions/internal_user_delivery_http.UserResponse'
-    type: object
-  internal_user_delivery_http.ResetPasswordRequest:
-    properties:
-      code:
-        example: "123456"
-        type: string
-      email:
-        example: ivan@example.com
-        type: string
-      new_password:
-        example: NewSecret123!
-        minLength: 8
-        type: string
-    required:
-    - code
-    - email
-    - new_password
-    type: object
-  internal_user_delivery_http.SaveCheckoutAddressRequest:
-    properties:
-      area_name:
-        example: Київська
-        type: string
-      area_ref:
-        example: 71000000-0000-0000-0000-000000000000
-        type: string
-      city_name:
-        example: Київ
-        type: string
-      city_ref:
-        example: 8d5a980d-391c-11dd-90d9-001a92567626
-        type: string
-      delivery_type:
-        example: BRANCH
-        type: string
-      provider:
-        example: NOVA_POSHTA
-        type: string
-      warehouse_name:
-        example: Відділення №5
-        type: string
-      warehouse_ref:
-        example: 1ec09d88-e1c2-11e3-8c4a-0050568002cf
-        type: string
-    required:
-    - city_name
-    - city_ref
-    - delivery_type
-    - provider
-    - warehouse_name
-    - warehouse_ref
-    type: object
-  internal_user_delivery_http.SetupPasswordRequest:
-    properties:
-      password:
-        example: MySecurePassword123!
-        minLength: 8
-        type: string
-      setup_token:
-        example: a1b2c3d4-...
-        type: string
-    required:
-    - password
-    - setup_token
-    type: object
-  internal_user_delivery_http.UpdateAddressRequest:
-    properties:
-      address_name:
-        example: Робота
-        type: string
-      area_name:
-        example: Київська
-        type: string
-      area_ref:
-        example: 71000000-0000-0000-0000-000000000000
-        type: string
-      city_name:
-        example: Київ
-        type: string
-      city_ref:
-        example: 8d5a980d-391c-11dd-90d9-001a92567626
-        type: string
-      delivery_type:
-        example: BRANCH
-        type: string
-      is_default:
-        example: false
-        type: boolean
-      provider:
-        example: NOVA_POSHTA
-        type: string
-      warehouse_name:
-        example: Відділення №10
-        type: string
-      warehouse_ref:
-        example: 1ec09d88-e1c2-11e3-8c4a-0050568002cf
-        type: string
-    type: object
-  internal_user_delivery_http.UpdateUserRequest:
+  http.UpdateUserRequest:
     properties:
       first_name:
         example: Іван
@@ -1810,7 +753,7 @@ definitions:
         example: false
         type: boolean
     type: object
-  internal_user_delivery_http.UserAddressResponse:
+  http.UserAddressResponse:
     properties:
       address_name:
         example: Дім
@@ -1849,7 +792,7 @@ definitions:
         example: 0d545edf-e1c2-11e3-8c4a-0050568002cf
         type: string
     type: object
-  internal_user_delivery_http.UserResponse:
+  http.UserResponse:
     properties:
       auth_provider:
         example: local
@@ -1885,7 +828,7 @@ definitions:
         example: true
         type: boolean
     type: object
-  internal_user_delivery_http.VerifyEmailRequest:
+  http.VerifyEmailRequest:
     properties:
       code:
         example: "123456"
@@ -1897,7 +840,7 @@ definitions:
     - code
     - email
     type: object
-  internal_user_delivery_http.VerifyPhoneRequest:
+  http.VerifyPhoneRequest:
     properties:
       phone:
         example: "+380991112233"
@@ -1905,13 +848,136 @@ definitions:
     required:
     - phone
     type: object
-  internal_user_delivery_http.VerifyPhoneResponse:
+  http.VerifyPhoneResponse:
     properties:
       code:
         example: "123456"
         type: string
       message:
         example: Код відправлено
+        type: string
+    type: object
+  http.WarehouseResponse:
+    properties:
+      description:
+        type: string
+      number:
+        type: string
+      ref:
+        type: string
+      short_address:
+        type: string
+      type_of_warehouse:
+        type: string
+    type: object
+  internal_admin_delivery_http.createPromoRequest:
+    properties:
+      code:
+        maxLength: 64
+        type: string
+      currency:
+        type: string
+      discount_type:
+        type: string
+      discount_value:
+        type: integer
+      is_active:
+        type: boolean
+      usage_limit:
+        type: integer
+      valid_until:
+        type: string
+    required:
+    - code
+    - discount_type
+    - discount_value
+    type: object
+  internal_cart_delivery_http.ErrorResponse:
+    properties:
+      details: {}
+      error:
+        type: string
+      message:
+        type: string
+    type: object
+  internal_cart_delivery_http.UnitResponse:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      short_name:
+        type: string
+    type: object
+  internal_checkout_delivery_http.DeliveryDetails:
+    properties:
+      city:
+        type: string
+      country_code:
+        type: string
+      line1:
+        type: string
+      line2:
+        type: string
+      locality_id:
+        type: string
+      postal_code:
+        type: string
+      recipient_name:
+        type: string
+      recipient_phone:
+        type: string
+      service_point_id:
+        type: string
+    type: object
+  internal_checkout_delivery_http.StartPaymentRequest:
+    properties:
+      cancel_url:
+        type: string
+      customer_email:
+        type: string
+      customer_phone:
+        type: string
+      delivery:
+        $ref: '#/definitions/internal_checkout_delivery_http.DeliveryDetails'
+      delivery_option_code:
+        type: string
+      delivery_provider:
+        type: string
+      return_url:
+        type: string
+    type: object
+  internal_discount_delivery_http.ErrorResponse:
+    properties:
+      details: {}
+      error:
+        type: string
+      message:
+        type: string
+    type: object
+  internal_feedback_delivery_http.ErrorResponse:
+    properties:
+      error:
+        example: Bad Request
+        type: string
+      message:
+        example: MIME type is not allowed
+        type: string
+    type: object
+  internal_shipment_delivery_http.ErrorResponse:
+    properties:
+      error:
+        type: string
+      message:
+        type: string
+    type: object
+  internal_user_delivery_http.ErrorResponse:
+    properties:
+      error:
+        example: Unauthorized
+        type: string
+      message:
+        example: Детальний опис помилки
         type: string
     type: object
   internal_wishlist_delivery_http.ErrorResponse:
@@ -1921,68 +987,12 @@ definitions:
       message:
         type: string
     type: object
-  internal_wishlist_delivery_http.SyncWishlistRequest:
-    properties:
-      session_id:
-        description: тепер опціонально, можемо брати з куки
-        type: string
-    type: object
 info:
   contact: {}
   description: Backend API for AquaWheel e-commerce project.
   title: AquaWheel Store API
   version: "1.0"
 paths:
-  /api/{lang}/attributes:
-    get:
-      description: Get a list of all attributes
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_product_delivery_http.AttributeResponse'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get attributes
-      tags:
-      - Products
-  /api/{lang}/brands:
-    get:
-      description: Get a list of all active brands
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_product_delivery_http.BrandResponse'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get brands
-      tags:
-      - Products
   /api/{lang}/cart:
     get:
       consumes:
@@ -2001,7 +1011,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_cart_delivery_http.CartResponse'
+            $ref: '#/definitions/http.CartResponse'
         "400":
           description: Bad Request
           schema:
@@ -2032,7 +1042,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_cart_delivery_http.AddToCartRequest'
+          $ref: '#/definitions/http.AddToCartRequest'
       produces:
       - application/json
       responses:
@@ -2121,7 +1131,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_cart_delivery_http.UpdateCartItemRequest'
+          $ref: '#/definitions/http.UpdateCartItemRequest'
       produces:
       - application/json
       responses:
@@ -2194,14 +1204,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_cart_delivery_http.ApplyPromoRequest'
+          $ref: '#/definitions/http.ApplyPromoRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_cart_delivery_http.CartResponse'
+            $ref: '#/definitions/http.CartResponse'
         "400":
           description: Bad Request
           schema:
@@ -2231,7 +1241,7 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/internal_cart_delivery_http.SyncCartRequest'
+          $ref: '#/definitions/http.SyncCartRequest'
       produces:
       - application/json
       responses:
@@ -2258,632 +1268,6 @@ paths:
       summary: Sync anonymous cart to user
       tags:
       - Cart
-  /api/{lang}/categories:
-    get:
-      consumes:
-      - application/json
-      description: Get a flat list of all product categories in the requested language
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Show all categories, including empty ones
-        in: query
-        name: show_all
-        type: boolean
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_category_delivery_http.CategoryResponse'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-      summary: Get all categories
-      tags:
-      - Products
-  /api/{lang}/categories/by-slug/{slug}:
-    get:
-      consumes:
-      - application/json
-      description: Get a single category by slug for SEO purposes and 301 checks
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Category slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.CategoryResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-      summary: Get category by slug
-      tags:
-      - Categories
-  /api/{lang}/documents/by-slug/{slug}:
-    get:
-      description: Get a document's localized active content by its slug
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Document slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_document_delivery_http.PublicDocumentResponse'
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get document by slug
-      tags:
-      - Documents
-  /api/{lang}/orders:
-    post:
-      consumes:
-      - application/json
-      description: Creates an order from the current cart. Supports both authenticated
-        users and guests.
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Order details
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_order_delivery_http.CreateOrderRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.CreateOrderResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Create a new order
-      tags:
-      - Orders
-  /api/{lang}/orders/{id}:
-    get:
-      description: Returns order details by UUID
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Order UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.OrderResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Get order by ID
-      tags:
-      - Orders
-  /api/{lang}/orders/{id}/cancel:
-    post:
-      description: Cancels an order. Only allowed for the owner of the order before
-        TTN is created.
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Order UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Cancel my order
-      tags:
-      - Orders
-  /api/{lang}/orders/{id}/payment-status:
-    get:
-      description: Lightweight endpoint to poll payment status by order ID. Returns
-        status as "pending", "paid", or "failed".
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Order UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.OrderPaymentStatusResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      summary: Get payment status
-      tags:
-      - Orders
-  /api/{lang}/orders/my:
-    get:
-      description: Returns list of orders for the authenticated user
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Items per page
-        in: query
-        name: per_page
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Get my orders
-      tags:
-      - Orders
-  /api/{lang}/products:
-    get:
-      consumes:
-      - application/json
-      description: 'Get a paginated list of products with filters. Dynamic attributes:
-        use attrs[code]=value1&attrs[code]=value2'
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Items per page
-        in: query
-        name: limit
-        type: integer
-      - description: Sort by (price, name, rating, created_at)
-        in: query
-        name: sort_by
-        type: string
-      - description: Order (desc, asc)
-        in: query
-        name: order
-        type: string
-      - description: Filter by Category UUID
-        in: query
-        name: category_id
-        type: string
-      - collectionFormat: csv
-        description: Filter by Brand UUIDs
-        in: query
-        items:
-          type: string
-        name: brand_id
-        type: array
-      - description: Minimum price
-        in: query
-        name: min_price
-        type: integer
-      - description: Maximum price
-        in: query
-        name: max_price
-        type: integer
-      - collectionFormat: csv
-        description: Quantity values (e.g. 36.00)
-        in: query
-        items:
-          type: string
-        name: quantity_values
-        type: array
-      - description: Пошуковий запит (по назві або SKU)
-        in: query
-        name: q
-        type: string
-      - collectionFormat: csv
-        description: 'Динамічний фільтр характеристик. Замініть ''code'' на код атрибута,
-          напр.: attrs[color]=red'
-        in: query
-        items:
-          type: string
-        name: attrs[code]
-        type: array
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/gitlab_com_aquawheel-store_internal_shared_pagination.PagedResponse'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/internal_product_delivery_http.ProductBriefResponse'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get products
-      tags:
-      - Products
-  /api/{lang}/products/{id}:
-    get:
-      consumes:
-      - application/json
-      description: Get complete product details including variations and images
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Product UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ProductResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get product by UUID
-      tags:
-      - Products
-  /api/{lang}/products/by-slug/{slug}:
-    get:
-      consumes:
-      - application/json
-      description: Get complete product details by SEO-friendly slug
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Product slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ProductResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get product by slug
-      tags:
-      - Products
-  /api/{lang}/products/filters:
-    get:
-      consumes:
-      - application/json
-      description: Get dynamic filters (price, brands, attributes) available for products
-        with counts
-      parameters:
-      - description: Language code
-        in: path
-        name: lang
-        required: true
-        type: string
-      - collectionFormat: csv
-        description: Filter by Category UUIDs
-        in: query
-        items:
-          type: string
-        name: category_id
-        type: array
-      - collectionFormat: csv
-        description: Filter by Brand UUIDs
-        in: query
-        items:
-          type: string
-        name: brand_id
-        type: array
-      - description: Minimum price
-        in: query
-        name: min_price
-        type: integer
-      - description: Maximum price
-        in: query
-        name: max_price
-        type: integer
-      - collectionFormat: csv
-        description: Quantity values
-        in: query
-        items:
-          type: string
-        name: quantity_values
-        type: array
-      - collectionFormat: csv
-        description: 'Динамічний фільтр характеристик. Замініть ''code'' на код атрибута,
-          напр.: attrs[color]=red'
-        in: query
-        items:
-          type: string
-        name: attrs[code]
-        type: array
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.FilterDiscoveryResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get available filters
-      tags:
-      - Products
-  /api/{lang}/products/recommended:
-    get:
-      consumes:
-      - application/json
-      description: Get a randomized list of up to 8 recommended products
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_product_delivery_http.ProductBriefResponse'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get recommended products
-      tags:
-      - Products
-  /api/{lang}/products/search/quick:
-    get:
-      consumes:
-      - application/json
-      description: Fast autocomplete search returning basic product info (requires
-        min 3 chars)
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Search query (min 3 chars)
-        in: query
-        name: q
-        required: true
-        type: string
-      - description: Max results count (default 5)
-        in: query
-        name: limit
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_product_delivery_http.QuickSearchResponse'
-            type: array
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Quick search products
-      tags:
-      - Products
-  /api/{lang}/units:
-    get:
-      consumes:
-      - application/json
-      description: Get all units of measure (capacity/weight) localized — for the
-        admin product form (місткість).
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_product_delivery_http.UnitResponse'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get units of measure
-      tags:
-      - Products
   /api/{lang}/wishlist:
     get:
       consumes:
@@ -3017,7 +1401,7 @@ paths:
         in: body
         name: body
         schema:
-          $ref: '#/definitions/internal_wishlist_delivery_http.SyncWishlistRequest'
+          $ref: '#/definitions/http.SyncWishlistRequest'
       produces:
       - application/json
       responses:
@@ -3044,179 +1428,6 @@ paths:
       summary: Sync anonymous wishlist to user
       tags:
       - Wishlist
-  /api/admin/attributes:
-    post:
-      consumes:
-      - application/json
-      description: Create a new product attribute (Admin only)
-      parameters:
-      - description: Attribute body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.CreateAttributeRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.AttributeResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Create attribute
-      tags:
-      - Admin Attributes
-  /api/admin/attributes/{id}:
-    delete:
-      description: Delete an attribute (Admin only)
-      parameters:
-      - description: Attribute ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Delete attribute
-      tags:
-      - Admin Attributes
-    patch:
-      consumes:
-      - application/json
-      description: Update an existing attribute (Admin only)
-      parameters:
-      - description: Attribute ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: Attribute body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.UpdateAttributeRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.AttributeResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Update attribute
-      tags:
-      - Admin Attributes
-  /api/admin/attributes/reorder:
-    patch:
-      consumes:
-      - application/json
-      description: Update sort_order for multiple attributes at once (Admin only).
-        The order of IDs in the array defines the new sequence (0, 1, 2...).
-      parameters:
-      - description: 'IDs in desired order. Example: {''ids'': [10, 5, 8]}'
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.ReorderAttributesRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Reorder attributes
-      tags:
-      - Admin Attributes
-  /api/admin/attributes/values:
-    get:
-      description: Get all distinct values used for an attribute by its code (e.g.
-        "type"), regardless of product active status. Powers admin product-form suggestions
-        (Admin only).
-      parameters:
-      - description: Attribute code (e.g. type)
-        in: query
-        name: code
-        required: true
-        type: string
-      - description: 'Language code (uk, en). Default: uk'
-        in: query
-        name: lang
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_product_delivery_http.AttrValueOptionResponse'
-            type: array
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Get distinct attribute values
-      tags:
-      - Admin Attributes
   /api/admin/auth/login:
     post:
       consumes:
@@ -3228,14 +1439,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.LoginRequest'
+          $ref: '#/definitions/http.LoginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Успішний вхід
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.AuthResponse'
+            $ref: '#/definitions/http.AuthResponse'
         "400":
           description: Невалідний запит
           schema:
@@ -3267,14 +1478,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.RefreshRequest'
+          $ref: '#/definitions/http.RefreshRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Нові токени успішно згенеровані
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.AuthResponse'
+            $ref: '#/definitions/http.AuthResponse'
         "400":
           description: Токен обов'язковий
           schema:
@@ -3294,595 +1505,6 @@ paths:
       summary: Оновлення токенів для адміністраторів
       tags:
       - Admin Auth
-  /api/admin/badges:
-    get:
-      description: Get a list of all available badges
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/internal_product_delivery_http.AdminBadgeResponse'
-            type: array
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get badges
-      tags:
-      - Badges
-    post:
-      consumes:
-      - application/json
-      description: Create a new badge (Admin only)
-      parameters:
-      - description: Badge body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.CreateBadgeRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.AdminBadgeResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Create badge
-      tags:
-      - Admin Badges
-  /api/admin/badges/{id}:
-    delete:
-      description: Delete a badge (Admin only). Fails if badge is assigned to products
-        or variations.
-      parameters:
-      - description: Badge ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Delete badge
-      tags:
-      - Admin Badges
-    patch:
-      consumes:
-      - application/json
-      description: Update an existing badge (Admin only)
-      parameters:
-      - description: Badge ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: Badge body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.UpdateBadgeRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.AdminBadgeResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Update badge
-      tags:
-      - Admin Badges
-  /api/admin/brands:
-    post:
-      consumes:
-      - application/json
-      description: Create a new brand (Admin only)
-      parameters:
-      - description: Brand body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.CreateBrandRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.BrandResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Create brand
-      tags:
-      - Admin Brands
-  /api/admin/brands/{id}:
-    delete:
-      description: Delete a brand (Admin only)
-      parameters:
-      - description: Brand UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Delete brand
-      tags:
-      - Admin Brands
-    patch:
-      consumes:
-      - application/json
-      description: Update an existing brand (Admin only)
-      parameters:
-      - description: Brand UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Brand body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.UpdateBrandRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.BrandResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Update brand
-      tags:
-      - Admin Brands
-  /api/admin/categories:
-    post:
-      consumes:
-      - application/json
-      description: Create a new product category (Admin only)
-      parameters:
-      - description: Category body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_category_delivery_http.CreateCategoryRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.CategoryResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Create category
-      tags:
-      - Admin Categories
-  /api/admin/categories/{id}:
-    delete:
-      description: Delete a category (Admin only)
-      parameters:
-      - description: Category UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Delete category
-      tags:
-      - Admin Categories
-    patch:
-      consumes:
-      - application/json
-      description: Update an existing category (Admin only)
-      parameters:
-      - description: Category UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Category body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_category_delivery_http.UpdateCategoryRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.CategoryResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Update category
-      tags:
-      - Admin Categories
-  /api/admin/categories/reorder:
-    patch:
-      consumes:
-      - application/json
-      description: Update sort_order for multiple categories at once (Admin only).
-        The order of IDs in the array defines the new sequence (0, 1, 2...).
-      parameters:
-      - description: 'IDs in desired order. Example: {''ids'': [''uuid1'', ''uuid2'']}'
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_category_delivery_http.ReorderCategoriesRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_category_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Reorder categories
-      tags:
-      - Admin Categories
-  /api/admin/documents:
-    get:
-      description: Get a list of documents and their active version info
-      parameters:
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Items per page
-        in: query
-        name: limit
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/gitlab_com_aquawheel-store_internal_shared_pagination.PagedResponse'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/internal_document_delivery_http.DocumentListResponse'
-                  type: array
-              type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: List all documents (Admin)
-      tags:
-      - Admin Documents
-    post:
-      consumes:
-      - application/json
-      description: Create a new document with an initial version
-      parameters:
-      - description: Document body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_document_delivery_http.CreateDocumentRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Create a document (Admin)
-      tags:
-      - Admin Documents
-  /api/admin/documents/{id}:
-    delete:
-      description: Soft delete a document
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Delete document (Admin)
-      tags:
-      - Admin Documents
-    get:
-      description: Get full document details including version history
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_document_delivery_http.AdminDocumentDetailResponse'
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Get document details (Admin)
-      tags:
-      - Admin Documents
-  /api/admin/documents/{id}/active-version:
-    post:
-      consumes:
-      - application/json
-      description: Rollback/activate a specific document version
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Active version body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_document_delivery_http.SetActiveVersionRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Set active version (Admin)
-      tags:
-      - Admin Documents
-  /api/admin/documents/{id}/versions:
-    post:
-      consumes:
-      - application/json
-      description: Add a new version to an existing document and make it active
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Version body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_document_delivery_http.SaveVersionRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Save a new document version (Admin)
-      tags:
-      - Admin Documents
   /api/admin/feedbacks:
     get:
       description: Returns a paginated list of feedbacks (Admin only)
@@ -3920,328 +1542,6 @@ paths:
       summary: Get list of feedbacks
       tags:
       - Admin Feedback
-  /api/admin/media/upload:
-    post:
-      consumes:
-      - multipart/form-data
-      description: Uploads a general media file (e.g., category icon) to Cloudinary
-        and returns the public URL.
-      parameters:
-      - description: 'Folder name in Cloudinary (default: ''general'')'
-        in: query
-        name: folder
-        type: string
-      - description: File to upload
-        in: formData
-        name: file
-        required: true
-        type: file
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: url of uploaded file
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Upload media file
-      tags:
-      - Admin Products
-  /api/admin/products:
-    post:
-      consumes:
-      - multipart/form-data
-      description: Create a new product with translations, variations and attributes.
-        Uses multipart form where 'payload' contains JSON data.
-      parameters:
-      - description: CreateProductRequest JSON (includes images_meta mapping)
-        in: formData
-        name: payload
-        required: true
-        type: string
-      - description: Image files
-        in: formData
-        name: images
-        type: file
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "202":
-          description: Schema reference for payload
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.CreateProductRequest'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Create product
-      tags:
-      - Admin Products
-  /api/admin/products/{id}:
-    delete:
-      consumes:
-      - application/json
-      description: Soft delete product and its related variations.
-      parameters:
-      - description: Product ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Delete product
-      tags:
-      - Admin Products
-    patch:
-      consumes:
-      - multipart/form-data
-      description: Update existing product fields, translations, variations, and images.
-        Uses multipart form.
-      parameters:
-      - description: Product ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: UpdateProductRequest JSON (includes images_meta mapping)
-        in: formData
-        name: payload
-        required: true
-        type: string
-      - description: New image files
-        in: formData
-        name: images
-        type: file
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "202":
-          description: Schema reference for payload
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.UpdateProductRequest'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Update product
-      tags:
-      - Admin Products
-  /api/admin/products/{id}/images:
-    post:
-      consumes:
-      - multipart/form-data
-      description: Upload new images to a product without sending the full product
-        payload (Admin only)
-      parameters:
-      - description: Product UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: JSON array of ImageMeta to map file keys to metadata
-        in: formData
-        name: payload
-        type: string
-      - description: Image files (keys should match those in images_meta)
-        in: formData
-        name: images
-        required: true
-        type: file
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            items:
-              $ref: '#/definitions/internal_product_delivery_http.ProductImageResponse'
-            type: array
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Upload product images
-      tags:
-      - Admin Product Images
-  /api/admin/products/{id}/images/{img_id}:
-    delete:
-      description: Delete a specific image from a product (Admin only)
-      parameters:
-      - description: Product UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Image UUID
-        in: path
-        name: img_id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Delete product image
-      tags:
-      - Admin Product Images
-    patch:
-      consumes:
-      - application/json
-      description: Update image role (primary/hover), sort order, or variation assignment
-        (Admin only)
-      parameters:
-      - description: Product UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Image UUID
-        in: path
-        name: img_id
-        required: true
-        type: string
-      - description: Image update body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.UpdateImageRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Update product image
-      tags:
-      - Admin Product Images
-  /api/admin/products/{id}/images/reorder:
-    patch:
-      consumes:
-      - application/json
-      description: Update sort_order for multiple images at once (Admin only)
-      parameters:
-      - description: Product UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Image IDs in desired order
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.ReorderImagesRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Reorder product images
-      tags:
-      - Admin Product Images
   /api/admin/promos:
     get:
       description: Get a paginated list of promo codes
@@ -4285,14 +1585,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_discount_delivery_http.CreatePromoRequest'
+          $ref: '#/definitions/http.CreatePromoRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/internal_discount_delivery_http.PromoResponse'
+            $ref: '#/definitions/http.PromoResponse'
         "400":
           description: Bad Request
           schema:
@@ -4355,7 +1655,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_discount_delivery_http.PromoResponse'
+            $ref: '#/definitions/http.PromoResponse'
         "404":
           description: Not Found
           schema:
@@ -4384,14 +1684,14 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_discount_delivery_http.UpdatePromoRequest'
+          $ref: '#/definitions/http.UpdatePromoRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_discount_delivery_http.PromoResponse'
+            $ref: '#/definitions/http.PromoResponse'
         "400":
           description: Bad Request
           schema:
@@ -4409,97 +1709,6 @@ paths:
       summary: Update promo code
       tags:
       - Admin Promo
-  /api/admin/reviews/{id}/approve:
-    patch:
-      consumes:
-      - application/json
-      description: Approve a review and recalculate product rating (Admin only)
-      parameters:
-      - description: Review UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Approve product review
-      tags:
-      - Admin
-  /api/admin/reviews/pending:
-    get:
-      consumes:
-      - application/json
-      description: Get a paginated list of reviews that are pending approval (Admin
-        only)
-      parameters:
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Items per page
-        in: query
-        name: limit
-        type: integer
-      - description: Order by created date (desc, asc)
-        in: query
-        name: order
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/gitlab_com_aquawheel-store_internal_shared_pagination.PagedResponse'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/internal_product_delivery_http.ProductReviewResponse'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Get pending product reviews
-      tags:
-      - Admin
   /api/admin/shipment/rules:
     post:
       consumes:
@@ -4512,7 +1721,7 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/internal_shipment_delivery_http.UpdateShippingRuleRequest'
+          $ref: '#/definitions/http.UpdateShippingRuleRequest'
       produces:
       - application/json
       responses:
@@ -4536,6 +1745,57 @@ paths:
       tags:
       - Admin
       - Shipment
+  /api/admin/users:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/http.UserResponse'
+            type: array
+      security:
+      - bearerAuth: []
+      summary: Список адміністраторів
+      tags:
+      - Admin Users
+    post:
+      consumes:
+      - application/json
+      description: Створює активний акаунт з початковим паролем без email-запрошення.
+      parameters:
+      - description: Дані адміністратора
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/http.CreateAdminRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/http.UserResponse'
+      security:
+      - bearerAuth: []
+      summary: Створити адміністратора або Власника
+      tags:
+      - Admin Users
+  /api/admin/users/{id}:
+    delete:
+      description: Доступно лише Власнику. Видаляє звичайного адміністратора та завершує
+        його сесії.
+      responses:
+        "204":
+          description: No Content
+      security:
+      - bearerAuth: []
+      summary: Видалити адміністратора
+      tags:
+      - Admin Users
   /api/auth/forgot-password:
     post:
       consumes:
@@ -4548,14 +1808,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.ForgotPasswordRequest'
+          $ref: '#/definitions/http.ForgotPasswordRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Лист із кодом успішно відправлено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.MessageResponse'
+            $ref: '#/definitions/http.MessageResponse'
         "400":
           description: Невалідний email
           schema:
@@ -4583,14 +1843,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.GoogleLoginRequest'
+          $ref: '#/definitions/http.GoogleLoginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Успішний вхід
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.AuthResponse'
+            $ref: '#/definitions/http.AuthResponse'
         "400":
           description: Невалідний запит
           schema:
@@ -4621,14 +1881,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.LoginRequest'
+          $ref: '#/definitions/http.LoginRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Успішний вхід
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.AuthResponse'
+            $ref: '#/definitions/http.AuthResponse'
         "400":
           description: Невалідний запит
           schema:
@@ -4659,14 +1919,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.RefreshRequest'
+          $ref: '#/definitions/http.RefreshRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Успішний вихід
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.MessageResponse'
+            $ref: '#/definitions/http.MessageResponse'
         "400":
           description: Токен обов'язковий
           schema:
@@ -4693,14 +1953,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.RefreshRequest'
+          $ref: '#/definitions/http.RefreshRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Нові токени успішно згенеровані
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.AuthResponse'
+            $ref: '#/definitions/http.AuthResponse'
         "400":
           description: Токен обов'язковий
           schema:
@@ -4731,14 +1991,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.RegisterRequest'
+          $ref: '#/definitions/http.RegisterRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Успішна реєстрація
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.RegisterResponse'
+            $ref: '#/definitions/http.RegisterResponse'
         "400":
           description: Невалідні дані (validation error)
           schema:
@@ -4765,14 +2025,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.ForgotPasswordRequest'
+          $ref: '#/definitions/http.ForgotPasswordRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Код успішно відправлено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.MessageResponse'
+            $ref: '#/definitions/http.MessageResponse'
         "400":
           description: Невалідний запит
           schema:
@@ -4803,14 +2063,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.ResetPasswordRequest'
+          $ref: '#/definitions/http.ResetPasswordRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Пароль успішно змінено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.MessageResponse'
+            $ref: '#/definitions/http.MessageResponse'
         "400":
           description: Невалідний код або пароль
           schema:
@@ -4834,14 +2094,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.SetupPasswordRequest'
+          $ref: '#/definitions/http.SetupPasswordRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Пароль успішно задано, вхід виконано
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.AuthResponse'
+            $ref: '#/definitions/http.AuthResponse'
         "400":
           description: Невалідний запит
           schema:
@@ -4865,14 +2125,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.VerifyEmailRequest'
+          $ref: '#/definitions/http.VerifyEmailRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Email успішно підтверджено, вхід виконано
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.AuthResponse'
+            $ref: '#/definitions/http.AuthResponse'
         "400":
           description: Невалідний запит або код
           schema:
@@ -4900,14 +2160,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.ConfirmPhoneRequest'
+          $ref: '#/definitions/http.ConfirmPhoneRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Телефон успішно підтверджено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.MessageResponse'
+            $ref: '#/definitions/http.MessageResponse'
       summary: Підтвердження телефону
       tags:
       - Auth
@@ -4922,14 +2182,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.VerifyPhoneRequest'
+          $ref: '#/definitions/http.VerifyPhoneRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Код згенеровано
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.VerifyPhoneResponse'
+            $ref: '#/definitions/http.VerifyPhoneResponse'
       summary: Запит на верифікацію телефону (SMS)
       tags:
       - Auth
@@ -4965,7 +2225,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/internal_feedback_delivery_http.CreateFeedbackResponse'
+            $ref: '#/definitions/http.CreateFeedbackResponse'
         "400":
           description: Bad Request
           schema:
@@ -4977,100 +2237,6 @@ paths:
       summary: Submit feedback
       tags:
       - Feedback
-  /api/products/{id}/reviews:
-    get:
-      consumes:
-      - application/json
-      description: Get a paginated list of approved reviews for a product
-      parameters:
-      - description: Product UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Items per page
-        in: query
-        name: limit
-        type: integer
-      - description: Order by created date (desc, asc)
-        in: query
-        name: order
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/gitlab_com_aquawheel-store_internal_shared_pagination.PagedResponse'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/internal_product_delivery_http.ProductReviewResponse'
-                  type: array
-              type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      summary: Get product reviews
-      tags:
-      - Products
-    post:
-      consumes:
-      - application/json
-      description: Submit a review for moderation
-      parameters:
-      - description: Product UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Review body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/internal_product_delivery_http.CreateReviewRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_product_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Create product review
-      tags:
-      - Products
   /api/shipment/{provider}/areas:
     get:
       description: Повертає список усіх областей України від вказаного провайдера
@@ -5088,7 +2254,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/internal_shipment_delivery_http.AreaResponse'
+              $ref: '#/definitions/http.AreaResponse'
             type: array
         "400":
           description: Bad Request
@@ -5122,7 +2288,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/internal_shipment_delivery_http.CityResponse'
+              $ref: '#/definitions/http.CityResponse'
             type: array
         "400":
           description: Bad Request
@@ -5161,7 +2327,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/internal_shipment_delivery_http.WarehouseResponse'
+              $ref: '#/definitions/http.WarehouseResponse'
             type: array
         "400":
           description: Bad Request
@@ -5184,7 +2350,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_shipment_delivery_http.ShippingConfigResponse'
+            $ref: '#/definitions/http.ShippingConfigResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -5202,7 +2368,7 @@ paths:
         "200":
           description: Акаунт успішно видалено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.MessageResponse'
+            $ref: '#/definitions/http.MessageResponse'
         "401":
           description: Неавторизовано
           schema:
@@ -5228,7 +2394,7 @@ paths:
         "200":
           description: Профіль користувача
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.UserResponse'
+            $ref: '#/definitions/http.UserResponse'
         "401":
           description: Неавторизовано
           schema:
@@ -5257,14 +2423,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.UpdateUserRequest'
+          $ref: '#/definitions/http.UpdateUserRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Профіль успішно оновлено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.UserResponse'
+            $ref: '#/definitions/http.UserResponse'
         "400":
           description: Невалідні дані запиту
           schema:
@@ -5296,7 +2462,7 @@ paths:
           description: Список адрес
           schema:
             items:
-              $ref: '#/definitions/internal_user_delivery_http.UserAddressResponse'
+              $ref: '#/definitions/http.UserAddressResponse'
             type: array
         "401":
           description: Неавторизовано
@@ -5325,14 +2491,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.CreateAddressRequest'
+          $ref: '#/definitions/http.CreateAddressRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Адресу успішно додано
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.UserAddressResponse'
+            $ref: '#/definitions/http.UserAddressResponse'
         "400":
           description: Невалідні дані запиту
           schema:
@@ -5369,7 +2535,7 @@ paths:
         "200":
           description: Адресу видалено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.MessageResponse'
+            $ref: '#/definitions/http.MessageResponse'
         "400":
           description: Невалідний ID адреси
           schema:
@@ -5407,14 +2573,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.UpdateAddressRequest'
+          $ref: '#/definitions/http.UpdateAddressRequest'
       produces:
       - application/json
       responses:
         "200":
           description: Адресу успішно оновлено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.UserAddressResponse'
+            $ref: '#/definitions/http.UserAddressResponse'
         "400":
           description: Невалідні дані запиту або ID
           schema:
@@ -5448,14 +2614,14 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_user_delivery_http.SaveCheckoutAddressRequest'
+          $ref: '#/definitions/http.SaveCheckoutAddressRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Адресу успішно збережено
           schema:
-            $ref: '#/definitions/internal_user_delivery_http.UserAddressResponse'
+            $ref: '#/definitions/http.UserAddressResponse'
         "400":
           description: Невалідні дані запиту
           schema:
@@ -5473,6 +2639,422 @@ paths:
       summary: Зберегти адресу при оформленні замовлення
       tags:
       - Addresses
+  /api/v1/admin/catalog/categories:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Category
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Category'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create or update a catalog category (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/catalog/categories/{id}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Category ID
+        in: path
+        name: id
+        type: string
+      - description: Category
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Category'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create or update a catalog category (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/catalog/products:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Product
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Product'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create or update a catalog product (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/catalog/products/{id}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        type: string
+      - description: Product
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Product'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create or update a catalog product (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/orders/{id}/cancel:
+    post:
+      parameters:
+      - description: Order ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Cancel a pending order (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/promos:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Promotion
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_admin_delivery_http.createPromoRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create a promotion (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/catalog/{lang}/products:
+    get:
+      parameters:
+      - description: Locale
+        in: path
+        name: lang
+        required: true
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        maximum: 1000
+        minimum: 1
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PaginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: List catalog products (v1)
+      tags:
+      - Catalog v1
+  /api/v1/catalog/{lang}/products/by-slug/{slug}:
+    get:
+      parameters:
+      - description: Locale
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Localized product slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Get a catalog product by slug (v1)
+      tags:
+      - Catalog v1
+  /api/v1/checkout/{lang}/delivery-options:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Locale
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Checkout delivery request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_checkout_delivery_http.StartPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Quote delivery options (v1)
+      tags:
+      - Checkout v1
+  /api/v1/checkout/{lang}/payment:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Locale
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Stable high-entropy checkout key
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: Checkout payment request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_checkout_delivery_http.StartPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Start an idempotent checkout payment (v1)
+      tags:
+      - Checkout v1
+  /api/v1/orders:
+    get:
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        maximum: 1000
+        minimum: 1
+        name: page
+        type: integer
+      - default: 20
+        description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.PaginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: List current customer's orders (v1)
+      tags:
+      - Orders v1
   /api/webhooks/liqpay:
     post:
       consumes:
@@ -5526,7 +3108,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_payment_delivery_http.MockPaymentRequest'
+          $ref: '#/definitions/http.MockPaymentRequest'
       produces:
       - application/json
       responses:
@@ -5551,129 +3133,6 @@ paths:
       summary: Mock payment (Development only)
       tags:
       - Webhooks
-  /manager/orders/{orderNumber}:
-    get:
-      consumes:
-      - application/json
-      description: Get order details for manager using a token
-      parameters:
-      - description: Order Number
-        in: path
-        name: orderNumber
-        required: true
-        type: integer
-      - description: Manager Token
-        in: query
-        name: token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ManagerOrderResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      summary: Get manager order
-      tags:
-      - Manager
-  /manager/orders/{orderNumber}/cancel:
-    post:
-      consumes:
-      - application/json
-      description: Cancel an order using manager token
-      parameters:
-      - description: Order Number
-        in: path
-        name: orderNumber
-        required: true
-        type: integer
-      - description: Manager Token
-        in: query
-        name: token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      summary: Cancel manager order
-      tags:
-      - Manager
-  /manager/orders/{orderNumber}/ttn:
-    post:
-      consumes:
-      - application/json
-      description: Create a transport document (TTN) for the order using manager token
-      parameters:
-      - description: Order Number
-        in: path
-        name: orderNumber
-        required: true
-        type: integer
-      - description: Manager Token
-        in: query
-        name: token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.TTNCreatedResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      summary: Create TTN for order
-      tags:
-      - Manager
 securityDefinitions:
   bearerAuth:
     description: 'Введіть токен у форматі: Bearer {your_token}'

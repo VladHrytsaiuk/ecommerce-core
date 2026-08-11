@@ -67,7 +67,10 @@
   ```
 - **Генерація:** Щоразу, коли ви додаєте новий хендлер, змінюєте DTO або міняєте маршрутизацію (файл `router.go`), необхідно оновити Swagger маніфести. З кореня проєкту виконайте:
   ```bash
-  swag init -g cmd/api/main.go --parseDependency --parseInternal
+  swag init -g cmd/api/main.go --parseDependency --parseInternal \
+    --exclude internal/document,internal/order --output docs/api
   ```
-- **Результат:** Оновляться файли: `docs/swagger.json`, `docs/swagger.yaml` та `docs/docs.go`. 
+- **Результат:** Оновляться файли: `docs/api/swagger.json`,
+  `docs/api/swagger.yaml` та `docs/api/docs.go`. Legacy-пакети виключені з
+  генерації, бо вони не входять до активного production API.
   У браузері документація доступна за допомогою `gin-swagger` за адресою: `http://localhost:8080/swagger/index.html`.

@@ -12,6 +12,7 @@ import (
 	comparisonHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	identityHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/delivery/http"
+	ordersHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	wishlistHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/delivery/http"
@@ -23,7 +24,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	if err := r.SetTrustedProxies(application.Config.TrustedProxies); err != nil {
 		logger.Log.Warnw("failed to set trusted proxies", "error", err)
 	}
-	r.Use(application.HTTP.Recovery, application.HTTP.Timeout, application.HTTP.RequestLogging, application.HTTP.CORS)
+	r.Use(application.HTTP.Recovery, application.HTTP.Observability, application.HTTP.Timeout, application.HTTP.RequestLogging, application.HTTP.CORS)
 	r.GET("/swagger/*any", application.HTTP.Swagger)
 
 	api := r.Group("/api")
@@ -48,6 +49,20 @@ func InitRouter(application *app.Application) *gin.Engine {
 	if application.PaymentGateways != nil && application.PaymentGateways.Default() != nil {
 		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
 	}
+	v1 := api.Group("/v1")
+	v1.Use(application.HTTP.SecurityHeaders, application.HTTP.ErrorRenderer.Middleware(), application.HTTP.RequestBodyLimit, application.HTTP.APIRateLimit)
+	v1Catalog := v1.Group("/catalog/:lang")
+	v1Catalog.Use(application.HTTP.LocaleMiddleware)
+	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer)
+	v1Checkout := v1.Group("/checkout/:lang")
+	v1Checkout.Use(application.HTTP.LocaleMiddleware, application.HTTP.OptionalAuth, sensitiveLimit)
+	checkoutHTTP.RegisterV1Routes(v1Checkout, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID, application.Config.CookieSecure, application.HTTP.ErrorRenderer)
+	v1Admin := v1.Group("/admin")
+	v1Admin.Use(middleware.AuthMiddleware(application.TokenMaker))
+	adminHTTP.RegisterV1Routes(v1Admin, application.AdminAuthorizer, application.PromosAdminFacade, application.CatalogAdminFacade, application.OrdersAdminFacade, application.HTTP.ErrorRenderer)
+	v1Orders := v1.Group("/orders")
+	v1Orders.Use(middleware.AuthMiddleware(application.TokenMaker))
+	ordersHTTP.RegisterV1Routes(v1Orders, application.OrderService, application.HTTP.ErrorRenderer)
 	admin := api.Group("/admin")
 	admin.Use(middleware.AuthMiddleware(application.TokenMaker))
 	// Reviews, SEO, Badges and Variant mutations are intentionally not exposed

@@ -91,9 +91,18 @@ type Order struct {
 	CreatedAt        time.Time
 	ExpiresAt        time.Time
 }
+
+// Page is a customer-scoped, immutable order summary page. It deliberately
+// excludes item and delivery PII from the storefront list endpoint.
+type Page struct {
+	Orders []Order
+	Total  int64
+}
 type Repository interface {
 	Create(context.Context, *Order) error
+	ListByCustomer(context.Context, uuid.UUID, int, int) (Page, error)
 }
 type Service interface {
 	Create(context.Context, Draft) (*Order, error)
+	ListByCustomer(context.Context, uuid.UUID, int, int) (Page, error)
 }

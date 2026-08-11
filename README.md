@@ -87,6 +87,25 @@ For a locally managed PostgreSQL instance, the equivalent is
 Then obtain a JWT through `POST /api/auth/login` and use it as
 `Authorization: Bearer <access_token>` for `/api/admin/...` routes.
 
+### API v1 contract
+
+The additive `/api/v1` surface is the stable client-integration contract. It
+includes localized Catalog and Checkout routes, authenticated customer Orders,
+and permission-protected Admin Facades. Catalog lists paginate in PostgreSQL;
+they never materialize a full catalog in the API process. Successful responses
+always contain `data` and `request_id`; collection responses additionally
+contain `meta` with `page`, `limit`, `total`, `total_pages`, `has_next`, and
+`has_previous`. Errors use `application/problem+json` with a stable `code`,
+such as `INVALID_PAYLOAD` or `RESOURCE_NOT_FOUND`. Legacy `/api/*` routes
+remain unchanged while clients migrate. The generated OpenAPI contract is
+served at `/swagger/index.html` and stored in `docs/api/swagger.yaml`.
+All v1 request bodies are capped at 1 MiB (`PAYLOAD_TOO_LARGE` on overflow),
+and v1 public traffic uses the Redis-backed distributed limiter when Redis is
+enabled; its in-memory implementation is only the explicit local fallback.
+
+The PostgreSQL client uses a bounded production pool (25 open / 10 idle
+connections, 30-minute maximum lifetime and 5-minute maximum idle time).
+
 ### Customer identity and optional profiles
 
 Password registration and login are always available at `POST /api/auth/register`
@@ -196,6 +215,36 @@ per minute per client IP. It never carries payment, inventory, or Outbox truth.
 With `REDIS_ENABLED=false`, Catalog caching is a no-op and login protection uses
 a safe per-process fallback for local development; production replicas should
 enable Redis for a shared policy.
+
+### Operations endpoint and telemetry
+
+The public API remains on `PORT`. Operational endpoints are isolated on
+`MANAGEMENT_ADDR` (default `127.0.0.1:9090`): `/livez` reports process liveness,
+`/readyz` verifies PostgreSQL and optional Redis, and `/metrics` exposes
+Prometheus metrics. Bind this listener to a private network or orchestration
+sidecar only; it is not part of the public API surface.
+
+Every HTTP request creates an OpenTelemetry span, preserves or generates an
+`X-Request-ID`, and records bounded-cardinality RED metrics. To export traces,
+set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT` to an OTLP/HTTP
+collector address such as `otel-collector:4318`. Structured logs emitted with
+`logger.WithContext(ctx)` automatically include `request_id`, `trace_id`, and
+`span_id`.
+
+### Local observability stack
+
+The default Compose deployment keeps the management listener internal. Start
+Prometheus, Grafana, and Tempo with:
+
+```bash
+OTEL_ENABLED=true docker compose --profile observability up --build
+```
+
+Prometheus is available at `http://127.0.0.1:9091`, Grafana at
+`http://127.0.0.1:3001`, and Tempo at `http://127.0.0.1:3200`. Grafana
+automatically provisions Prometheus and Tempo datasources. Set
+`GRAFANA_ADMIN_PASSWORD` in `.env` before starting the profile; the Compose
+fallback is intentionally local-development-only.
 
 ### Admin RBAC and audit trail
 

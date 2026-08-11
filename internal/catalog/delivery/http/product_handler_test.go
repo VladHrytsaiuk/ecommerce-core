@@ -53,3 +53,6 @@ func (s *fakeProductService) FindBySlug(_ context.Context, _, _ string) (*domain
 func (s *fakeProductService) List(_ context.Context, _ string) ([]domain.Product, error) {
 	return nil, nil
 }
+func (s *fakeProductService) ListProducts(_ context.Context, _ string, _, _ int) ([]domain.Product, int64, error) {
+	return nil, 0, nil
+}

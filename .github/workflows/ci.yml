@@ -1,25 +1,61 @@
 name: CI
 
 on:
-  push:
   pull_request:
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
 
 jobs:
-  clean-core:
+  lint:
+    name: golangci-lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.1.6
+          args: --timeout=5m
+      - name: Verify generated OpenAPI contract
+        run: |
+          go run github.com/swaggo/swag/cmd/swag@v1.16.6 init \
+            -g cmd/api/main.go --parseDependency --parseInternal \
+            --exclude internal/document,internal/order --output docs/api
+          git diff --exit-code -- docs/api
       - name: Verify active clean architecture
         run: bash scripts/check-clean-architecture.sh
-      - name: Test default repository build
-        run: go test ./...
-      - name: Build API
-        run: go build ./cmd/api
+
+  test:
+    name: race tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify Docker daemon for Testcontainers
+        run: docker info
+      - name: Run tests with the race detector
+        run: go test -race ./...
       - name: Verify fresh PostgreSQL schema
-        run: >-
-          go test -tags=integration
-          ./cmd/migrate
-          ./internal/platform/postgres/orderworkflow
+        run: go test -tags=integration ./cmd/migrate ./internal/platform/postgres/orderworkflow
+
+  build:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build production image without publishing
+        run: docker build --tag ecommerce-core:ci .

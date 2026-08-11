@@ -219,6 +219,36 @@ role-name AdminMiddleware has been removed. The idempotent `SuperAdmin` seed
 migration registers every current permission, and `cmd/cli grant-superadmin`
 assigns the role to an existing user without an HTTP bootstrap endpoint.
 
+## Phase 10 — Production infrastructure and observability
+
+**Status: complete.** The application exposes a private management listener
+with liveness, dependency readiness and Prometheus endpoints; the public Gin
+API stays separate. OpenTelemetry context propagation and bounded RED metrics
+are transport infrastructure, while structured Zap logs gain correlation IDs
+only through `logger.WithContext(ctx)`. The production Docker image is a
+cached multi-stage static Go build running as the distroless `nonroot` user;
+the Compose `observability` profile provides Prometheus, Grafana and Tempo for
+local use. GitHub Actions runs architecture checks, golangci-lint, race and
+fresh-schema Testcontainers tests, then verifies the production Docker build
+without publishing it.
+
+## Phase 11 — Client integration and API polish
+
+**Status: complete.** The additive `/api/v1` transport surface preserves
+legacy routes unchanged while exposing Catalog, Checkout, customer Orders and
+all implemented Admin Facades through a common success/pagination envelope and
+RFC 9457 problem details with stable public error codes. Catalog pagination is
+bounded by PostgreSQL `LIMIT`/`OFFSET` with a separate `COUNT(*)` metadata
+query; it never loads a full catalog in the HTTP process. Strict credentialed
+CORS and API-only security headers remain platform middleware and do not enter
+business modules. Swagger annotations and generated active API artifacts cover
+every v1 endpoint; CI regenerates them and rejects an uncommitted contract.
+The public v1 boundary additionally enforces a 1 MiB streaming request-body
+cap, distributed rate limiting when Redis is enabled, strict localized slug
+validation and request-context cancellation through GORM into PostgreSQL.
+The production PostgreSQL client also has a bounded pool and suppresses SQL
+bind-value logging, protecting both database capacity and customer PII.
+
 ## Global rules
 
 - Do not fork for a store.
