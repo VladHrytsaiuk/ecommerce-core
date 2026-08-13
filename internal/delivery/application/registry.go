@@ -73,6 +73,15 @@ func (r *Registry) Get(code string) (domain.Carrier, bool) {
 	return carrier, ok
 }
 
+func (r *Registry) Locations(code string) (domain.LocationProvider, bool) {
+	carrier, ok := r.Get(code)
+	if !ok {
+		return nil, false
+	}
+	provider, ok := carrier.(domain.LocationProvider)
+	return provider, ok
+}
+
 func normalize(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }

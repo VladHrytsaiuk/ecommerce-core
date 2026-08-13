@@ -10,6 +10,7 @@ import (
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
 	comparisonHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/delivery/http"
+	deliveryHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	identityHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/delivery/http"
 	mediaHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/media/delivery/http"
@@ -53,6 +54,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	}
 	v1 := api.Group("/v1")
 	v1.Use(application.HTTP.SecurityHeaders, application.HTTP.ErrorRenderer.Middleware(), application.HTTP.APIRateLimit)
+	deliveryHTTP.RegisterV1LocationRoutes(v1.Group("/delivery"), application.DeliveryLocations, application.HTTP.ErrorRenderer)
 	v1Catalog := v1.Group("/catalog/:lang")
 	v1Catalog.Use(application.HTTP.RequestBodyLimit, application.HTTP.LocaleMiddleware)
 	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer)

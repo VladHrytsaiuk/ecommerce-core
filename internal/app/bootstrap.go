@@ -112,6 +112,7 @@ type Application struct {
 	PaymentGateways        *paymentsApp.Registry
 	PaymentWebhookService  *paymentsApp.WebhookService
 	DeliveryCarriers       *deliveryApp.Registry
+	DeliveryLocations      *deliveryApp.LocationService
 	DeliveryDispatcher     *deliveryApp.Dispatcher
 	DeliveryTracker        *deliveryApp.Tracker
 	OutboxWorker           *eventsApp.OutboxWorker
@@ -475,6 +476,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		PaymentGateways:        paymentGateways,
 		PaymentWebhookService:  paymentWebhookService,
 		DeliveryCarriers:       deliveryCarriers,
+		DeliveryLocations:      deliveryApp.NewLocationService(deliveryCarriers),
 		DeliveryDispatcher:     deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
 		DeliveryTracker:        deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers),
 		OutboxWorker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),

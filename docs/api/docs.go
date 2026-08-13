@@ -1885,7 +1885,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Category"
+                            "type": "object"
                         }
                     }
                 ],
@@ -1954,7 +1954,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Category"
+                            "type": "object"
                         }
                     }
                 ],
@@ -2017,7 +2017,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Product"
+                            "type": "object"
                         }
                     }
                 ],
@@ -2086,7 +2086,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Product"
+                            "type": "object"
                         }
                     }
                 ],
@@ -2731,6 +2731,164 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/delivery/{provider}/areas": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Delivery v1"
+                ],
+                "summary": "List delivery areas (v1)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Enabled delivery provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/delivery/{provider}/cities": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Delivery v1"
+                ],
+                "summary": "List delivery cities for an area (v1)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Enabled delivery provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Provider area ID",
+                        "name": "area_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/delivery/{provider}/service-points": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Delivery v1"
+                ],
+                "summary": "List delivery service points (v1)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Enabled delivery provider",
+                        "name": "provider",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Provider city ID",
+                        "name": "city_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "branch, postomat, or cargo",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
                         }
@@ -3568,193 +3726,6 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Category": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "is_active": {
-                    "type": "boolean"
-                },
-                "parent_id": {
-                    "type": "string"
-                },
-                "sort_order": {
-                    "type": "integer"
-                },
-                "translations": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.CategoryTranslation"
-                    }
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.CategoryTranslation": {
-            "type": "object",
-            "properties": {
-                "category_id": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "locale": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "slug": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.Product": {
-            "type": "object",
-            "properties": {
-                "badges": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductBadge"
-                    }
-                },
-                "category_id": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "media": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductMedia"
-                    }
-                },
-                "rating": {
-                    "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductRating"
-                },
-                "seo": {
-                    "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductSEO"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "translations": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductTranslation"
-                    }
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductBadge": {
-            "type": "object",
-            "properties": {
-                "color": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "slug": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductMedia": {
-            "type": "object",
-            "properties": {
-                "asset_id": {
-                    "type": "string"
-                },
-                "position": {
-                    "type": "integer"
-                },
-                "product_id": {
-                    "type": "string"
-                },
-                "role": {
-                    "type": "string"
-                },
-                "url": {
-                    "type": "string"
-                },
-                "variant_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductRating": {
-            "type": "object",
-            "properties": {
-                "average_hundredths": {
-                    "type": "integer"
-                },
-                "review_count": {
-                    "type": "integer"
-                }
-            }
-        },
-        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductSEO": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "keywords": {
-                    "type": "string"
-                },
-                "og_image_ref": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_VladHrytsaiuk_ecommerce-core_internal_catalog_domain.ProductTranslation": {
-            "type": "object",
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "locale": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "product_id": {
-                    "type": "string"
-                },
-                "slug": {
-                    "type": "string"
-                }
-            }
-        },
         "github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.Code": {
             "type": "string",
             "enum": [

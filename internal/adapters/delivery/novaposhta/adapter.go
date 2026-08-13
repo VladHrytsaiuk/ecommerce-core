@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -19,6 +20,12 @@ import (
 )
 
 const code = "novaposhta"
+
+const (
+	warehouseTypeBranch   = "841339c7-591a-42e2-8233-7a0a00f0ed6f"
+	warehouseTypePostomat = "f9316480-5f2d-425d-bc2c-ac7cd29decf0"
+	warehouseTypeCargo    = "9a68df70-0267-42e2-8233-7a0a00f0ed6f"
+)
 
 type Config struct {
 	APIKey           string
@@ -37,11 +44,101 @@ func New(config Config) (*Adapter, error) {
 		return nil, fmt.Errorf("novaposhta API key and sender references are required")
 	}
 	if config.HTTPClient == nil {
-		config.HTTPClient = http.DefaultClient
+		config.HTTPClient = &http.Client{Timeout: 15 * time.Second}
 	}
 	return &Adapter{config: config}, nil
 }
 func (*Adapter) Code() string { return code }
+
+func (a *Adapter) ListAreas(ctx context.Context) ([]deliveryDomain.Area, error) {
+	data, err := a.call(ctx, "Address", "getAreas", map[string]any{})
+	if err != nil {
+		return nil, err
+	}
+	var records []struct {
+		Ref, Description string
+	}
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, fmt.Errorf("decode novaposhta areas: %w", err)
+	}
+	areas := make([]deliveryDomain.Area, 0, len(records))
+	for _, record := range records {
+		if record.Ref != "" && record.Description != "" {
+			areas = append(areas, deliveryDomain.Area{ID: record.Ref, Name: record.Description})
+		}
+	}
+	return areas, nil
+}
+
+func (a *Adapter) ListCities(ctx context.Context, areaID string) ([]deliveryDomain.City, error) {
+	data, err := a.call(ctx, "Address", "getCities", map[string]any{"AreaRef": areaID})
+	if err != nil {
+		return nil, err
+	}
+	var records []struct {
+		Ref         string `json:"Ref"`
+		Description string `json:"Description"`
+		Area        string `json:"Area"`
+	}
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, fmt.Errorf("decode novaposhta cities: %w", err)
+	}
+	cities := make([]deliveryDomain.City, 0, len(records))
+	for _, record := range records {
+		if record.Ref != "" && record.Description != "" {
+			cities = append(cities, deliveryDomain.City{ID: record.Ref, AreaID: record.Area, Name: record.Description})
+		}
+	}
+	return cities, nil
+}
+
+func (a *Adapter) ListServicePoints(ctx context.Context, query deliveryDomain.ServicePointQuery) (deliveryDomain.ServicePointPage, error) {
+	properties := map[string]any{"CityRef": query.CityID, "Page": strconv.Itoa(query.Page), "Limit": strconv.Itoa(query.Limit)}
+	switch strings.ToLower(strings.TrimSpace(query.Kind)) {
+	case "postomat":
+		properties["TypeOfWarehouseRef"] = warehouseTypePostomat
+	case "cargo":
+		properties["TypeOfWarehouseRef"] = warehouseTypeCargo
+	}
+	response, err := a.callResponse(ctx, "Address", "getWarehouses", properties)
+	if err != nil {
+		return deliveryDomain.ServicePointPage{}, err
+	}
+	var records []struct {
+		Ref             string `json:"Ref"`
+		Description     string `json:"Description"`
+		ShortAddress    string `json:"ShortAddress"`
+		Number          string `json:"Number"`
+		TypeOfWarehouse string `json:"TypeOfWarehouse"`
+	}
+	if err := json.Unmarshal(response.Data, &records); err != nil {
+		return deliveryDomain.ServicePointPage{}, fmt.Errorf("decode novaposhta service points: %w", err)
+	}
+	points := make([]deliveryDomain.ServicePoint, 0, len(records))
+	for _, record := range records {
+		kind := servicePointKind(record.TypeOfWarehouse)
+		if query.Kind == "branch" && kind != "branch" && kind != "cargo" {
+			continue
+		}
+		if record.Ref != "" && record.Description != "" {
+			points = append(points, deliveryDomain.ServicePoint{ID: record.Ref, Name: record.Description, Address: record.ShortAddress, Number: record.Number, Kind: kind})
+		}
+	}
+	return deliveryDomain.ServicePointPage{Items: points, Page: query.Page, Limit: query.Limit, Total: totalCount(response.Info)}, nil
+}
+
+func servicePointKind(value string) string {
+	switch value {
+	case warehouseTypePostomat:
+		return "postomat"
+	case warehouseTypeCargo:
+		return "cargo"
+	case warehouseTypeBranch:
+		return "branch"
+	default:
+		return "other"
+	}
+}
 
 func (a *Adapter) Quote(ctx context.Context, request deliveryDomain.ShipmentQuoteRequest) ([]deliveryDomain.ShippingOption, error) {
 	if request.Destination.LocalityID == "" || request.Currency != "UAH" {
@@ -122,40 +219,66 @@ func (a *Adapter) Track(ctx context.Context, request deliveryDomain.TrackingRequ
 	}
 	return deliveryDomain.TrackingResult{Status: status}, nil
 }
+
+type responseEnvelope struct {
+	Success bool            `json:"success"`
+	Data    json.RawMessage `json:"data"`
+	Errors  []string        `json:"errors"`
+	Info    json.RawMessage `json:"info"`
+}
+
 func (a *Adapter) call(ctx context.Context, model, method string, properties any) (json.RawMessage, error) {
-	body, err := json.Marshal(map[string]any{"apiKey": a.config.APIKey, "modelName": model, "calledMethod": method, "methodProperties": properties})
+	response, err := a.callResponse(ctx, model, method, properties)
 	if err != nil {
 		return nil, err
 	}
+	return response.Data, nil
+}
+
+func (a *Adapter) callResponse(ctx context.Context, model, method string, properties any) (responseEnvelope, error) {
+	body, err := json.Marshal(map[string]any{"apiKey": a.config.APIKey, "modelName": model, "calledMethod": method, "methodProperties": properties})
+	if err != nil {
+		return responseEnvelope{}, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.config.BaseURL, bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return responseEnvelope{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	res, err := a.config.HTTPClient.Do(req)
 	if err != nil {
-		return nil, err
+		return responseEnvelope{}, fmt.Errorf("%w: novaposhta request: %v", deliveryDomain.ErrProviderUnavailable, err)
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
-		return nil, err
+		return responseEnvelope{}, err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("novaposhta status %d", res.StatusCode)
+		return responseEnvelope{}, fmt.Errorf("%w: novaposhta status %d", deliveryDomain.ErrProviderUnavailable, res.StatusCode)
 	}
-	var response struct {
-		Success bool            `json:"success"`
-		Data    json.RawMessage `json:"data"`
-		Errors  []string        `json:"errors"`
-	}
+	var response responseEnvelope
 	if err := json.Unmarshal(raw, &response); err != nil {
-		return nil, err
+		return responseEnvelope{}, err
 	}
 	if !response.Success {
-		return nil, fmt.Errorf("novaposhta API: %s", strings.Join(response.Errors, ", "))
+		return responseEnvelope{}, fmt.Errorf("novaposhta API: %s", strings.Join(response.Errors, ", "))
 	}
-	return response.Data, nil
+	return response, nil
+}
+
+func totalCount(raw json.RawMessage) int64 {
+	var info struct {
+		TotalCount json.Number `json:"totalCount"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &info) != nil {
+		return 0
+	}
+	count, err := strconv.ParseInt(info.TotalCount.String(), 10, 64)
+	if err != nil || count < 0 {
+		return 0
+	}
+	return count
 }
 func totalWeight(items []deliveryDomain.ShipmentItem) string {
 	total := 0
@@ -191,3 +314,4 @@ func hryvnias(value string) (money.Money, error) {
 func formatHryvnias(amount int64) string { return fmt.Sprintf("%d.%02d", amount/100, amount%100) }
 
 var _ deliveryDomain.Carrier = (*Adapter)(nil)
+var _ deliveryDomain.LocationProvider = (*Adapter)(nil)

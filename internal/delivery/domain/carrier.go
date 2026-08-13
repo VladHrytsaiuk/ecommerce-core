@@ -3,11 +3,18 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
+)
+
+var (
+	ErrLocationProviderUnavailable = errors.New("delivery location provider is not enabled")
+	ErrInvalidLocationQuery        = errors.New("invalid delivery location query")
+	ErrProviderUnavailable         = errors.New("delivery provider is temporarily unavailable")
 )
 
 // Carrier is implemented by a delivery adapter. It must not decide checkout,
@@ -17,6 +24,47 @@ type Carrier interface {
 	Quote(context.Context, ShipmentQuoteRequest) ([]ShippingOption, error)
 	CreateShipment(context.Context, CreateShipmentRequest) (ShipmentResult, error)
 	Track(context.Context, TrackingRequest) (TrackingResult, error)
+}
+
+// LocationProvider is deliberately separate from Carrier: delivery providers
+// that cannot expose selectable service points remain valid carriers.
+type LocationProvider interface {
+	ListAreas(context.Context) ([]Area, error)
+	ListCities(context.Context, string) ([]City, error)
+	ListServicePoints(context.Context, ServicePointQuery) (ServicePointPage, error)
+}
+
+type Area struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type City struct {
+	ID     string `json:"id"`
+	AreaID string `json:"area_id"`
+	Name   string `json:"name"`
+}
+
+type ServicePoint struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	Number  string `json:"number"`
+	Kind    string `json:"kind"`
+}
+
+type ServicePointQuery struct {
+	CityID string
+	Kind   string
+	Page   int
+	Limit  int
+}
+
+type ServicePointPage struct {
+	Items []ServicePoint `json:"items"`
+	Page  int            `json:"page"`
+	Limit int            `json:"limit"`
+	Total int64          `json:"total"`
 }
 
 type Address struct {

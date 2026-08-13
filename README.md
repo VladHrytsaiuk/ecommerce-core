@@ -374,6 +374,20 @@ example, `978` for EUR). Checkout returns a provider-hosted redirect URL and
 the signed `payment_form` fields that the storefront must POST unchanged.
 Verified callbacks use `POST /api/webhooks/payments/redsys`.
 
+### Nova Poshta delivery selectors
+
+With `SHIPPING_PROVIDERS=novaposhta`, storefront clients can select a delivery
+destination through the versioned, provider-neutral API:
+
+- `GET /api/v1/delivery/novaposhta/areas`
+- `GET /api/v1/delivery/novaposhta/cities?area_id={area_ref}`
+- `GET /api/v1/delivery/novaposhta/service-points?city_id={city_ref}&kind=branch&page=1&limit=20`
+
+`kind` accepts `branch`, `postomat`, or `cargo`. The API limits service-point
+pages to 100 items and returns the Nova Poshta total when supplied by the
+provider. The selected opaque city and service-point IDs are passed back to
+Checkout; they are never constructed from a user-visible address string.
+
 ### DHL Express development configuration
 
 Set `SHIPPING_PROVIDERS=dhlexpress` and `SHIPPING_DEFAULT=dhlexpress`, then
