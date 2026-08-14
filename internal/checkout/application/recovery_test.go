@@ -110,6 +110,7 @@ func (*recoveryWorkflow) MarkPaid(context.Context, workflowDomain.PaymentConfirm
 func (*recoveryWorkflow) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil
 }
+func (*recoveryWorkflow) MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error { return nil }
 
 type recoveryGateway struct {
 	payment paymentsDomain.CheckoutPayment

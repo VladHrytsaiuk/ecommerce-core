@@ -10,12 +10,20 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
+	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
-type Repository struct{ db *gorm.DB }
+type Repository struct {
+	db     *gorm.DB
+	events eventsDomain.TransactionalEventPublisher
+}
 
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
+func (r *Repository) WithEventPublisher(publisher eventsDomain.TransactionalEventPublisher) *Repository {
+	r.events = publisher
+	return r
+}
 
 type cartRecord struct {
 	ID                    uuid.UUID `gorm:"type:uuid;primaryKey"`
@@ -39,9 +47,14 @@ func (itemRecord) TableName() string { return "cart_items" }
 func (r *Repository) GetOrCreate(ctx context.Context, owner domain.Owner) (*domain.Cart, error) {
 	var result *domain.Cart
 	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
-		cart, err := findOrCreate(tx, owner)
+		cart, created, err := findOrCreate(tx, owner)
 		if err != nil {
 			return err
+		}
+		if created {
+			if err := r.publishCreated(ctx, tx, cart.ID); err != nil {
+				return err
+			}
 		}
 		result, err = load(tx, cart, owner)
 		return err
@@ -89,9 +102,14 @@ func (r *Repository) SetPromoCode(ctx context.Context, owner domain.Owner, code 
 func (r *Repository) mutate(ctx context.Context, owner domain.Owner, change func(*gorm.DB, *cartRecord) error) (*domain.Cart, error) {
 	var result *domain.Cart
 	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
-		cart, err := findOrCreate(tx, owner)
+		cart, created, err := findOrCreate(tx, owner)
 		if err != nil {
 			return err
+		}
+		if created {
+			if err := r.publishCreated(ctx, tx, cart.ID); err != nil {
+				return err
+			}
 		}
 		if err := change(tx, cart); err != nil {
 			return err
@@ -104,7 +122,7 @@ func (r *Repository) mutate(ctx context.Context, owner domain.Owner, change func
 	})
 	return result, err
 }
-func findOrCreate(tx *gorm.DB, owner domain.Owner) (*cartRecord, error) {
+func findOrCreate(tx *gorm.DB, owner domain.Owner) (*cartRecord, bool, error) {
 	query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("status = ?", "active")
 	if owner.CustomerID != nil {
 		query = query.Where("customer_id = ?", *owner.CustomerID)
@@ -114,16 +132,27 @@ func findOrCreate(tx *gorm.DB, owner domain.Owner) (*cartRecord, error) {
 	var cart cartRecord
 	err := query.First(&cart).Error
 	if err == nil {
-		return &cart, nil
+		return &cart, false, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
+		return nil, false, err
 	}
 	cart = cartRecord{ID: uuid.New(), CustomerID: owner.CustomerID, SessionID: owner.SessionID, Status: "active"}
 	if err := tx.Create(&cart).Error; err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &cart, nil
+	return &cart, true, nil
+}
+
+func (r *Repository) publishCreated(ctx context.Context, tx *gorm.DB, cartID uuid.UUID) error {
+	if r.events == nil {
+		return nil
+	}
+	event, err := eventsDomain.NewCartCreatedEvent(cartID, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	return r.events.Publish(transaction.WithContext(ctx, tx), event)
 }
 func load(tx *gorm.DB, record *cartRecord, owner domain.Owner) (*domain.Cart, error) {
 	var rows []itemRecord

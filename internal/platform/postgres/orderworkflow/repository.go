@@ -270,6 +270,15 @@ func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Orde
 				return err
 			}
 		}
+		if r.events != nil {
+			event, err := eventsDomain.NewCheckoutStartedEvent(order.ID, order.CartID, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if err := r.events.Publish(transaction.WithContext(ctx, tx), event); err != nil {
+				return err
+			}
+		}
 		if markPaid {
 			var state orderStateRecord
 			if err := tx.First(&state, "id = ?", order.ID).Error; err != nil {
@@ -468,6 +477,49 @@ func (r *Repository) MarkPaid(ctx context.Context, confirmation workflowDomain.P
 
 func (r *Repository) MarkFailed(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
 	return r.transition(ctx, confirmation.OrderID, &confirmation, ordersDomain.StatusCancelled)
+}
+
+func (r *Repository) MarkRefunded(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+		var order orderStateRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", confirmation.OrderID).Error; err != nil {
+			return workflowDomain.ErrInvalidOrderTransition
+		}
+		var payment paymentRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&payment, "order_id = ? AND provider = ?", confirmation.OrderID, confirmation.Provider).Error; err != nil {
+			return workflowDomain.ErrPaymentMismatch
+		}
+		if order.PaymentProvider != confirmation.Provider || order.TotalAmount != confirmation.Amount.Amount || order.Currency != confirmation.Amount.Currency || payment.ProviderReference != confirmation.ProviderReference || payment.Amount != confirmation.Amount.Amount || payment.Currency != confirmation.Amount.Currency {
+			return workflowDomain.ErrPaymentMismatch
+		}
+		if order.Status == ordersDomain.StatusRefunded && payment.Status == "refunded" {
+			return nil
+		}
+		if order.Status != ordersDomain.StatusPaid || payment.Status != "paid" {
+			return workflowDomain.ErrInvalidOrderTransition
+		}
+		if err := tx.Model(&order).Update("status", ordersDomain.StatusRefunded).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&payment).Update("status", "refunded").Error; err != nil {
+			return err
+		}
+		for _, hook := range r.hooks {
+			if err := hook.BeforeOrderTransition(transaction.WithContext(ctx, tx), confirmation.OrderID, ordersDomain.StatusRefunded); err != nil {
+				return err
+			}
+		}
+		if r.events != nil {
+			event, err := eventsDomain.NewOrderRefundedEvent(confirmation.OrderID, confirmation.Amount, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if err := r.events.Publish(transaction.WithContext(ctx, tx), event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirmation *workflowDomain.PaymentConfirmation, targetStatus string) error {

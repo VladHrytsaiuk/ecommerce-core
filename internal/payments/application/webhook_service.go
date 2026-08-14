@@ -20,6 +20,7 @@ type WebhookService struct {
 type paymentWorkflow interface {
 	MarkPaid(context.Context, workflowDomain.PaymentConfirmation) error
 	MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error
+	MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error
 }
 
 func NewWebhookService(gateways *Registry, events paymentsDomain.WebhookEventStore, workflow paymentWorkflow) *WebhookService {
@@ -67,6 +68,8 @@ func (s *WebhookService) apply(ctx context.Context, event paymentsDomain.Payment
 		// reservation set, including an optional promo redemption.
 		confirmation.Status = "failed"
 		return s.workflow.MarkFailed(ctx, confirmation)
+	case "refunded":
+		return s.workflow.MarkRefunded(ctx, confirmation)
 	case "pending":
 		return nil
 	default:

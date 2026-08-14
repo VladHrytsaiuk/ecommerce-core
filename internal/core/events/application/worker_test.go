@@ -69,6 +69,19 @@ func TestOutboxWorkerBoundsFinalizationAfterParentCancellation(t *testing.T) {
 	}
 }
 
+func TestOutboxWorkerDispatchesEveryHandlerForATopic(t *testing.T) {
+	t.Parallel()
+	store := &fakeDeliveryStore{delivery: &events.Delivery{EventID: uuid.New(), Topic: events.TopicOrderPaid, Consumer: events.ConsumerReportsProjection}}
+	first, second := &countingConsumer{}, &countingConsumer{}
+	worker := NewOutboxWorker(store, events.ConsumerReportsProjection, time.Minute, nil, first, second)
+	if err := worker.DispatchOnce(context.Background()); err != nil {
+		t.Fatalf("DispatchOnce() error = %v", err)
+	}
+	if first.calls != 1 || second.calls != 1 || store.completeEventID == uuid.Nil {
+		t.Fatalf("handler calls = %d/%d, completed = %s", first.calls, second.calls, store.completeEventID)
+	}
+}
+
 type fakeDeliveryStore struct {
 	delivery            *events.Delivery
 	claimErr            error
@@ -113,6 +126,14 @@ type errorConsumer struct{}
 func (errorConsumer) Topic() string { return events.TopicOrderPaid }
 func (errorConsumer) Handle(context.Context, events.Delivery) error {
 	return errors.New("smtp rejected buyer@example.com")
+}
+
+type countingConsumer struct{ calls int }
+
+func (*countingConsumer) Topic() string { return events.TopicOrderPaid }
+func (c *countingConsumer) Handle(context.Context, events.Delivery) error {
+	c.calls++
+	return nil
 }
 
 var _ events.DeliveryStore = (*fakeDeliveryStore)(nil)

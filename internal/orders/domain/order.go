@@ -12,6 +12,7 @@ const (
 	StatusPendingPayment = "pending_payment"
 	StatusPaid           = "paid"
 	StatusCancelled      = "cancelled"
+	StatusRefunded       = "refunded"
 )
 
 type Item struct {

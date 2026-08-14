@@ -328,6 +328,7 @@ func (f *fakeWorkflow) MarkPaid(_ context.Context, confirmation workflowDomain.P
 func (*fakeWorkflow) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil
 }
+func (*fakeWorkflow) MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error { return nil }
 
 type fakeGateway struct {
 	payment paymentsDomain.CheckoutPayment

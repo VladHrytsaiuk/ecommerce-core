@@ -70,6 +70,21 @@ func TestWebhookServiceReleasesWorkflowForCancelledOrExpiredPayment(t *testing.T
 	}
 }
 
+func TestWebhookServiceRoutesVerifiedRefundToWorkflow(t *testing.T) {
+	t.Parallel()
+	orderID := uuid.New()
+	workflow := &fakeWorkflow{}
+	service := NewWebhookService(&Registry{gateways: map[string]paymentsDomain.Gateway{
+		"fake": webhookGateway{event: webhookEvent(orderID, "refunded")},
+	}}, &fakeEventStore{}, workflow)
+	if err := service.Handle(context.Background(), "fake", paymentsDomain.WebhookRequest{}); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if workflow.refunded.OrderID != orderID || workflow.refunded.Status != "refunded" {
+		t.Fatalf("refund confirmation = %+v", workflow.refunded)
+	}
+}
+
 func webhookEvent(orderID uuid.UUID, status string) paymentsDomain.PaymentEvent {
 	amount, _ := money.New(100, "EUR")
 	return paymentsDomain.PaymentEvent{EventID: "event-1", OrderID: orderID, Status: status, Amount: amount, OccurredAt: time.Now()}
@@ -103,6 +118,7 @@ func (s *fakeEventStore) Abandon(context.Context, string, string) error {
 type fakeWorkflow struct {
 	paid      workflowDomain.PaymentConfirmation
 	failed    workflowDomain.PaymentConfirmation
+	refunded  workflowDomain.PaymentConfirmation
 	cancelled uuid.UUID
 	calls     int
 	err       error
@@ -136,6 +152,11 @@ func (w *fakeWorkflow) MarkPaid(_ context.Context, confirmation workflowDomain.P
 func (w *fakeWorkflow) MarkFailed(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {
 	w.calls++
 	w.failed = confirmation
+	return w.err
+}
+func (w *fakeWorkflow) MarkRefunded(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	w.calls++
+	w.refunded = confirmation
 	return w.err
 }
 func (w *fakeWorkflow) CancelPending(_ context.Context, orderID uuid.UUID) error {

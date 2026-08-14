@@ -23,6 +23,9 @@ func (a *Application) Start(ctx context.Context) {
 	}
 	workerCtx, cancel := context.WithCancel(ctx)
 	a.workerCancel = cancel
+	if a.ReportsRebuilder != nil {
+		a.ReportsRebuilder.BindLifecycle(workerCtx)
+	}
 	if a.DeliveryDispatcher != nil && a.DeliveryTracker != nil && a.DeliveryCarriers != nil && a.DeliveryCarriers.Default() != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.DeliveryDispatcher.Run(workerCtx, 5*time.Second) }()
@@ -59,6 +62,10 @@ func (a *Application) Start(ctx context.Context) {
 	if a.MediaOutboxWorker != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.MediaOutboxWorker.Run(workerCtx, 5*time.Second) }()
+	}
+	if a.ReportsOutboxWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.ReportsOutboxWorker.Run(workerCtx, 5*time.Second) }()
 	}
 	if a.MediaOrphanCleanup != nil {
 		a.workerWG.Add(1)
@@ -100,6 +107,11 @@ func (a *Application) StopContext(ctx context.Context) error {
 		return shutdownErr
 	}
 	cancel()
+	if a.ReportsRebuilder != nil {
+		if err := a.ReportsRebuilder.Wait(ctx); err != nil && shutdownErr == nil {
+			shutdownErr = fmt.Errorf("wait for reports rebuild: %w", err)
+		}
+	}
 	done := make(chan struct{})
 	go func() { a.workerWG.Wait(); close(done) }()
 	select {

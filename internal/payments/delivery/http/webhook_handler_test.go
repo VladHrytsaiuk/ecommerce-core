@@ -82,6 +82,7 @@ func (*httpWorkflow) MarkPaid(context.Context, workflowDomain.PaymentConfirmatio
 func (*httpWorkflow) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil
 }
+func (*httpWorkflow) MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error { return nil }
 func (*httpWorkflow) CancelPending(context.Context, uuid.UUID) error { return nil }
 
 var _ workflowDomain.Service = (*httpWorkflow)(nil)

@@ -149,6 +149,20 @@ The media identity needs `s3:ListBucket` and object delete permission: a daily
 reconciler removes only unreferenced or failed quarantine objects older than
 24 hours.
 
+### Optional business reports
+
+Add `reports,admin` to `ENABLED_MODULES` to activate the CQRS analytics
+projection and its permission-protected dashboard routes.
+The first aggregate consumes paid-order events through its own durable Outbox
+delivery and stores daily sales by currency, channel and IANA timezone. Set
+`REPORTS_TIMEZONE` (default `UTC`; for example `Europe/Kyiv`) before running
+migrations. Reports are eventual-consistency read models and never become the
+financial source of truth.
+Use `POST /api/v1/admin/reports/rebuild` only with the separate
+`reports:rebuild` permission; it returns `202 Accepted` and rebuilds a bounded
+date range asynchronously. `GET /api/v1/admin/reports/health` reports active
+rebuild state and projection freshness.
+
 ### Customer identity and optional profiles
 
 Password registration and login are always available at `POST /api/auth/register`

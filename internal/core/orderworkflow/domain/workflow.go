@@ -84,6 +84,7 @@ type Repository interface {
 	RetryCheckoutAttempt(context.Context, uuid.UUID, error) error
 	MarkPaid(context.Context, PaymentConfirmation) error
 	MarkFailed(context.Context, PaymentConfirmation) error
+	MarkRefunded(context.Context, PaymentConfirmation) error
 }
 
 type Service interface {
@@ -100,4 +101,5 @@ type Service interface {
 	RetryCheckoutAttempt(context.Context, uuid.UUID, error) error
 	MarkPaid(context.Context, PaymentConfirmation) error
 	MarkFailed(context.Context, PaymentConfirmation) error
+	MarkRefunded(context.Context, PaymentConfirmation) error
 }

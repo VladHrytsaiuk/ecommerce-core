@@ -286,6 +286,18 @@ worker removes quarantine objects older than 24 hours that have no non-failed
 asset record. The S3-compatible adapter is portable across AWS S3, MinIO and
 Cloudflare R2; Cloudinary implements the same ObjectStore port.
 
+## Phase 14 — Business reports and analytics
+
+**Status: complete.** The optional `reports` module owns currency-separated
+CQRS sales, product-sales and funnel read models for the permission-gated Admin
+API. Paid and refunded order deliveries are idempotent through one durable
+processed-event marker and one local transaction. A bounded asynchronous
+rebuild takes a transaction-scoped PostgreSQL advisory lock shared with
+projectors, deletes only its requested range, and reconstructs it from narrow
+order and lifecycle snapshot ports. `reports:rebuild` is deliberately separate
+from `reports:read`; health exposes active rebuild state and the last processed
+event timestamp.
+
 ## Global rules
 
 - Do not fork for a store.

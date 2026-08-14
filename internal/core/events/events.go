@@ -25,7 +25,13 @@ const (
 	ConsumerSearchIndexer = "search_indexer"
 	// ConsumerMediaProcessor owns asynchronous media state transitions.
 	ConsumerMediaProcessor = "media_processor"
-	TopicOrderPaid         = "orders.paid.v1"
+	// ConsumerReportsProjection owns idempotent CQRS aggregates for the admin
+	// business-analytics dashboard.
+	ConsumerReportsProjection = "reports_projection"
+	TopicOrderPaid            = "orders.paid.v1"
+	TopicOrderRefunded        = "orders.refunded.v1"
+	TopicCartCreated          = "carts.created.v1"
+	TopicCheckoutStarted      = "checkout.started.v1"
 )
 
 // DomainEvent is an immutable versioned message. Its payload must contain
@@ -98,4 +104,96 @@ func (e OrderPaidEvent) MarshalPayload() ([]byte, error) {
 		Currency    string    `json:"currency"`
 		PaidAt      time.Time `json:"paid_at"`
 	}{Version: 1, OrderID: e.OrderID, OrderNumber: e.OrderNumber, TotalAmount: e.Total.Amount, Currency: e.Total.Currency, PaidAt: e.PaidAt})
+}
+
+// OrderRefundedEvent is emitted after a verified full refund committed locally.
+type OrderRefundedEvent struct {
+	OrderID uuid.UUID
+	Total   money.Money
+	At      time.Time
+}
+
+func NewOrderRefundedEvent(orderID uuid.UUID, total money.Money, occurredAt time.Time) (OrderRefundedEvent, error) {
+	if orderID == uuid.Nil || total.Amount < 0 || strings.TrimSpace(total.Currency) == "" {
+		return OrderRefundedEvent{}, fmt.Errorf("invalid order refunded event")
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	return OrderRefundedEvent{OrderID: orderID, Total: total, At: occurredAt.UTC()}, nil
+}
+func (OrderRefundedEvent) Topic() string               { return TopicOrderRefunded }
+func (OrderRefundedEvent) AggregateType() string       { return "order" }
+func (e OrderRefundedEvent) AggregateID() uuid.UUID    { return e.OrderID }
+func (e OrderRefundedEvent) IdempotencyKey() uuid.UUID { return e.OrderID }
+func (e OrderRefundedEvent) OccurredAt() time.Time     { return e.At }
+func (e OrderRefundedEvent) MarshalPayload() ([]byte, error) {
+	return json.Marshal(struct {
+		Version    int       `json:"version"`
+		OrderID    uuid.UUID `json:"order_id"`
+		Amount     int64     `json:"amount_minor"`
+		Currency   string    `json:"currency"`
+		RefundedAt time.Time `json:"refunded_at"`
+	}{1, e.OrderID, e.Total.Amount, e.Total.Currency, e.At})
+}
+
+// CartCreatedEvent and CheckoutStartedEvent contain no customer, contact, or
+// payment data; they are solely anonymous funnel counters.
+type CartCreatedEvent struct {
+	CartID uuid.UUID
+	At     time.Time
+}
+
+func NewCartCreatedEvent(cartID uuid.UUID, occurredAt time.Time) (CartCreatedEvent, error) {
+	if cartID == uuid.Nil {
+		return CartCreatedEvent{}, fmt.Errorf("invalid cart created event")
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	return CartCreatedEvent{CartID: cartID, At: occurredAt.UTC()}, nil
+}
+func (CartCreatedEvent) Topic() string               { return TopicCartCreated }
+func (CartCreatedEvent) AggregateType() string       { return "cart" }
+func (e CartCreatedEvent) AggregateID() uuid.UUID    { return e.CartID }
+func (e CartCreatedEvent) IdempotencyKey() uuid.UUID { return e.CartID }
+func (e CartCreatedEvent) OccurredAt() time.Time     { return e.At }
+func (e CartCreatedEvent) MarshalPayload() ([]byte, error) {
+	return json.Marshal(struct {
+		Version   int       `json:"version"`
+		CartID    uuid.UUID `json:"cart_id"`
+		CreatedAt time.Time `json:"created_at"`
+	}{1, e.CartID, e.At})
+}
+
+type CheckoutStartedEvent struct {
+	OrderID, CartID uuid.UUID
+	At              time.Time
+}
+
+func NewCheckoutStartedEvent(orderID, cartID uuid.UUID, occurredAt time.Time) (CheckoutStartedEvent, error) {
+	if orderID == uuid.Nil {
+		return CheckoutStartedEvent{}, fmt.Errorf("invalid checkout started event")
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	return CheckoutStartedEvent{OrderID: orderID, CartID: cartID, At: occurredAt.UTC()}, nil
+}
+func (CheckoutStartedEvent) Topic() string               { return TopicCheckoutStarted }
+func (CheckoutStartedEvent) AggregateType() string       { return "checkout" }
+func (e CheckoutStartedEvent) AggregateID() uuid.UUID    { return e.OrderID }
+func (e CheckoutStartedEvent) IdempotencyKey() uuid.UUID { return e.OrderID }
+func (e CheckoutStartedEvent) OccurredAt() time.Time     { return e.At }
+func (e CheckoutStartedEvent) MarshalPayload() ([]byte, error) {
+	var cartID *uuid.UUID
+	if e.CartID != uuid.Nil {
+		cartID = &e.CartID
+	}
+	return json.Marshal(struct {
+		Version   int        `json:"version"`
+		OrderID   uuid.UUID  `json:"order_id"`
+		CartID    *uuid.UUID `json:"cart_id,omitempty"`
+		StartedAt time.Time  `json:"started_at"`
+	}{1, e.OrderID, cartID, e.At})
 }

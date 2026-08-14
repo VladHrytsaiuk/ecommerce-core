@@ -172,6 +172,27 @@ func TestNewStoreConfigValidatesOptionalSearch(t *testing.T) {
 	}
 }
 
+func TestNewStoreConfigValidatesReportsTimezone(t *testing.T) {
+	cfg := validConfig()
+	cfg.EnabledModules = []string{"inventory", "admin", "reports"}
+	cfg.ReportsTimezone = "not/a-timezone"
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "REPORTS_TIMEZONE") {
+		t.Fatalf("NewStoreConfig() error = %v, want invalid reports timezone", err)
+	}
+	cfg.ReportsTimezone = "Europe/Kyiv"
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v, want valid reports timezone", err)
+	}
+}
+
+func TestNewStoreConfigRequiresAdminForReports(t *testing.T) {
+	cfg := validConfig()
+	cfg.EnabledModules = []string{"inventory", "reports"}
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "admin") {
+		t.Fatalf("NewStoreConfig() error = %v, want reports admin dependency", err)
+	}
+}
+
 func TestNewStoreConfigValidatesOptionalMedia(t *testing.T) {
 	cfg := validConfig()
 	cfg.EnabledModules = []string{"inventory", "media"}

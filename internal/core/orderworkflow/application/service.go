@@ -117,6 +117,12 @@ func (s *Service) MarkFailed(ctx context.Context, confirmation workflowDomain.Pa
 	}
 	return s.repo.MarkFailed(ctx, confirmation)
 }
+func (s *Service) MarkRefunded(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
+	if err := validatePaymentConfirmation(confirmation, "refunded"); err != nil {
+		return err
+	}
+	return s.repo.MarkRefunded(ctx, confirmation)
+}
 
 func validateReservationIDs(reservationIDs []uuid.UUID) error {
 	if len(reservationIDs) == 0 {

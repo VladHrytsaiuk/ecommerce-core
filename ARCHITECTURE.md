@@ -63,6 +63,7 @@ flowchart TB
     Bootstrap --> Admin[Admin RBAC module\noptional]
     Bootstrap --> Search[Search projection module\noptional]
     Bootstrap --> Media[Media asset module\noptional]
+    Bootstrap --> Reports[Business reports module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders
@@ -90,6 +91,7 @@ flowchart TB
     Admin -. permission ports .-> Orders
     Catalog -. durable catalog.product.changed.v1 outbox .-> Search
     Media -. durable media.asset.uploaded.v1 outbox .-> Media
+    Core -. durable orders.paid.v1 outbox .-> Reports
 
     PaymentsPort --> LiqPay[LiqPay adapter]
     PaymentsPort --> Stripe[Stripe adapter]
@@ -226,6 +228,20 @@ unreferenced or failed quarantine objects only after a 24-hour grace period.
 AWS S3, MinIO and Cloudflare R2 share one ObjectStore adapter; Cloudinary is
 an independent ObjectStore adapter selected only in Bootstrap, never a domain
 change.
+
+Reports is an optional CQRS module. It consumes the durable `orders.paid.v1`
+delivery through its own Outbox consumer and writes only module-owned,
+currency-separated aggregates. A processed-event marker and the aggregate
+upsert are committed in one local transaction, so at-least-once delivery
+cannot double-count revenue. Reports receives order facts through a narrow
+analytics snapshot port assembled in Bootstrap; its domain never imports an
+Orders aggregate or repository. `REPORTS_TIMEZONE` is validated as an IANA
+timezone before the application starts and defines daily reporting buckets.
+Refund, cart-created and checkout-started events produce the corresponding
+revenue reversal and funnel projections. A privileged rebuild takes the same
+PostgreSQL transaction-scoped advisory lock as projectors, so delete-and-replay
+is atomic with respect to at-least-once Outbox delivery; it never reads an
+Orders aggregate or repository directly.
 
 Observability is platform infrastructure, never a domain dependency.
 `internal/platform/observability` installs OpenTelemetry and Gin RED metrics,

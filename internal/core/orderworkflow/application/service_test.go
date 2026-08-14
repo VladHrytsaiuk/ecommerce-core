@@ -116,5 +116,6 @@ func (r *fakeRepository) MarkPaid(_ context.Context, confirmation workflowDomain
 func (*fakeRepository) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil
 }
+func (*fakeRepository) MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error { return nil }
 
 var _ workflowDomain.Repository = (*fakeRepository)(nil)

@@ -69,6 +69,11 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 	promosApp "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/application"
 	promosPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/repository/postgres"
+	reportsOrderAnalytics "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/adapter/orderanalytics"
+	reportsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/application"
+	reportsProjectors "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/application/projectors"
+	reportsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/domain"
+	reportsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/repository/postgres"
 	reviewsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/domain"
 	reviewsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/repository/postgres"
 	reviewsService "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/service"
@@ -119,9 +124,12 @@ type Application struct {
 	AdminAuditOutboxWorker *eventsApp.OutboxWorker
 	SearchOutboxWorker     *eventsApp.OutboxWorker
 	MediaOutboxWorker      *eventsApp.OutboxWorker
+	ReportsOutboxWorker    *eventsApp.OutboxWorker
 	MediaOrphanCleanup     *mediaApp.OrphanCleanupWorker
 	SearchService          searchDomain.SearchService
 	MediaUploadService     *mediaApp.UploadService
+	ReportsQueryService    reportsDomain.QueryService
+	ReportsRebuilder       *reportsApp.ReportsRebuilder
 	AdminAuthorizer        adminDomain.Authorizer
 	PromosAdminFacade      *adminApp.PromosAdminFacade
 	CatalogAdminFacade     *adminApp.CatalogAdminFacade
@@ -253,9 +261,13 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	inventoryRepository := inventoryPostgres.NewRepository(db)
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
 	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
+	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
 	eventConsumers := make([]string, 0, 1)
 	if notificationsEnabled {
 		eventConsumers = append(eventConsumers, eventsDomain.ConsumerNotifications)
+	}
+	if reportsEnabled {
+		eventConsumers = append(eventConsumers, eventsDomain.ConsumerReportsProjection)
 	}
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
@@ -352,11 +364,43 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var adminAuditOutboxWorker *eventsApp.OutboxWorker
 	var searchOutboxWorker *eventsApp.OutboxWorker
 	var mediaOutboxWorker *eventsApp.OutboxWorker
+	var reportsOutboxWorker *eventsApp.OutboxWorker
 	var mediaOrphanCleanup *mediaApp.OrphanCleanupWorker
 	var productEventPublisher eventsDomain.TransactionalEventPublisher
 	var searchService searchDomain.SearchService
 	var mediaUploadService *mediaApp.UploadService
 	var mediaCatalogReader *mediaApp.CatalogReader
+	var reportsQueryService reportsDomain.QueryService
+	var reportsRebuilder *reportsApp.ReportsRebuilder
+	if reportsEnabled {
+		repository := reportsPostgres.NewRepository(db)
+		reportsQueryService, err = reportsApp.NewQueryService(repository, cfg.ReportsTimezone)
+		if err != nil {
+			return nil, fmt.Errorf("configure reports queries: %w", err)
+		}
+		snapshotProvider := reportsOrderAnalytics.NewProvider(db)
+		reportsRebuilder, err = reportsApp.NewReportsRebuilder(repository, repository, snapshotProvider, cfg.ReportsTimezone)
+		if err != nil {
+			return nil, fmt.Errorf("configure reports rebuilder: %w", err)
+		}
+		handler, err := reportsProjectors.NewDailySalesProjector(repository, repository, snapshotProvider, cfg.ReportsTimezone)
+		if err != nil {
+			return nil, fmt.Errorf("configure reports daily sales projector: %w", err)
+		}
+		refundHandler, err := reportsProjectors.NewRefundProjector(repository, repository, snapshotProvider, cfg.ReportsTimezone)
+		if err != nil {
+			return nil, fmt.Errorf("configure reports refund projector: %w", err)
+		}
+		cartFunnel, err := reportsProjectors.NewFunnelProjector(repository, repository, eventsDomain.TopicCartCreated, cfg.ReportsTimezone)
+		if err != nil {
+			return nil, fmt.Errorf("configure reports cart funnel projector: %w", err)
+		}
+		checkoutFunnel, err := reportsProjectors.NewFunnelProjector(repository, repository, eventsDomain.TopicCheckoutStarted, cfg.ReportsTimezone)
+		if err != nil {
+			return nil, fmt.Errorf("configure reports checkout funnel projector: %w", err)
+		}
+		reportsOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerReportsProjection, time.Minute, logger.Log, handler, refundHandler, cartFunnel, checkoutFunnel)
+	}
 	if searchEnabled {
 		searchStartupCtx, cancelSearchStartup := context.WithTimeout(context.Background(), searchMeili.DefaultTaskTimeout)
 		index, err := searchMeili.New(searchStartupCtx, searchMeili.Config{
@@ -458,7 +502,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		CatalogCategoryService: categoryService,
 		CatalogProductService:  productService,
 		CatalogVariantService:  variantService,
-		CartService:            cartApp.NewService(cartPostgres.NewRepository(db)),
+		CartService:            cartApp.NewService(newCartRepository(db, reportsEnabled)),
 		CheckoutService:        checkoutService,
 		CheckoutRecovery:       checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
 		CheckoutExpiry:         checkoutApp.NewExpiryService(orderWorkflowService),
@@ -483,9 +527,12 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		AdminAuditOutboxWorker: adminAuditOutboxWorker,
 		SearchOutboxWorker:     searchOutboxWorker,
 		MediaOutboxWorker:      mediaOutboxWorker,
+		ReportsOutboxWorker:    reportsOutboxWorker,
 		MediaOrphanCleanup:     mediaOrphanCleanup,
 		SearchService:          searchService,
 		MediaUploadService:     mediaUploadService,
+		ReportsQueryService:    reportsQueryService,
+		ReportsRebuilder:       reportsRebuilder,
 		AdminAuthorizer:        adminAuthorizer,
 		PromosAdminFacade:      promosAdminFacade,
 		CatalogAdminFacade:     catalogAdminFacade,
@@ -519,4 +566,12 @@ func inventoryMode(value string) inventoryDomain.Mode {
 		return inventoryDomain.ModeInternal
 	}
 	return inventoryDomain.ModeExternal
+}
+
+func newCartRepository(db *gorm.DB, reportsEnabled bool) *cartPostgres.Repository {
+	repository := cartPostgres.NewRepository(db)
+	if reportsEnabled {
+		repository.WithEventPublisher(eventsPostgres.NewPublisher(eventsDomain.ConsumerReportsProjection))
+	}
+	return repository
 }

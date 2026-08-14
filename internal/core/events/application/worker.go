@@ -38,17 +38,17 @@ type OutboxWorker struct {
 	lease       time.Duration
 	maxAttempts int
 	logger      Logger
-	handlers    map[string]Consumer
+	handlers    map[string][]Consumer
 }
 
 func NewOutboxWorker(store events.DeliveryStore, consumer string, lease time.Duration, logger Logger, handlers ...Consumer) *OutboxWorker {
 	if lease <= 0 {
 		lease = time.Minute
 	}
-	registered := make(map[string]Consumer, len(handlers))
+	registered := make(map[string][]Consumer, len(handlers))
 	for _, handler := range handlers {
 		if handler != nil && handler.Topic() != "" {
-			registered[handler.Topic()] = handler
+			registered[handler.Topic()] = append(registered[handler.Topic()], handler)
 		}
 	}
 	return &OutboxWorker{store: store, consumer: consumer, lease: lease, maxAttempts: DefaultMaxAttempts, logger: logger, handlers: registered}
@@ -72,7 +72,7 @@ func (w *OutboxWorker) DispatchOnce(ctx context.Context) error {
 	if w.logger != nil {
 		w.logger.Infow("event outbox delivery claimed", "event_id", event.EventID, "topic", event.Topic, "consumer", event.Consumer, "attempt", event.Attempts)
 	}
-	if handler := w.handlers[event.Topic]; handler != nil {
+	for _, handler := range w.handlers[event.Topic] {
 		if err := invokeSafely(ctx, handler, *event); err != nil {
 			return w.failDelivery(ctx, event, err)
 		}

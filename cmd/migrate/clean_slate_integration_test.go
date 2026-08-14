@@ -57,7 +57,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("get PostgreSQL connection string: %v", err)
 	}
 	root := repositoryRoot(t)
-	if err := runMigrations(root, databaseURL, []string{"comparison", "inventory", "reviews", "sync", "user_profiles", "wishlist"}, "up"); err != nil {
+	if err := runMigrations(root, databaseURL, []string{"admin", "comparison", "inventory", "reports", "reviews", "sync", "user_profiles", "wishlist"}, "up"); err != nil {
 		t.Fatalf("migrate clean-slate schema: %v", err)
 	}
 
@@ -74,6 +74,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		"wishlist_items", "schema_migrations_module_wishlist",
 		"comparison_lists", "comparison_items", "schema_migrations_module_comparison",
 		"reviews", "product_review_ratings", "schema_migrations_module_reviews",
+		"roles", "permissions", "report_processed_events", "report_daily_sales", "report_daily_product_sales", "report_daily_funnel", "schema_migrations_module_reports",
 	)
 
 	localeService := localeApp.NewService(localePostgres.NewRepository(db))
@@ -108,10 +109,10 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("read product translations = (%+v, %v), want three translations", storedProduct, err)
 	}
 	assertConcurrentReviewProjection(t, db, product.ID)
-	if err := runMigrations(root, databaseURL, []string{"comparison", "inventory", "reviews", "sync", "user_profiles", "wishlist"}, "down"); err != nil {
+	if err := runMigrations(root, databaseURL, []string{"admin", "comparison", "inventory", "reports", "reviews", "sync", "user_profiles", "wishlist"}, "down"); err != nil {
 		t.Fatalf("rollback clean-slate schema: %v", err)
 	}
-	assertTablesAbsent(t, db, "locales", "products", "product_variants", "user_oauth_identities", "oauth_authorization_attempts", "user_profiles", "wishlist_items", "comparison_lists", "comparison_items", "reviews", "product_review_ratings", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors")
+	assertTablesAbsent(t, db, "locales", "products", "product_variants", "user_oauth_identities", "oauth_authorization_attempts", "user_profiles", "wishlist_items", "comparison_lists", "comparison_items", "reviews", "product_review_ratings", "roles", "permissions", "report_processed_events", "report_daily_sales", "report_daily_product_sales", "report_daily_funnel", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors")
 }
 
 func assertConcurrentReviewProjection(t *testing.T, db *gorm.DB, productID uuid.UUID) {

@@ -106,6 +106,18 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 			return StoreConfig{}, fmt.Errorf("SEARCH_INDEX_PREFIX must contain lowercase letters, digits, underscores, or hyphens")
 		}
 	}
+	if contains(storeConfig.EnabledModules, "reports") {
+		if !contains(storeConfig.EnabledModules, "admin") {
+			return StoreConfig{}, fmt.Errorf("reports requires ENABLED_MODULES to include admin for permission-gated dashboard routes")
+		}
+		reportsTimezone := strings.TrimSpace(cfg.ReportsTimezone)
+		if reportsTimezone == "" {
+			reportsTimezone = "UTC"
+		}
+		if _, err := time.LoadLocation(reportsTimezone); err != nil {
+			return StoreConfig{}, fmt.Errorf("REPORTS_TIMEZONE must be a valid IANA timezone: %w", err)
+		}
+	}
 	if contains(storeConfig.EnabledModules, "media") {
 		if !contains(storeConfig.EnabledModules, "admin") {
 			return StoreConfig{}, fmt.Errorf("media requires ENABLED_MODULES to include admin for permission-gated uploads")

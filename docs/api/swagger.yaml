@@ -873,6 +873,16 @@ definitions:
         example: MIME type is not allowed
         type: string
     type: object
+  internal_reports_delivery_http.rebuildRequest:
+    properties:
+      from:
+        type: string
+      to:
+        type: string
+    required:
+    - from
+    - to
+    type: object
   internal_shipment_delivery_http.ErrorResponse:
     properties:
       error:
@@ -2870,6 +2880,197 @@ paths:
       summary: Create a promotion (v1 admin)
       tags:
       - Admin v1
+  /api/v1/admin/reports/funnel:
+    get:
+      parameters:
+      - description: Inclusive ISO date
+        example: "2026-01-01"
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: Inclusive ISO date
+        example: "2026-01-31"
+        in: query
+        name: to
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Get daily sales funnel (v1 admin)
+      tags:
+      - Reports v1
+  /api/v1/admin/reports/health:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Get reports projection health (v1 admin)
+      tags:
+      - Reports v1
+  /api/v1/admin/reports/products/top:
+    get:
+      parameters:
+      - description: Inclusive ISO date
+        example: "2026-01-01"
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: Inclusive ISO date
+        example: "2026-01-31"
+        in: query
+        name: to
+        required: true
+        type: string
+      - description: ISO 4217 currency
+        example: UAH
+        in: query
+        name: currency
+        required: true
+        type: string
+      - default: 10
+        description: Results limit
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Get top-selling products (v1 admin)
+      tags:
+      - Reports v1
+  /api/v1/admin/reports/rebuild:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Inclusive ISO date range
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_reports_delivery_http.rebuildRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Rebuild reports projections (v1 admin)
+      tags:
+      - Reports v1
+  /api/v1/admin/reports/revenue:
+    get:
+      parameters:
+      - description: Inclusive ISO date
+        example: "2026-01-01"
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: Inclusive ISO date
+        example: "2026-01-31"
+        in: query
+        name: to
+        required: true
+        type: string
+      - description: ISO 4217 currency
+        example: UAH
+        in: query
+        name: currency
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Get aggregated revenue (v1 admin)
+      tags:
+      - Reports v1
   /api/v1/catalog/{lang}/products:
     get:
       parameters:

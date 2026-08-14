@@ -66,6 +66,7 @@ type Config struct {
 	SearchURL         string
 	SearchMasterKey   string
 	SearchIndexPrefix string
+	ReportsTimezone   string
 
 	// Media is an optional object-storage capability. S3-compatible providers
 	// share credentials; Cloudinary uses its own provider URL.
@@ -290,6 +291,7 @@ func Load() *Config {
 	searchURL := strings.TrimSpace(os.Getenv("SEARCH_URL"))
 	searchMasterKey := strings.TrimSpace(os.Getenv("SEARCH_MASTER_KEY"))
 	searchIndexPrefix := getEnvString("SEARCH_INDEX_PREFIX", "ecommerce")
+	reportsTimezone := strings.TrimSpace(getEnvString("REPORTS_TIMEZONE", "UTC"))
 	mediaProvider := strings.ToLower(getEnvString("MEDIA_PROVIDER", "s3"))
 	mediaS3Bucket := strings.TrimSpace(os.Getenv("MEDIA_S3_BUCKET"))
 	mediaS3Region := strings.TrimSpace(getEnvString("MEDIA_S3_REGION", "us-east-1"))
@@ -549,6 +551,7 @@ func Load() *Config {
 		RedisEnabled:              redisEnabled,
 		RedisURL:                  redisURL,
 		SearchURL:                 searchURL,
+		ReportsTimezone:           reportsTimezone,
 		SearchMasterKey:           searchMasterKey,
 		SearchIndexPrefix:         searchIndexPrefix,
 		MediaProvider:             mediaProvider,
