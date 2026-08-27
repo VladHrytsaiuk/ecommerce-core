@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,6 +49,7 @@ type itemRecord struct {
 	Quantity        int
 	UnitPriceAmount int64
 	TotalAmount     int64
+	DiscountAmount  int64
 	Currency        string
 	UnitWeightGrams int
 }
@@ -77,7 +79,11 @@ func (r *Repository) ListByCustomer(ctx context.Context, customerID uuid.UUID, p
 	}
 	orders := make([]domain.Order, 0, len(records))
 	for _, record := range records {
-		orders = append(orders, domain.Order{ID: record.ID, Number: record.Number, CustomerID: record.CustomerID, Status: record.Status, Total: money.Money{Amount: record.TotalAmount, Currency: record.Currency}, CreatedAt: record.CreatedAt})
+		total, err := moneyFromRecord(record.TotalAmount, record.Currency)
+		if err != nil {
+			return domain.Page{}, fmt.Errorf("map order %s total: %w", record.ID, err)
+		}
+		orders = append(orders, domain.Order{ID: record.ID, Number: record.Number, CustomerID: record.CustomerID, Status: record.Status, Total: total, CreatedAt: record.CreatedAt})
 	}
 	return domain.Page{Orders: orders, Total: total}, nil
 }
@@ -95,11 +101,11 @@ func createInTransaction(tx *gorm.DB, order *domain.Order) error {
 		Number:           order.Number,
 		CustomerID:       order.CustomerID,
 		Status:           order.Status,
-		Currency:         order.Total.Currency,
-		SubtotalAmount:   order.Subtotal.Amount,
-		TaxAmount:        order.Tax.Amount,
-		ShippingAmount:   order.Shipping.Amount,
-		TotalAmount:      order.Total.Amount,
+		Currency:         order.Total.Currency(),
+		SubtotalAmount:   order.Subtotal.Amount(),
+		TaxAmount:        order.Tax.Amount(),
+		ShippingAmount:   order.Shipping.Amount(),
+		TotalAmount:      order.Total.Amount(),
 		PaymentProvider:  order.PaymentProvider,
 		DeliveryProvider: order.DeliveryProvider,
 	}
@@ -116,9 +122,10 @@ func createInTransaction(tx *gorm.DB, order *domain.Order) error {
 			ProductName:     item.ProductName,
 			SKU:             item.SKU,
 			Quantity:        item.Quantity,
-			UnitPriceAmount: item.UnitPrice.Amount,
-			TotalAmount:     item.Total.Amount,
-			Currency:        item.Total.Currency,
+			UnitPriceAmount: item.UnitPrice.Amount(),
+			TotalAmount:     item.Total.Amount(),
+			DiscountAmount:  item.Discount.Amount(),
+			Currency:        item.Total.Currency(),
 			UnitWeightGrams: item.UnitWeightGrams,
 		})
 	}
@@ -126,3 +133,11 @@ func createInTransaction(tx *gorm.DB, order *domain.Order) error {
 }
 
 var _ domain.Repository = (*Repository)(nil)
+
+func moneyFromRecord(amount int64, currency string) (money.Money, error) {
+	value, err := money.NewMoney(amount, currency)
+	if err != nil {
+		return money.Money{}, fmt.Errorf("invalid persisted money: %w", err)
+	}
+	return value, nil
+}

@@ -86,16 +86,16 @@ func New(config Config) (*Adapter, error) {
 func (*Adapter) Code() string { return code }
 
 func (a *Adapter) CreateCheckout(_ context.Context, payment paymentsDomain.CheckoutPayment) (paymentsDomain.PaymentSession, error) {
-	if payment.OrderID == uuid.Nil || strings.TrimSpace(payment.IdempotencyKey) == "" || payment.Amount.Amount <= 0 {
+	if payment.OrderID == uuid.Nil || strings.TrimSpace(payment.IdempotencyKey) == "" || payment.Amount.Amount() <= 0 {
 		return paymentsDomain.PaymentSession{}, fmt.Errorf("redsys checkout requires order, amount and idempotency key")
 	}
-	if _, err := money.New(payment.Amount.Amount, payment.Amount.Currency); err != nil || payment.Amount.Currency != a.currency {
+	if err := payment.Amount.Validate(); err != nil || payment.Amount.Currency() != a.currency {
 		return paymentsDomain.PaymentSession{}, fmt.Errorf("redsys checkout currency must be %s", a.currency)
 	}
 	orderRef := orderReference(payment.OrderID)
 	params := map[string]string{
 		"DS_MERCHANT_ORDER": orderRef, "DS_MERCHANT_MERCHANTCODE": a.merchantCode, "DS_MERCHANT_TERMINAL": a.terminal,
-		"DS_MERCHANT_CURRENCY": a.currencyCode, "DS_MERCHANT_TRANSACTIONTYPE": "0", "DS_MERCHANT_AMOUNT": strconv.FormatInt(payment.Amount.Amount, 10),
+		"DS_MERCHANT_CURRENCY": a.currencyCode, "DS_MERCHANT_TRANSACTIONTYPE": "0", "DS_MERCHANT_AMOUNT": strconv.FormatInt(payment.Amount.Amount(), 10),
 		"DS_MERCHANT_MERCHANTURL": a.callbackURL, "DS_MERCHANT_MERCHANTDATA": payment.OrderID.String(),
 	}
 	if value := strings.TrimSpace(payment.ReturnURL); value != "" {
@@ -136,7 +136,7 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request paymentsDomain.Webhoo
 	if err != nil {
 		return paymentsDomain.PaymentEvent{}, fmt.Errorf("redsys webhook amount: %w", err)
 	}
-	amount, err := money.New(amountValue, a.currency)
+	amount, err := money.NewMoney(amountValue, a.currency)
 	if err != nil {
 		return paymentsDomain.PaymentEvent{}, err
 	}
@@ -155,10 +155,10 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request paymentsDomain.Webhoo
 }
 
 func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundRequest) error {
-	if strings.TrimSpace(request.PaymentReference) == "" || strings.TrimSpace(request.IdempotencyKey) == "" || request.Amount.Amount <= 0 || request.Amount.Currency != a.currency {
+	if strings.TrimSpace(request.PaymentReference) == "" || strings.TrimSpace(request.IdempotencyKey) == "" || request.Amount.Amount() <= 0 || request.Amount.Currency() != a.currency {
 		return fmt.Errorf("redsys refund requires payment reference, configured-currency amount and idempotency key")
 	}
-	params := map[string]string{"DS_MERCHANT_ORDER": request.PaymentReference, "DS_MERCHANT_MERCHANTCODE": a.merchantCode, "DS_MERCHANT_TERMINAL": a.terminal, "DS_MERCHANT_CURRENCY": a.currencyCode, "DS_MERCHANT_TRANSACTIONTYPE": "3", "DS_MERCHANT_AMOUNT": strconv.FormatInt(request.Amount.Amount, 10)}
+	params := map[string]string{"DS_MERCHANT_ORDER": request.PaymentReference, "DS_MERCHANT_MERCHANTCODE": a.merchantCode, "DS_MERCHANT_TERMINAL": a.terminal, "DS_MERCHANT_CURRENCY": a.currencyCode, "DS_MERCHANT_TRANSACTIONTYPE": "3", "DS_MERCHANT_AMOUNT": strconv.FormatInt(request.Amount.Amount(), 10)}
 	encoded, signature, err := a.sign(params, request.PaymentReference)
 	if err != nil {
 		return err

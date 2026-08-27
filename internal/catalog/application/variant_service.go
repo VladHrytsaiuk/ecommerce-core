@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 )
 
 // VariantService owns validation of sellable catalog variants. The configured
@@ -53,16 +52,11 @@ func (s *VariantService) validate(variant *domain.ProductVariant) error {
 	if variant.Status != "active" && variant.Status != "archived" {
 		return fmt.Errorf("%w: unsupported variant status %q", domain.ErrInvalidProduct, variant.Status)
 	}
-	if strings.TrimSpace(variant.Price.Currency) == "" {
-		variant.Price.Currency = s.currency
-	}
-	price, err := money.New(variant.Price.Amount, variant.Price.Currency)
-	if err != nil || price.Currency != s.currency {
+	if err := variant.Price.Validate(); err != nil || variant.Price.Currency() != s.currency {
 		return fmt.Errorf("%w: variant price must use configured currency %q", domain.ErrInvalidProduct, s.currency)
 	}
 	if variant.WeightGrams < 0 {
 		return fmt.Errorf("%w: variant weight must not be negative", domain.ErrInvalidProduct)
 	}
-	variant.Price = price
 	return nil
 }

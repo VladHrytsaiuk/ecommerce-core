@@ -28,10 +28,14 @@ func NewAssetUploadedHandler(repository media.AssetRepository, processors ...med
 func (h *AssetUploadedHandler) Topic() string { return media.TopicAssetUploaded }
 func (h *AssetUploadedHandler) Handle(ctx context.Context, delivery events.Delivery) error {
 	var payload struct {
+		Version int       `json:"version"`
 		AssetID uuid.UUID `json:"asset_id"`
 	}
-	if err := json.Unmarshal(delivery.Payload, &payload); err != nil || payload.AssetID == uuid.Nil {
-		return fmt.Errorf("decode media upload event")
+	if delivery.EventID == uuid.Nil || delivery.AggregateID == uuid.Nil || delivery.Topic != media.TopicAssetUploaded {
+		return fmt.Errorf("invalid media upload delivery")
+	}
+	if err := json.Unmarshal(delivery.Payload, &payload); err != nil || payload.Version != 1 || payload.AssetID == uuid.Nil || payload.AssetID != delivery.AggregateID {
+		return fmt.Errorf("invalid media upload event payload")
 	}
 	asset, err := h.repository.Get(ctx, payload.AssetID)
 	if err != nil {

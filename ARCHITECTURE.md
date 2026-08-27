@@ -250,6 +250,11 @@ listener. The management address defaults to loopback and is exposed to an
 orchestrator or monitoring network, never registered on the public API router.
 Transport adapters enrich structured logs with trace and request identifiers;
 domain/application ports remain independent of OpenTelemetry and logging SDKs.
+The transactional Outbox persists only bounded W3C propagation metadata beside
+its immutable event payload, restoring it before a consumer span begins. SQL
+text, bound values, Redis command arguments and event payloads are never trace
+attributes. Completed delivery rows are archived in bounded `SKIP LOCKED`
+batches; immutable events and failed/dead deliveries remain durable history.
 
 The public HTTP boundary evolves through additive versioned route groups. The
 active `/api/v1` contract owns response envelopes, RFC 9457 problem documents,

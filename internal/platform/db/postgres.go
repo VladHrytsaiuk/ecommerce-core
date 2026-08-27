@@ -8,6 +8,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/observability"
 )
 
 type PoolConfig struct {
@@ -34,6 +36,9 @@ func Connect(dsn string, pool PoolConfig) (*gorm.DB, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL connection")
+	}
+	if err := db.Use(observability.NewGORMPlugin()); err != nil {
+		return nil, fmt.Errorf("configure PostgreSQL tracing")
 	}
 	sqlDB, err := db.DB()
 	if err != nil {

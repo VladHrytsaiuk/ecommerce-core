@@ -136,10 +136,10 @@ func TestExpirePendingCheckoutReleasesInventoryAndPromo(t *testing.T) {
 	}
 	promoRepository := NewRepository(db)
 	workflow := workflowApp.NewService(workflowPostgres.NewRepository(db, false).WithTransactionHook(promosApp.NewWorkflowHook(promoRepository)))
-	price, _ := money.New(1000, "EUR")
-	discounted, _ := money.New(900, "EUR")
-	discount, _ := money.New(100, "EUR")
-	order, err := workflow.CreatePendingCheckout(ctx, ordersDomain.Draft{Number: "TTL-1", ExpiresAt: time.Now().Add(time.Minute), Subtotal: discounted, Tax: money.Money{Currency: "EUR"}, Shipping: money.Money{Currency: "EUR"}, Total: discounted, PaymentProvider: "fake", Items: []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "TTL-CREAM", Quantity: 1, UnitPrice: price, Total: price}}, Promotion: &ordersDomain.Promotion{Code: "TTL10", Type: "percent", Value: 1000, Discount: discount}}, []uuid.UUID{reservationID}, workflowDomain.CheckoutAttemptRequest{Provider: "fake", IdempotencyKey: "ttl-checkout", Amount: discounted, ExpiresAt: time.Now().Add(time.Minute)})
+	price := mustMoney(1000, "EUR")
+	discounted := mustMoney(900, "EUR")
+	discount := mustMoney(100, "EUR")
+	order, err := workflow.CreatePendingCheckout(ctx, ordersDomain.Draft{Number: "TTL-1", ExpiresAt: time.Now().Add(time.Minute), Subtotal: discounted, Tax: mustMoney(0, "EUR"), Shipping: mustMoney(0, "EUR"), Total: discounted, PaymentProvider: "fake", Items: []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "TTL-CREAM", Quantity: 1, UnitPrice: price, Total: price}}, Promotion: &ordersDomain.Promotion{Code: "TTL10", Type: "percent", Value: 1000, Discount: discount}}, []uuid.UUID{reservationID}, workflowDomain.CheckoutAttemptRequest{Provider: "fake", IdempotencyKey: "ttl-checkout", Amount: discounted, ExpiresAt: time.Now().Add(time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,4 +222,12 @@ func rootDir(t *testing.T) string {
 		t.Fatal("discover repository root")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", ".."))
+}
+
+func mustMoney(amount int64, currency string) money.Money {
+	value, err := money.NewMoney(amount, currency)
+	if err != nil {
+		panic(err)
+	}
+	return value
 }

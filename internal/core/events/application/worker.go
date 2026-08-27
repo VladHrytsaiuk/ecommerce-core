@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/observability"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/sanitize"
 )
 
@@ -69,6 +70,9 @@ func (w *OutboxWorker) DispatchOnce(ctx context.Context) error {
 	if err != nil || event == nil {
 		return err
 	}
+	ctx = observability.ExtractOutboxTraceContext(ctx, observability.OutboxTraceContext{TraceParent: event.TraceParent, TraceState: event.TraceState, RequestID: event.RequestID})
+	ctx, span := observability.StartOutboxProcess(ctx, event.Topic, event.Consumer, event.EventID.String(), event.Attempts)
+	defer span.End()
 	if w.logger != nil {
 		w.logger.Infow("event outbox delivery claimed", "event_id", event.EventID, "topic", event.Topic, "consumer", event.Consumer, "attempt", event.Attempts)
 	}

@@ -229,7 +229,7 @@ func (c StoreConfig) Validate() error {
 			return fmt.Errorf("locale %q must be a valid lowercase locale code up to 10 characters", locale)
 		}
 	}
-	if _, err := money.New(0, c.Currency); err != nil {
+	if _, err := money.NewMoney(0, c.Currency); err != nil {
 		return fmt.Errorf("CURRENCY %q must be a three-letter ISO 4217 code", c.Currency)
 	}
 	if c.PriceScale < 0 || c.PriceScale > 6 {

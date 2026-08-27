@@ -84,10 +84,10 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	}
 	seedOrderPaidTemplate(t, db)
 	variantID, _, reservationID := seedReservation(t, db)
-	price, _ := money.New(1000, "EUR")
+	price := mustMoney(1000, "EUR")
 	service := workflowApp.NewService(NewRepository(db, true).WithEventPublisher(eventsPostgres.NewPublisher(eventsDomain.ConsumerNotifications)))
 	order, err := service.CreatePendingCheckout(ctx, ordersDomain.Draft{
-		Number: "ES-300", Subtotal: price, Tax: money.Money{Currency: "EUR"}, Total: price, PaymentProvider: "fake", DeliveryProvider: "novaposhta",
+		Number: "ES-300", Subtotal: price, Tax: mustMoney(0, "EUR"), Total: price, PaymentProvider: "fake", DeliveryProvider: "novaposhta",
 		Delivery: &ordersDomain.DeliveryDetails{RecipientName: "Iryna Customer", RecipientPhone: "+34123456789", CountryCode: "ES", City: "Madrid", LocalityID: "madrid", ServicePointID: "branch-1"},
 		Contact:  &ordersDomain.ContactDetails{Email: "iryna@example.com", Locale: "es"},
 		Items:    []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "CREAM-50", Quantity: 1, UnitPrice: price, Total: price, UnitWeightGrams: 275}},
@@ -216,7 +216,7 @@ func TestLatePaidWebhookWithoutPersistedPaymentCreatesOneAnomaly(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := workflowApp.NewService(NewRepository(db, false))
-	event := paymentsDomain.PaymentEvent{EventID: "late-paid-event", Provider: "fake", OrderID: orderID, ProviderReference: "captured-after-expiry", Status: "paid", Amount: money.Money{Amount: 1000, Currency: "EUR"}}
+	event := paymentsDomain.PaymentEvent{EventID: "late-paid-event", Provider: "fake", OrderID: orderID, ProviderReference: "captured-after-expiry", Status: "paid", Amount: mustMoney(1000, "EUR")}
 	registry, err := paymentsApp.NewRegistry([]string{"fake"}, "fake", latePaidGateway{event: event})
 	if err != nil {
 		t.Fatalf("create gateway registry: %v", err)
@@ -399,4 +399,12 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatal("discover repository root")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", ".."))
+}
+
+func mustMoney(amount int64, currency string) money.Money {
+	value, err := money.NewMoney(amount, currency)
+	if err != nil {
+		panic(err)
+	}
+	return value
 }

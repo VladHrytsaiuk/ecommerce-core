@@ -39,7 +39,7 @@ func TestQuoteMapsNeutralRequestToMyDHL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(options) != 1 || options[0].Code != "P" || options[0].Amount.Amount != 1234 || options[0].Amount.Currency != "EUR" {
+	if len(options) != 1 || options[0].Code != "P" || options[0].Amount.Amount() != 1234 || options[0].Amount.Currency() != "EUR" {
 		t.Fatalf("options = %#v", options)
 	}
 }
@@ -58,7 +58,7 @@ func TestCreateShipmentUsesStableMessageReference(t *testing.T) {
 	defer server.Close()
 
 	adapter := testAdapter(t, server.URL, server.Client())
-	declared, err := money.New(1999, "EUR")
+	declared, err := money.NewMoney(1999, "EUR")
 	if err != nil {
 		t.Fatal(err)
 	}

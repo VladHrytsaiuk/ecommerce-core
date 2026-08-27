@@ -110,6 +110,7 @@ type itemRecord struct {
 	Quantity        int
 	UnitPriceAmount int64
 	TotalAmount     int64
+	DiscountAmount  int64
 	Currency        string
 	UnitWeightGrams int
 }
@@ -261,7 +262,7 @@ func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Orde
 			if markPaid {
 				status = "created"
 			}
-			if err := tx.Create(&paymentCheckoutAttemptRecord{OrderID: order.ID, Provider: attempt.Provider, IdempotencyKey: attempt.IdempotencyKey, Amount: attempt.Amount.Amount, Currency: attempt.Amount.Currency, Status: status, Attempts: 1, ExpiresAt: attempt.ExpiresAt}).Error; err != nil {
+			if err := tx.Create(&paymentCheckoutAttemptRecord{OrderID: order.ID, Provider: attempt.Provider, IdempotencyKey: attempt.IdempotencyKey, Amount: attempt.Amount.Amount(), Currency: attempt.Amount.Currency(), Status: status, Attempts: 1, ExpiresAt: attempt.ExpiresAt}).Error; err != nil {
 				return err
 			}
 		}
@@ -318,9 +319,9 @@ func enqueueOrderCreated(tx *gorm.DB, order *ordersDomain.Order) error {
 		items = append(items, orderCreatedItem{VariantID: item.VariantID, SKU: item.SKU, Quantity: item.Quantity})
 	}
 	payload, err := json.Marshal(orderCreatedEvent{
-		Version: 1, OrderID: order.ID, Number: order.Number, Currency: order.Total.Currency,
-		Subtotal: order.Subtotal.Amount, Tax: order.Tax.Amount, Shipping: order.Shipping.Amount,
-		Total: order.Total.Amount, Items: items,
+		Version: 1, OrderID: order.ID, Number: order.Number, Currency: order.Total.Currency(),
+		Subtotal: order.Subtotal.Amount(), Tax: order.Tax.Amount(), Shipping: order.Shipping.Amount(),
+		Total: order.Total.Amount(), Items: items,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal sync order.created event: %w", err)
@@ -341,13 +342,13 @@ func (r *Repository) RegisterPayment(ctx context.Context, attempt workflowDomain
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", attempt.OrderID).Error; err != nil {
 			return workflowDomain.ErrPaymentMismatch
 		}
-		if order.Status != ordersDomain.StatusPendingPayment || order.PaymentProvider != attempt.Provider || order.TotalAmount != attempt.Amount.Amount || order.Currency != attempt.Amount.Currency {
+		if order.Status != ordersDomain.StatusPendingPayment || order.PaymentProvider != attempt.Provider || order.TotalAmount != attempt.Amount.Amount() || order.Currency != attempt.Amount.Currency() {
 			return workflowDomain.ErrPaymentMismatch
 		}
 		var existing paymentRecord
 		err := tx.First(&existing, "order_id = ? AND provider = ?", attempt.OrderID, attempt.Provider).Error
 		if err == nil {
-			if existing.ProviderReference == attempt.ProviderReference && existing.Amount == attempt.Amount.Amount && existing.Currency == attempt.Amount.Currency {
+			if existing.ProviderReference == attempt.ProviderReference && existing.Amount == attempt.Amount.Amount() && existing.Currency == attempt.Amount.Currency() {
 				return nil
 			}
 			return workflowDomain.ErrPaymentMismatch
@@ -356,7 +357,7 @@ func (r *Repository) RegisterPayment(ctx context.Context, attempt workflowDomain
 			return err
 		}
 
-		if err := tx.Create(&paymentRecord{ID: uuid.New(), OrderID: attempt.OrderID, Provider: attempt.Provider, ProviderReference: attempt.ProviderReference, Status: "pending", Amount: attempt.Amount.Amount, Currency: attempt.Amount.Currency}).Error; err != nil {
+		if err := tx.Create(&paymentRecord{ID: uuid.New(), OrderID: attempt.OrderID, Provider: attempt.Provider, ProviderReference: attempt.ProviderReference, Status: "pending", Amount: attempt.Amount.Amount(), Currency: attempt.Amount.Currency()}).Error; err != nil {
 			return err
 		}
 		result := tx.Model(&paymentCheckoutAttemptRecord{}).Where("order_id = ? AND provider = ? AND status IN ?", attempt.OrderID, attempt.Provider, []string{"creating", "processing"}).Updates(map[string]any{"status": "created", "provider_reference": attempt.ProviderReference, "locked_at": nil, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")})
@@ -390,8 +391,8 @@ func (r *Repository) RecordCheckoutAttempt(ctx context.Context, req workflowDoma
 			OrderID:        req.OrderID,
 			Provider:       req.Provider,
 			IdempotencyKey: req.IdempotencyKey,
-			Amount:         req.Amount.Amount,
-			Currency:       req.Amount.Currency,
+			Amount:         req.Amount.Amount(),
+			Currency:       req.Amount.Currency(),
 			Status:         "creating",
 			Attempts:       1,
 			ExpiresAt:      time.Now().UTC().Add(30 * time.Minute),
@@ -411,9 +412,9 @@ func (r *Repository) FindCheckoutAttempt(ctx context.Context, idempotencyKey str
 	if err := r.db.WithContext(ctx).First(&order, "id = ?", record.OrderID).Error; err != nil {
 		return nil, err
 	}
-	amount, err := money.New(record.Amount, record.Currency)
+	amount, err := moneyFromRecord(record.Amount, record.Currency)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("map checkout attempt %s amount: %w", record.OrderID, err)
 	}
 	return &workflowDomain.CheckoutAttempt{OrderID: record.OrderID, OrderNumber: order.Number, OrderStatus: order.Status, Provider: record.Provider, IdempotencyKey: record.IdempotencyKey, Amount: amount, Status: record.Status, Attempts: record.Attempts, CreatedAt: record.CreatedAt, ExpiresAt: record.ExpiresAt}, nil
 }
@@ -438,9 +439,9 @@ func (r *Repository) ClaimPendingCheckoutAttempt(ctx context.Context, olderThan,
 		if err := tx.Model(&record).Updates(map[string]any{"status": "processing", "locked_at": now, "attempts": gorm.Expr("attempts + 1"), "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
 			return err
 		}
-		amount, err := money.New(record.Amount, record.Currency)
+		amount, err := moneyFromRecord(record.Amount, record.Currency)
 		if err != nil {
-			return err
+			return fmt.Errorf("map checkout attempt %s amount: %w", record.OrderID, err)
 		}
 		claimed = &workflowDomain.CheckoutAttempt{OrderID: record.OrderID, Provider: record.Provider, IdempotencyKey: record.IdempotencyKey, Amount: amount, Status: "processing", Attempts: record.Attempts + 1, CreatedAt: record.CreatedAt, ExpiresAt: record.ExpiresAt}
 		return nil
@@ -489,7 +490,7 @@ func (r *Repository) MarkRefunded(ctx context.Context, confirmation workflowDoma
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&payment, "order_id = ? AND provider = ?", confirmation.OrderID, confirmation.Provider).Error; err != nil {
 			return workflowDomain.ErrPaymentMismatch
 		}
-		if order.PaymentProvider != confirmation.Provider || order.TotalAmount != confirmation.Amount.Amount || order.Currency != confirmation.Amount.Currency || payment.ProviderReference != confirmation.ProviderReference || payment.Amount != confirmation.Amount.Amount || payment.Currency != confirmation.Amount.Currency {
+		if order.PaymentProvider != confirmation.Provider || order.TotalAmount != confirmation.Amount.Amount() || order.Currency != confirmation.Amount.Currency() || payment.ProviderReference != confirmation.ProviderReference || payment.Amount != confirmation.Amount.Amount() || payment.Currency != confirmation.Amount.Currency() {
 			return workflowDomain.ErrPaymentMismatch
 		}
 		if order.Status == ordersDomain.StatusRefunded && payment.Status == "refunded" {
@@ -540,15 +541,15 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirma
 			// and durably open a manual-reconciliation case; never retry a captured
 			// payment indefinitely.
 			if order.Status == ordersDomain.StatusCancelled && targetStatus == ordersDomain.StatusPaid {
-				if order.PaymentProvider != confirmation.Provider || order.TotalAmount != confirmation.Amount.Amount || order.Currency != confirmation.Amount.Currency {
+				if order.PaymentProvider != confirmation.Provider || order.TotalAmount != confirmation.Amount.Amount() || order.Currency != confirmation.Amount.Currency() {
 					return workflowDomain.ErrPaymentMismatch
 				}
-				return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "order_id"}, {Name: "provider"}, {Name: "provider_reference"}, {Name: "reason"}}, DoNothing: true}).Create(&paymentAnomalyRecord{ID: uuid.New(), OrderID: orderID, Provider: confirmation.Provider, ProviderReference: confirmation.ProviderReference, Amount: confirmation.Amount.Amount, Currency: confirmation.Amount.Currency, Reason: "paid_after_cancelled", Status: "open"}).Error
+				return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "order_id"}, {Name: "provider"}, {Name: "provider_reference"}, {Name: "reason"}}, DoNothing: true}).Create(&paymentAnomalyRecord{ID: uuid.New(), OrderID: orderID, Provider: confirmation.Provider, ProviderReference: confirmation.ProviderReference, Amount: confirmation.Amount.Amount(), Currency: confirmation.Amount.Currency(), Reason: "paid_after_cancelled", Status: "open"}).Error
 			}
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&payment, "order_id = ? AND provider = ?", orderID, confirmation.Provider).Error; err != nil {
 				return workflowDomain.ErrPaymentMismatch
 			}
-			if order.PaymentProvider != confirmation.Provider || payment.ProviderReference != confirmation.ProviderReference || payment.Amount != confirmation.Amount.Amount || payment.Currency != confirmation.Amount.Currency {
+			if order.PaymentProvider != confirmation.Provider || payment.ProviderReference != confirmation.ProviderReference || payment.Amount != confirmation.Amount.Amount() || payment.Currency != confirmation.Amount.Currency() {
 				return workflowDomain.ErrPaymentMismatch
 			}
 			if order.Status == targetStatus && ((targetStatus == ordersDomain.StatusPaid && payment.Status == "paid") || (targetStatus == ordersDomain.StatusCancelled && (payment.Status == "failed" || payment.Status == "cancelled"))) {
@@ -640,7 +641,11 @@ func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order ord
 		}
 	}
 	if targetStatus == ordersDomain.StatusPaid && r.events != nil {
-		event, err := eventsDomain.NewOrderPaidEvent(orderID, order.Number, money.Money{Amount: order.TotalAmount, Currency: order.Currency}, time.Now().UTC())
+		total, err := moneyFromRecord(order.TotalAmount, order.Currency)
+		if err != nil {
+			return fmt.Errorf("map paid order %s total: %w", orderID, err)
+		}
+		event, err := eventsDomain.NewOrderPaidEvent(orderID, order.Number, total, time.Now().UTC())
 		if err != nil {
 			return err
 		}
@@ -682,11 +687,11 @@ func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
 	if order.CartID != uuid.Nil {
 		cartID = &order.CartID
 	}
-	record := orderRecord{ID: order.ID, CartID: cartID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency, SubtotalAmount: order.Subtotal.Amount, TaxAmount: order.Tax.Amount, ShippingAmount: order.Shipping.Amount, TotalAmount: order.Total.Amount, PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider, ExpiresAt: order.ExpiresAt}
+	record := orderRecord{ID: order.ID, CartID: cartID, Number: order.Number, CustomerID: order.CustomerID, Status: order.Status, Currency: order.Total.Currency(), SubtotalAmount: order.Subtotal.Amount(), TaxAmount: order.Tax.Amount(), ShippingAmount: order.Shipping.Amount(), TotalAmount: order.Total.Amount(), PaymentProvider: order.PaymentProvider, DeliveryProvider: order.DeliveryProvider, ExpiresAt: order.ExpiresAt}
 	if order.Promotion != nil {
 		code := order.Promotion.Code
 		record.AppliedPromoCode = &code
-		record.DiscountAmount = order.Promotion.Discount.Amount
+		record.DiscountAmount = order.Promotion.Discount.Amount()
 		record.PromoSnapshotType = &order.Promotion.Type
 		record.PromoSnapshotValue = &order.Promotion.Value
 		if order.Promotion.Currency != "" {
@@ -705,7 +710,7 @@ func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
 	}
 	items := make([]itemRecord, 0, len(order.Items))
 	for _, item := range order.Items {
-		items = append(items, itemRecord{ID: uuid.New(), OrderID: order.ID, VariantID: item.VariantID, ProductName: item.ProductName, SKU: item.SKU, Quantity: item.Quantity, UnitPriceAmount: item.UnitPrice.Amount, TotalAmount: item.Total.Amount, Currency: item.Total.Currency, UnitWeightGrams: item.UnitWeightGrams})
+		items = append(items, itemRecord{ID: uuid.New(), OrderID: order.ID, VariantID: item.VariantID, ProductName: item.ProductName, SKU: item.SKU, Quantity: item.Quantity, UnitPriceAmount: item.UnitPrice.Amount(), TotalAmount: item.Total.Amount(), DiscountAmount: item.Discount.Amount(), Currency: item.Total.Currency(), UnitWeightGrams: item.UnitWeightGrams})
 	}
 	return tx.Create(&items).Error
 }
@@ -722,3 +727,11 @@ func lockReservations(tx *gorm.DB, reservationIDs []uuid.UUID) ([]reservationRec
 }
 
 var _ workflowDomain.Repository = (*Repository)(nil)
+
+func moneyFromRecord(amount int64, currency string) (money.Money, error) {
+	value, err := money.NewMoney(amount, currency)
+	if err != nil {
+		return money.Money{}, fmt.Errorf("invalid persisted money: %w", err)
+	}
+	return value, nil
+}

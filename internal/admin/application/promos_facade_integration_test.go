@@ -163,6 +163,7 @@ func applyAuditIntegrationSchema(db *gorm.DB) error {
 	for _, migration := range []string{
 		"migrations/modules/admin/000001_init_rbac.up.sql",
 		"migrations/core/000005_add_event_outbox_and_order_contacts.up.sql",
+		"migrations/core/000009_harden_outbox_retention_and_trace_context.up.sql",
 		"migrations/modules/promos/000001_init_promos.up.sql",
 		"migrations/modules/admin/000002_add_audit_logs.up.sql",
 	} {

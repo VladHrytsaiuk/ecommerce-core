@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	deliveryDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
 )
 
@@ -36,7 +35,7 @@ func TestQuoteMapsNeutralRequestToNovaPoshtaAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Quote() error = %v", err)
 	}
-	if len(options) != 1 || options[0].Code != "warehouse" || options[0].Amount.Amount != 7550 || options[0].Amount.Currency != "UAH" {
+	if len(options) != 1 || options[0].Code != "warehouse" || options[0].Amount.Amount() != 7550 || options[0].Amount.Currency() != "UAH" {
 		t.Fatalf("options = %+v", options)
 	}
 }
@@ -55,7 +54,7 @@ func TestCreateShipmentMapsNeutralRequestAndStableKey(t *testing.T) {
 	defer server.Close()
 
 	adapter := newAdapter(t, server)
-	declaredValue, _ := money.New(12345, "UAH")
+	declaredValue := mustMoney(12345, "UAH")
 	shipment, err := adapter.CreateShipment(context.Background(), deliveryDomain.CreateShipmentRequest{
 		OrderID:        uuid.New(),
 		IdempotencyKey: "shipment-42",

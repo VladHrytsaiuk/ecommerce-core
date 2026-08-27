@@ -16,7 +16,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 )
 
@@ -39,7 +38,7 @@ func TestCreateCheckoutCreatesIdempotentPaymentIntent(t *testing.T) {
 	defer server.Close()
 
 	adapter := newAdapter(t, server.URL)
-	amount, _ := money.New(12345, "EUR")
+	amount := mustMoney(12345, "EUR")
 	orderID := uuid.New()
 	session, err := adapter.CreateCheckout(context.Background(), paymentsDomain.CheckoutPayment{OrderID: orderID, IdempotencyKey: "checkout-123", Amount: amount})
 	if err != nil {
@@ -63,7 +62,7 @@ func TestVerifyWebhookChecksRawPayloadSignatureAndMapsPaidEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyWebhook() error = %v", err)
 	}
-	if event.EventID != "evt_123" || event.OrderID != orderID || event.ProviderReference != "pi_123" || event.Status != "paid" || event.Amount.Amount != 12345 || event.Amount.Currency != "EUR" {
+	if event.EventID != "evt_123" || event.OrderID != orderID || event.ProviderReference != "pi_123" || event.Status != "paid" || event.Amount.Amount() != 12345 || event.Amount.Currency() != "EUR" {
 		t.Fatalf("event = %+v", event)
 	}
 
@@ -83,7 +82,7 @@ func TestVerifyWebhookUsesIntentAmountForFailedPayment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyWebhook() error = %v", err)
 	}
-	if event.Status != "failed" || event.Amount.Amount != 12345 || event.Amount.Currency != "EUR" {
+	if event.Status != "failed" || event.Amount.Amount() != 12345 || event.Amount.Currency() != "EUR" {
 		t.Fatalf("event = %+v", event)
 	}
 }
@@ -104,7 +103,7 @@ func TestRefundUsesPaymentIntentAndIdempotencyKey(t *testing.T) {
 	defer server.Close()
 
 	adapter := newAdapter(t, server.URL)
-	amount, _ := money.New(500, "EUR")
+	amount := mustMoney(500, "EUR")
 	if err := adapter.Refund(context.Background(), paymentsDomain.RefundRequest{PaymentReference: "pi_123", Amount: amount, IdempotencyKey: "refund-123"}); err != nil {
 		t.Fatalf("Refund() error = %v", err)
 	}

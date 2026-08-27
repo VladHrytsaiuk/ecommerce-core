@@ -61,6 +61,9 @@ type Delivery struct {
 	Consumer      string
 	Attempts      int
 	OccurredAt    time.Time
+	TraceParent   string
+	TraceState    string
+	RequestID     string
 }
 
 // DeliveryStore owns the lease lifecycle for a consumer-specific delivery.
@@ -80,7 +83,7 @@ type OrderPaidEvent struct {
 }
 
 func NewOrderPaidEvent(orderID uuid.UUID, orderNumber string, total money.Money, paidAt time.Time) (OrderPaidEvent, error) {
-	if orderID == uuid.Nil || strings.TrimSpace(orderNumber) == "" || total.Amount < 0 || strings.TrimSpace(total.Currency) == "" {
+	if orderID == uuid.Nil || strings.TrimSpace(orderNumber) == "" || total.Validate() != nil {
 		return OrderPaidEvent{}, fmt.Errorf("invalid order paid event")
 	}
 	if paidAt.IsZero() {
@@ -103,7 +106,7 @@ func (e OrderPaidEvent) MarshalPayload() ([]byte, error) {
 		TotalAmount int64     `json:"total_amount"`
 		Currency    string    `json:"currency"`
 		PaidAt      time.Time `json:"paid_at"`
-	}{Version: 1, OrderID: e.OrderID, OrderNumber: e.OrderNumber, TotalAmount: e.Total.Amount, Currency: e.Total.Currency, PaidAt: e.PaidAt})
+	}{Version: 1, OrderID: e.OrderID, OrderNumber: e.OrderNumber, TotalAmount: e.Total.Amount(), Currency: e.Total.Currency(), PaidAt: e.PaidAt})
 }
 
 // OrderRefundedEvent is emitted after a verified full refund committed locally.
@@ -114,7 +117,7 @@ type OrderRefundedEvent struct {
 }
 
 func NewOrderRefundedEvent(orderID uuid.UUID, total money.Money, occurredAt time.Time) (OrderRefundedEvent, error) {
-	if orderID == uuid.Nil || total.Amount < 0 || strings.TrimSpace(total.Currency) == "" {
+	if orderID == uuid.Nil || total.Validate() != nil {
 		return OrderRefundedEvent{}, fmt.Errorf("invalid order refunded event")
 	}
 	if occurredAt.IsZero() {
@@ -134,7 +137,7 @@ func (e OrderRefundedEvent) MarshalPayload() ([]byte, error) {
 		Amount     int64     `json:"amount_minor"`
 		Currency   string    `json:"currency"`
 		RefundedAt time.Time `json:"refunded_at"`
-	}{1, e.OrderID, e.Total.Amount, e.Total.Currency, e.At})
+	}{1, e.OrderID, e.Total.Amount(), e.Total.Currency(), e.At})
 }
 
 // CartCreatedEvent and CheckoutStartedEvent contain no customer, contact, or

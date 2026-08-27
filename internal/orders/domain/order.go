@@ -22,6 +22,7 @@ type Item struct {
 	Quantity        int
 	UnitPrice       money.Money
 	Total           money.Money
+	Discount        money.Money
 	UnitWeightGrams int
 }
 type Draft struct {

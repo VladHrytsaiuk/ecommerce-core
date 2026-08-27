@@ -53,7 +53,7 @@ func (c *CheckoutPriceCalculator) Calculate(_ context.Context, request PriceCalc
 	if err != nil {
 		return Price{}, err
 	}
-	zero, err := money.New(0, breakdown.Total.Currency)
+	zero, err := money.NewMoney(0, breakdown.Total.Currency())
 	if err != nil {
 		return Price{}, err
 	}

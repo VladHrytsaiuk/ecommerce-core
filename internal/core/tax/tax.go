@@ -55,32 +55,41 @@ func NewPolicy(mode Mode, vatRate int) (*Policy, error) {
 }
 
 func (p *Policy) Calculate(amount money.Money) (Breakdown, error) {
-	if _, err := money.New(amount.Amount, amount.Currency); err != nil {
+	if err := amount.Validate(); err != nil {
 		return Breakdown{}, err
 	}
 
 	switch p.mode {
 	case ModeNone:
-		zero, _ := money.New(0, amount.Currency)
-		return Breakdown{Subtotal: amount, Tax: zero, Total: amount}, nil
-	case ModeVATExcluded:
-		taxAmount, err := roundedPercent(amount.Amount, int64(p.vatRate), 100)
+		zero, err := money.NewMoney(0, amount.Currency())
 		if err != nil {
 			return Breakdown{}, err
 		}
-		taxValue, _ := money.New(taxAmount, amount.Currency)
+		return Breakdown{Subtotal: amount, Tax: zero, Total: amount}, nil
+	case ModeVATExcluded:
+		taxAmount, err := roundedPercent(amount.Amount(), int64(p.vatRate), 100)
+		if err != nil {
+			return Breakdown{}, err
+		}
+		taxValue, err := money.NewMoney(taxAmount, amount.Currency())
+		if err != nil {
+			return Breakdown{}, err
+		}
 		total, err := amount.Add(taxValue)
 		if err != nil {
 			return Breakdown{}, err
 		}
 		return Breakdown{Subtotal: amount, Tax: taxValue, Total: total}, nil
 	case ModeVATIncluded:
-		taxAmount, err := roundedPercent(amount.Amount, int64(p.vatRate), 100+int64(p.vatRate))
+		taxAmount, err := roundedPercent(amount.Amount(), int64(p.vatRate), 100+int64(p.vatRate))
 		if err != nil {
 			return Breakdown{}, err
 		}
-		taxValue, _ := money.New(taxAmount, amount.Currency)
-		subtotal, err := money.New(amount.Amount-taxAmount, amount.Currency)
+		taxValue, err := money.NewMoney(taxAmount, amount.Currency())
+		if err != nil {
+			return Breakdown{}, err
+		}
+		subtotal, err := money.NewMoney(amount.Amount()-taxAmount, amount.Currency())
 		if err != nil {
 			return Breakdown{}, err
 		}

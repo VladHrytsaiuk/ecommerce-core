@@ -53,17 +53,22 @@ func TestTransitionDelegatesByOrderID(t *testing.T) {
 }
 
 func paymentConfirmation(orderID uuid.UUID) workflowDomain.PaymentConfirmation {
-	amount, _ := money.New(1000, "EUR")
+	amount := mustMoney(1000, "EUR")
 	return workflowDomain.PaymentConfirmation{PaymentAttempt: workflowDomain.PaymentAttempt{OrderID: orderID, Provider: "fake", ProviderReference: "payment-1", Amount: amount}, Status: "paid"}
 }
 
 func validDraft(t *testing.T) ordersDomain.Draft {
 	t.Helper()
-	price, err := money.New(1000, "EUR")
+	price := mustMoney(1000, "EUR")
+	return ordersDomain.Draft{Number: "ES-100", Subtotal: price, Tax: mustMoney(0, "EUR"), Total: price, Items: []ordersDomain.Item{{ProductName: "Cream", Quantity: 1, UnitPrice: price, Total: price}}}
+}
+
+func mustMoney(amount int64, currency string) money.Money {
+	value, err := money.NewMoney(amount, currency)
 	if err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
-	return ordersDomain.Draft{Number: "ES-100", Subtotal: price, Tax: money.Money{Amount: 0, Currency: "EUR"}, Total: price, Items: []ordersDomain.Item{{ProductName: "Cream", Quantity: 1, UnitPrice: price, Total: price}}}
+	return value
 }
 
 type fakeRepository struct {
@@ -116,6 +121,8 @@ func (r *fakeRepository) MarkPaid(_ context.Context, confirmation workflowDomain
 func (*fakeRepository) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil
 }
-func (*fakeRepository) MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error { return nil }
+func (*fakeRepository) MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error {
+	return nil
+}
 
 var _ workflowDomain.Repository = (*fakeRepository)(nil)

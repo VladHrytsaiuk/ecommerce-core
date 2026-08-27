@@ -29,7 +29,7 @@ type webhookEventRecord struct {
 func (webhookEventRecord) TableName() string { return "payment_webhook_events" }
 
 func (s *WebhookEventStore) Claim(ctx context.Context, provider string, event paymentsDomain.PaymentEvent) (bool, error) {
-	record := webhookEventRecord{ID: uuid.New(), Provider: provider, EventID: event.EventID, OrderID: event.OrderID, ProviderReference: event.ProviderReference, EventStatus: event.Status, Amount: event.Amount.Amount, Currency: event.Amount.Currency, ProcessingStatus: "processing"}
+	record := webhookEventRecord{ID: uuid.New(), Provider: provider, EventID: event.EventID, OrderID: event.OrderID, ProviderReference: event.ProviderReference, EventStatus: event.Status, Amount: event.Amount.Amount(), Currency: event.Amount.Currency(), ProcessingStatus: "processing"}
 	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "provider"}, {Name: "event_id"}}, DoNothing: true}).Create(&record)
 	if result.Error != nil {
 		return false, result.Error

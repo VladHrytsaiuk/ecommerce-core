@@ -106,6 +106,12 @@ enabled; its in-memory implementation is only the explicit local fallback.
 The PostgreSQL client uses a bounded production pool (25 open / 10 idle
 connections, 30-minute maximum lifetime and 5-minute maximum idle time).
 
+Money values use non-negative minor units and ISO-4217 codes. The application
+and the `supported_currencies` core table are versioned together from the
+pinned `golang.org/x/text` currency registry. Upgrade that dependency only
+with a forward migration that adds any newly accepted codes; do not edit an
+applied seed migration.
+
 ### Optional product search projection
 
 Set `ENABLED_MODULES=...,search` to enable the asynchronous Meilisearch
@@ -287,6 +293,13 @@ set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT` to an OTLP/HTTP
 collector address such as `otel-collector:4318`. Structured logs emitted with
 `logger.WithContext(ctx)` automatically include `request_id`, `trace_id`, and
 `span_id`.
+
+The same W3C trace context is persisted as bounded metadata with each Outbox
+event and restored by its consumer, so asynchronous projections remain linked
+to the originating checkout or admin request. PostgreSQL and Redis spans never
+record SQL text, bind values, or cache command arguments. Terminal Outbox
+deliveries are archived in bounded batches after `OUTBOX_DONE_RETENTION`
+(default `720h`); immutable `domain_events` are retained for Audit and Reports.
 
 ### Local observability stack
 

@@ -6,14 +6,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 )
 
 func TestCreateStoresValidatedPendingPaymentSnapshot(t *testing.T) {
-	price, _ := money.New(1000, "EUR")
-	tax, _ := money.New(200, "EUR")
-	total, _ := money.New(1200, "EUR")
+	price := mustMoney(1000, "EUR")
+	tax := mustMoney(200, "EUR")
+	total := mustMoney(1200, "EUR")
 	repo := &fakeRepo{}
 	order, err := NewService(repo).Create(context.Background(), domain.Draft{Number: "ES-1", Subtotal: price, Tax: tax, Total: total, Items: []domain.Item{{ProductName: "Cream", Quantity: 1, UnitPrice: price, Total: price}}})
 	if err != nil || !repo.created || order.Status != domain.StatusPendingPayment {

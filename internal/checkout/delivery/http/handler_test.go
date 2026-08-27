@@ -13,7 +13,6 @@ import (
 
 	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
@@ -175,7 +174,7 @@ func (s *fakeCheckout) PreparePayment(context.Context, checkoutDomain.PrepareReq
 }
 func (s *fakeCheckout) StartPayment(_ context.Context, request checkoutDomain.StartPaymentRequest) (*checkoutDomain.StartedCheckout, error) {
 	s.request = request
-	amount, _ := money.New(100, "EUR")
+	amount := mustMoney(100, "EUR")
 	order := &ordersDomain.Order{ID: uuid.New(), Number: "STORE-1", PaymentProvider: "liqpay"}
 	return &checkoutDomain.StartedCheckout{Prepared: &checkoutDomain.PreparedCheckout{ExpiresAt: request.Preparation.ExpiresAt, Total: amount}, Order: order, Session: paymentsDomain.PaymentSession{ProviderReference: "payment-1", RedirectURL: "https://pay.example", ClientSecret: s.clientSecret}}, nil
 }

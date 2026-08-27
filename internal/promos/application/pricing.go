@@ -46,7 +46,7 @@ func (c *PromoCalculatorDecorator) Calculate(ctx context.Context, request checko
 	if err != nil {
 		return checkoutDomain.Price{}, err
 	}
-	taxable, err := money.New(request.Subtotal.Amount-discount.Amount, request.Subtotal.Currency)
+	taxable, err := request.Subtotal.Subtract(discount)
 	if err != nil {
 		return checkoutDomain.Price{}, err
 	}
@@ -67,24 +67,24 @@ func calculateDiscount(subtotal money.Money, promo promosDomain.Code) (money.Mon
 			return money.Money{}, promosDomain.ErrInvalidCode
 		}
 		// Discount values are basis points. This split avoids int64 overflow.
-		whole := subtotal.Amount / 10000
-		remainder := subtotal.Amount % 10000
+		whole := subtotal.Amount() / 10000
+		remainder := subtotal.Amount() % 10000
 		if whole > math.MaxInt64/promo.DiscountValue {
 			return money.Money{}, promosDomain.ErrInvalidCode
 		}
 		amount = whole*promo.DiscountValue + (remainder*promo.DiscountValue+5000)/10000
 	case promosDomain.TypeFixed:
-		if promo.Currency != subtotal.Currency || promo.DiscountValue <= 0 {
+		if promo.Currency != subtotal.Currency() || promo.DiscountValue <= 0 {
 			return money.Money{}, promosDomain.ErrInvalidCode
 		}
 		amount = promo.DiscountValue
 	default:
 		return money.Money{}, promosDomain.ErrInvalidCode
 	}
-	if amount > subtotal.Amount {
-		amount = subtotal.Amount
+	if amount > subtotal.Amount() {
+		amount = subtotal.Amount()
 	}
-	return money.New(amount, subtotal.Currency)
+	return money.NewMoney(amount, subtotal.Currency())
 }
 
 var _ checkoutDomain.PriceCalculator = (*PromoCalculatorDecorator)(nil)

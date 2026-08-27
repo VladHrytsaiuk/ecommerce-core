@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
@@ -86,7 +85,7 @@ func TestWebhookServiceRoutesVerifiedRefundToWorkflow(t *testing.T) {
 }
 
 func webhookEvent(orderID uuid.UUID, status string) paymentsDomain.PaymentEvent {
-	amount, _ := money.New(100, "EUR")
+	amount := mustMoney(100, "EUR")
 	return paymentsDomain.PaymentEvent{EventID: "event-1", OrderID: orderID, Status: status, Amount: amount, OccurredAt: time.Now()}
 }
 

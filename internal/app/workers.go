@@ -67,6 +67,10 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.ReportsOutboxWorker.Run(workerCtx, 5*time.Second) }()
 	}
+	if a.OutboxRetention != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.OutboxRetention.Run(workerCtx, a.Config.OutboxRetentionInterval) }()
+	}
 	if a.MediaOrphanCleanup != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.MediaOrphanCleanup.Run(workerCtx, 24*time.Hour) }()

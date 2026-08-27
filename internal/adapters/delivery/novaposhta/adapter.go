@@ -164,7 +164,7 @@ func (a *Adapter) Quote(ctx context.Context, request deliveryDomain.ShipmentQuot
 
 func (a *Adapter) CreateShipment(ctx context.Context, request deliveryDomain.CreateShipmentRequest) (deliveryDomain.ShipmentResult, error) {
 	d := request.Destination
-	if request.OrderID == uuid.Nil || strings.TrimSpace(request.IdempotencyKey) == "" || d.RecipientName == "" || d.RecipientPhone == "" || d.LocalityID == "" || d.ServicePointID == "" || request.DeclaredValue.Currency != "UAH" {
+	if request.OrderID == uuid.Nil || strings.TrimSpace(request.IdempotencyKey) == "" || d.RecipientName == "" || d.RecipientPhone == "" || d.LocalityID == "" || d.ServicePointID == "" || request.DeclaredValue.Currency() != "UAH" {
 		return deliveryDomain.ShipmentResult{}, fmt.Errorf("novaposhta shipment requires recipient, locality, service point and UAH declared value")
 	}
 	data, err := a.call(ctx, "InternetDocument", "save", map[string]any{
@@ -175,7 +175,7 @@ func (a *Adapter) CreateShipment(ctx context.Context, request deliveryDomain.Cre
 		// and persists the resulting TTN before a retry is attempted.
 		"InfoRegClientBarcodes": request.IdempotencyKey,
 		"Description":           "Order " + request.OrderID.String(),
-		"Cost":                  formatHryvnias(request.DeclaredValue.Amount),
+		"Cost":                  formatHryvnias(request.DeclaredValue.Amount()),
 		"CitySender":            a.config.SenderCityRef,
 		"Sender":                a.config.SenderRef,
 		"SenderAddress":         a.config.SenderAddressRef,
@@ -309,7 +309,7 @@ func hryvnias(value string) (money.Money, error) {
 	if err != nil {
 		return money.Money{}, err
 	}
-	return money.New(amount, "UAH")
+	return money.NewMoney(amount, "UAH")
 }
 func formatHryvnias(amount int64) string { return fmt.Sprintf("%d.%02d", amount/100, amount%100) }
 

@@ -45,7 +45,7 @@ func (s *Service) CreatePendingCheckout(ctx context.Context, draft ordersDomain.
 	if attempt.ExpiresAt.IsZero() {
 		attempt.ExpiresAt = draft.ExpiresAt
 	}
-	if attempt.OrderID != uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount <= 0 || attempt.Amount.Currency == "" || attempt.ExpiresAt.IsZero() {
+	if attempt.OrderID != uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount() <= 0 || attempt.Amount.Validate() != nil || attempt.ExpiresAt.IsZero() {
 		return nil, fmt.Errorf("invalid checkout attempt request")
 	}
 	if draft.Contact == nil || strings.TrimSpace(draft.Contact.Email) == "" || strings.TrimSpace(draft.Contact.Locale) == "" {
@@ -72,7 +72,7 @@ func (s *Service) CreatePaidCheckout(ctx context.Context, draft ordersDomain.Dra
 	if attempt.ExpiresAt.IsZero() {
 		attempt.ExpiresAt = draft.ExpiresAt
 	}
-	if attempt.OrderID != uuid.Nil || attempt.Provider != "free" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount != 0 || attempt.Amount.Currency == "" || attempt.ExpiresAt.IsZero() {
+	if attempt.OrderID != uuid.Nil || attempt.Provider != "free" || strings.TrimSpace(attempt.IdempotencyKey) == "" || attempt.Amount.Amount() != 0 || attempt.Amount.Validate() != nil || attempt.ExpiresAt.IsZero() {
 		return nil, fmt.Errorf("invalid free checkout attempt request")
 	}
 	if draft.Contact == nil || strings.TrimSpace(draft.Contact.Email) == "" || strings.TrimSpace(draft.Contact.Locale) == "" {
@@ -142,7 +142,7 @@ func validateReservationIDs(reservationIDs []uuid.UUID) error {
 }
 
 func validatePaymentAttempt(attempt workflowDomain.PaymentAttempt) error {
-	if attempt.OrderID == uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.ProviderReference) == "" || attempt.Amount.Amount <= 0 || attempt.Amount.Currency == "" {
+	if attempt.OrderID == uuid.Nil || strings.TrimSpace(attempt.Provider) == "" || strings.TrimSpace(attempt.ProviderReference) == "" || attempt.Amount.Amount() <= 0 || attempt.Amount.Validate() != nil {
 		return fmt.Errorf("invalid payment attempt")
 	}
 	return nil
@@ -156,7 +156,7 @@ func validatePaymentConfirmation(confirmation workflowDomain.PaymentConfirmation
 }
 
 func (s *Service) RecordCheckoutAttempt(ctx context.Context, req workflowDomain.CheckoutAttemptRequest) error {
-	if req.OrderID == uuid.Nil || strings.TrimSpace(req.Provider) == "" || strings.TrimSpace(req.IdempotencyKey) == "" || req.Amount.Amount <= 0 || req.Amount.Currency == "" {
+	if req.OrderID == uuid.Nil || strings.TrimSpace(req.Provider) == "" || strings.TrimSpace(req.IdempotencyKey) == "" || req.Amount.Amount() <= 0 || req.Amount.Validate() != nil {
 		return fmt.Errorf("invalid checkout attempt request")
 	}
 	return s.repo.RecordCheckoutAttempt(ctx, req)

@@ -8,26 +8,25 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 )
 
 func TestVariantServiceCreatesConfiguredCurrencyVariant(t *testing.T) {
 	repo := &fakeVariantRepository{}
 	service := NewVariantService(repo, []string{"es", "en"}, "EUR")
-	price, _ := money.New(1299, "eur")
+	price := mustMoney(1299, "eur")
 	variant := &domain.ProductVariant{ProductID: uuid.New(), SKU: " CREAM-50 ", Price: price}
 
 	if err := service.Create(context.Background(), variant); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if !repo.created || variant.ID == uuid.Nil || variant.SKU != "CREAM-50" || variant.Price.Currency != "EUR" {
+	if !repo.created || variant.ID == uuid.Nil || variant.SKU != "CREAM-50" || variant.Price.Currency() != "EUR" {
 		t.Fatalf("variant was not normalized and persisted: %+v", variant)
 	}
 }
 
 func TestVariantServiceRejectsDifferentCurrency(t *testing.T) {
 	service := NewVariantService(&fakeVariantRepository{}, []string{"es"}, "EUR")
-	price, _ := money.New(100, "UAH")
+	price := mustMoney(100, "UAH")
 	err := service.Create(context.Background(), &domain.ProductVariant{ProductID: uuid.New(), Price: price})
 	if !errors.Is(err, domain.ErrInvalidProduct) {
 		t.Fatalf("Create() error = %v, want ErrInvalidProduct", err)
@@ -44,7 +43,7 @@ func TestVariantServiceCheckoutLookupRequiresEnabledLocale(t *testing.T) {
 
 func TestVariantServiceRejectsUnsupportedStatus(t *testing.T) {
 	service := NewVariantService(&fakeVariantRepository{}, []string{"es"}, "EUR")
-	price, _ := money.New(100, "EUR")
+	price := mustMoney(100, "EUR")
 	err := service.Create(context.Background(), &domain.ProductVariant{ProductID: uuid.New(), SKU: "CREAM-50", Status: "deleted", Price: price})
 	if !errors.Is(err, domain.ErrInvalidProduct) {
 		t.Fatalf("Create() error = %v, want ErrInvalidProduct", err)
@@ -53,7 +52,7 @@ func TestVariantServiceRejectsUnsupportedStatus(t *testing.T) {
 
 func TestVariantServiceRejectsNegativeWeight(t *testing.T) {
 	service := NewVariantService(&fakeVariantRepository{}, []string{"es"}, "EUR")
-	price, _ := money.New(100, "EUR")
+	price := mustMoney(100, "EUR")
 	err := service.Create(context.Background(), &domain.ProductVariant{ProductID: uuid.New(), Price: price, WeightGrams: -1})
 	if !errors.Is(err, domain.ErrInvalidProduct) {
 		t.Fatalf("Create() error = %v, want ErrInvalidProduct", err)

@@ -89,7 +89,7 @@ func (a *Adapter) Quote(ctx context.Context, request deliveryDomain.ShipmentQuot
 	if err := a.validateDomesticDestination(request.Destination); err != nil {
 		return nil, err
 	}
-	if _, err := money.New(0, request.Currency); err != nil {
+	if _, err := money.NewMoney(0, request.Currency); err != nil {
 		return nil, fmt.Errorf("DHL Express quote currency: %w", err)
 	}
 	packages, err := a.packages(request.Items)
@@ -129,7 +129,7 @@ func (a *Adapter) CreateShipment(ctx context.Context, request deliveryDomain.Cre
 	if err := a.validateDomesticDestination(request.Destination); err != nil {
 		return deliveryDomain.ShipmentResult{}, err
 	}
-	if _, err := money.New(request.DeclaredValue.Amount, request.DeclaredValue.Currency); err != nil {
+	if err := request.DeclaredValue.Validate(); err != nil {
 		return deliveryDomain.ShipmentResult{}, fmt.Errorf("DHL Express declared value: %w", err)
 	}
 	packages, err := a.packages(request.Items)
@@ -298,7 +298,7 @@ func (p rateProduct) price(currency string, scale int) (money.Money, error) {
 			if err != nil {
 				return money.Money{}, fmt.Errorf("DHL Express price: %w", err)
 			}
-			return money.New(amount, strings.ToUpper(currency))
+			return money.NewMoney(amount, strings.ToUpper(currency))
 		}
 	}
 	return money.Money{}, fmt.Errorf("DHL Express product has no %s price", currency)

@@ -12,13 +12,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 )
 
 func TestCreateCheckoutMapsNeutralPaymentToSignedLiqPayURL(t *testing.T) {
 	adapter := newAdapter(t, Config{})
-	amount, _ := money.New(12345, "EUR")
+	amount := mustMoney(12345, "EUR")
 	orderID := uuid.New()
 	session, err := adapter.CreateCheckout(context.Background(), paymentsDomain.CheckoutPayment{OrderID: orderID, IdempotencyKey: "checkout-1", Amount: amount, ReturnURL: "https://store.example/return"})
 	if err != nil {
@@ -53,7 +52,7 @@ func TestVerifyWebhookValidatesSignatureAndMapsPaidEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyWebhook() error = %v", err)
 	}
-	if event.EventID != "42:paid" || event.OrderID != orderID || event.ProviderReference != orderID.String() || event.Status != "paid" || event.Amount.Amount != 12345 || event.Amount.Currency != "EUR" || event.OccurredAt.IsZero() {
+	if event.EventID != "42:paid" || event.OrderID != orderID || event.ProviderReference != orderID.String() || event.Status != "paid" || event.Amount.Amount() != 12345 || event.Amount.Currency() != "EUR" || event.OccurredAt.IsZero() {
 		t.Fatalf("event = %+v", event)
 	}
 
@@ -74,7 +73,7 @@ func TestRefundCallsProviderAPIWithSignedNeutralRequest(t *testing.T) {
 	}))
 	defer server.Close()
 	adapter := newAdapter(t, Config{APIURL: server.URL, HTTPClient: server.Client()})
-	amount, _ := money.New(500, "EUR")
+	amount := mustMoney(500, "EUR")
 	if err := adapter.Refund(context.Background(), paymentsDomain.RefundRequest{PaymentReference: "order-1", Amount: amount, IdempotencyKey: "refund-1"}); err != nil {
 		t.Fatalf("Refund() error = %v", err)
 	}

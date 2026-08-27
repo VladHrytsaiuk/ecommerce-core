@@ -88,15 +88,15 @@ func (a *Adapter) CreateCheckout(_ context.Context, payment paymentsDomain.Check
 	if payment.OrderID == uuid.Nil || strings.TrimSpace(payment.IdempotencyKey) == "" {
 		return paymentsDomain.PaymentSession{}, fmt.Errorf("liqpay checkout requires order and idempotency key")
 	}
-	if _, err := money.New(payment.Amount.Amount, payment.Amount.Currency); err != nil {
+	if err := payment.Amount.Validate(); err != nil {
 		return paymentsDomain.PaymentSession{}, fmt.Errorf("invalid checkout amount: %w", err)
 	}
 	params := map[string]string{
 		"public_key":  a.publicKey,
 		"version":     "3",
 		"action":      "pay",
-		"amount":      formatAmount(payment.Amount.Amount, a.priceScale),
-		"currency":    payment.Amount.Currency,
+		"amount":      formatAmount(payment.Amount.Amount(), a.priceScale),
+		"currency":    payment.Amount.Currency(),
 		"description": "Order " + payment.OrderID.String(),
 		"order_id":    payment.OrderID.String(),
 		"server_url":  a.callbackURL,
@@ -170,7 +170,7 @@ func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundReque
 	if strings.TrimSpace(request.PaymentReference) == "" || strings.TrimSpace(request.IdempotencyKey) == "" {
 		return fmt.Errorf("liqpay refund requires payment reference and idempotency key")
 	}
-	if _, err := money.New(request.Amount.Amount, request.Amount.Currency); err != nil {
+	if err := request.Amount.Validate(); err != nil {
 		return fmt.Errorf("invalid refund amount: %w", err)
 	}
 	data, err := encodePayload(map[string]string{
@@ -178,8 +178,8 @@ func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundReque
 		"version":    "3",
 		"action":     "refund",
 		"order_id":   request.PaymentReference,
-		"amount":     formatAmount(request.Amount.Amount, a.priceScale),
-		"currency":   request.Amount.Currency,
+		"amount":     formatAmount(request.Amount.Amount(), a.priceScale),
+		"currency":   request.Amount.Currency(),
 		"language":   "en",
 	})
 	if err != nil {
@@ -266,7 +266,7 @@ func parseAmount(value string, scale int, currency string) (money.Money, error) 
 	if err != nil {
 		return money.Money{}, err
 	}
-	return money.New(minor, currency)
+	return money.NewMoney(minor, currency)
 }
 
 func mapStatus(status string) string {

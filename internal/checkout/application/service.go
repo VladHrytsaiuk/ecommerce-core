@@ -95,7 +95,7 @@ func (s *Service) QuoteDelivery(ctx context.Context, request checkoutDomain.Deli
 		}
 		shipmentItems = append(shipmentItems, deliveryDomain.ShipmentItem{VariantID: *item.VariantID, Quantity: item.Quantity, WeightGrams: item.UnitWeightGrams})
 	}
-	options, err := carrier.Quote(ctx, deliveryDomain.ShipmentQuoteRequest{Destination: deliveryDomain.Address{RecipientName: request.Delivery.RecipientName, RecipientPhone: request.Delivery.RecipientPhone, CountryCode: request.Delivery.CountryCode, PostalCode: request.Delivery.PostalCode, City: request.Delivery.City, Line1: request.Delivery.Line1, Line2: request.Delivery.Line2, LocalityID: request.Delivery.LocalityID, ServicePointID: request.Delivery.ServicePointID}, Items: shipmentItems, Currency: items[0].Total.Currency})
+	options, err := carrier.Quote(ctx, deliveryDomain.ShipmentQuoteRequest{Destination: deliveryDomain.Address{RecipientName: request.Delivery.RecipientName, RecipientPhone: request.Delivery.RecipientPhone, CountryCode: request.Delivery.CountryCode, PostalCode: request.Delivery.PostalCode, City: request.Delivery.City, Line1: request.Delivery.Line1, Line2: request.Delivery.Line2, LocalityID: request.Delivery.LocalityID, ServicePointID: request.Delivery.ServicePointID}, Items: shipmentItems, Currency: items[0].Total.Currency()})
 	if err != nil {
 		return nil, fmt.Errorf("quote delivery: %w", err)
 	}
@@ -127,6 +127,9 @@ func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.Pre
 	if err != nil {
 		return nil, err
 	}
+	if err := allocateLineDiscounts(items, price.Discount); err != nil {
+		return nil, err
+	}
 	keys := make([]key, 0, len(aggregated))
 	for k := range aggregated {
 		keys = append(keys, k)
@@ -147,6 +150,31 @@ func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.Pre
 		result.ReservationIDs = append(result.ReservationIDs, reservation.ID)
 	}
 	return result, nil
+}
+
+// allocateLineDiscounts makes the order snapshot invoice-safe: every minor
+// unit of the aggregate promotion discount is deterministically assigned to a
+// line. Item order is already stable because snapshotItems sorts by variant ID.
+func allocateLineDiscounts(items []ordersDomain.Item, discount money.Money) error {
+	weights := make([]int64, len(items))
+	for index := range items {
+		if items[index].Total.Currency() != discount.Currency() || items[index].Total.Validate() != nil {
+			return fmt.Errorf("invalid checkout discount line")
+		}
+		weights[index] = items[index].Total.Amount()
+	}
+	allocations, err := money.AllocateLargestRemainder(discount.Amount(), weights)
+	if err != nil {
+		return fmt.Errorf("allocate checkout discount: %w", err)
+	}
+	for index, amount := range allocations {
+		lineDiscount, err := money.NewMoney(amount, discount.Currency())
+		if err != nil {
+			return err
+		}
+		items[index].Discount = lineDiscount
+	}
+	return nil
 }
 
 // StartPayment creates the order and associates reservations before it performs
@@ -212,7 +240,7 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		Contact:          &ordersDomain.ContactDetails{Email: customerEmail, Locale: request.Preparation.Locale},
 		ExpiresAt:        request.Preparation.ExpiresAt,
 	}
-	if prepared.Total.Amount == 0 {
+	if prepared.Total.Amount() == 0 {
 		order, err := s.workflow.CreatePaidCheckout(ctx, draft, prepared.ReservationIDs, workflowDomain.CheckoutAttemptRequest{Provider: "free", IdempotencyKey: request.Preparation.CheckoutID.String(), Amount: prepared.Total, ExpiresAt: request.Preparation.ExpiresAt})
 		if err != nil {
 			s.releasePrepared(ctx, prepared.ReservationIDs)
@@ -306,7 +334,7 @@ func (s *Service) resolveShipping(ctx context.Context, provider, optionCode stri
 		if len(items) == 0 {
 			return money.Money{}, fmt.Errorf("shipping needs order items")
 		}
-		return money.New(0, items[0].Total.Currency)
+		return money.NewMoney(0, items[0].Total.Currency())
 	}
 	if s.carriers == nil {
 		return money.Money{}, fmt.Errorf("delivery quotes are not configured")
@@ -326,7 +354,7 @@ func (s *Service) resolveShipping(ctx context.Context, provider, optionCode stri
 		}
 		shipmentItems = append(shipmentItems, deliveryDomain.ShipmentItem{VariantID: *item.VariantID, Quantity: item.Quantity, WeightGrams: item.UnitWeightGrams})
 	}
-	options, err := carrier.Quote(ctx, deliveryDomain.ShipmentQuoteRequest{Destination: deliveryAddress(*details), Items: shipmentItems, Currency: items[0].Total.Currency})
+	options, err := carrier.Quote(ctx, deliveryDomain.ShipmentQuoteRequest{Destination: deliveryAddress(*details), Items: shipmentItems, Currency: items[0].Total.Currency()})
 	if err != nil {
 		return money.Money{}, fmt.Errorf("quote delivery: %w", err)
 	}
@@ -391,10 +419,10 @@ func (s *Service) snapshotItems(ctx context.Context, quantities map[uuid.UUID]in
 			return nil, money.Money{}, err
 		}
 		quantity := quantities[variantID]
-		if variant.UnitPrice.Amount > math.MaxInt64/int64(quantity) {
+		if variant.UnitPrice.Amount() > math.MaxInt64/int64(quantity) {
 			return nil, money.Money{}, fmt.Errorf("checkout line total overflows")
 		}
-		lineTotal, err := money.New(variant.UnitPrice.Amount*int64(quantity), variant.UnitPrice.Currency)
+		lineTotal, err := money.NewMoney(variant.UnitPrice.Amount()*int64(quantity), variant.UnitPrice.Currency())
 		if err != nil {
 			return nil, money.Money{}, err
 		}

@@ -10,7 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
@@ -37,7 +36,7 @@ func (httpGateway) CreateCheckout(context.Context, paymentsDomain.CheckoutPaymen
 	return paymentsDomain.PaymentSession{}, nil
 }
 func (httpGateway) VerifyWebhook(context.Context, paymentsDomain.WebhookRequest) (paymentsDomain.PaymentEvent, error) {
-	amount, _ := money.New(1, "EUR")
+	amount := mustMoney(1, "EUR")
 	return paymentsDomain.PaymentEvent{EventID: "event", OrderID: uuid.New(), Status: "pending", Amount: amount}, nil
 }
 func (httpGateway) Refund(context.Context, paymentsDomain.RefundRequest) error { return nil }
@@ -82,7 +81,9 @@ func (*httpWorkflow) MarkPaid(context.Context, workflowDomain.PaymentConfirmatio
 func (*httpWorkflow) MarkFailed(context.Context, workflowDomain.PaymentConfirmation) error {
 	return nil
 }
-func (*httpWorkflow) MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error { return nil }
+func (*httpWorkflow) MarkRefunded(context.Context, workflowDomain.PaymentConfirmation) error {
+	return nil
+}
 func (*httpWorkflow) CancelPending(context.Context, uuid.UUID) error { return nil }
 
 var _ workflowDomain.Service = (*httpWorkflow)(nil)

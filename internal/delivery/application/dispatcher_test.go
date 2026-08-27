@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"errors"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
 	"github.com/google/uuid"
 	"testing"
@@ -11,7 +10,7 @@ import (
 )
 
 func TestDispatcherCompletesClaimedJobAfterCarrierCall(t *testing.T) {
-	amount, _ := money.New(100, "EUR")
+	amount := mustMoney(100, "EUR")
 	job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: amount}
 	jobs := &fakeJobs{job: job}
 	d := NewDispatcher(jobs, mustRegistry(t, dispatchCarrier{}), time.Minute)
@@ -23,7 +22,7 @@ func TestDispatcherCompletesClaimedJobAfterCarrierCall(t *testing.T) {
 	}
 }
 func TestDispatcherSchedulesRetryAfterCarrierError(t *testing.T) {
-	amount, _ := money.New(100, "EUR")
+	amount := mustMoney(100, "EUR")
 	job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: amount}
 	jobs := &fakeJobs{job: job}
 	d := NewDispatcher(jobs, mustRegistry(t, dispatchCarrier{err: errors.New("down")}), time.Minute)

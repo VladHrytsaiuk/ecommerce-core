@@ -8,6 +8,8 @@ import (
 	"time"
 
 	redisgo "github.com/redis/go-redis/v9"
+
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/observability"
 )
 
 const connectTimeout = 3 * time.Second
@@ -24,6 +26,7 @@ func Connect(ctx context.Context, rawURL string) (*Client, error) {
 		return nil, ErrInvalidURL
 	}
 	client := redisgo.NewClient(options)
+	client.AddHook(observability.NewRedisHook())
 	pingCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
 	if err := client.Ping(pingCtx).Err(); err != nil {

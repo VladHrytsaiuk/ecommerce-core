@@ -63,10 +63,12 @@ type Config struct {
 
 	// Search is an opt-in external read projection. PostgreSQL remains the
 	// source of truth; these credentials are validated only when enabled.
-	SearchURL         string
-	SearchMasterKey   string
-	SearchIndexPrefix string
-	ReportsTimezone   string
+	SearchURL               string
+	SearchMasterKey         string
+	SearchIndexPrefix       string
+	ReportsTimezone         string
+	OutboxDoneRetention     time.Duration
+	OutboxRetentionInterval time.Duration
 
 	// Media is an optional object-storage capability. S3-compatible providers
 	// share credentials; Cloudinary uses its own provider URL.
@@ -292,6 +294,11 @@ func Load() *Config {
 	searchMasterKey := strings.TrimSpace(os.Getenv("SEARCH_MASTER_KEY"))
 	searchIndexPrefix := getEnvString("SEARCH_INDEX_PREFIX", "ecommerce")
 	reportsTimezone := strings.TrimSpace(getEnvString("REPORTS_TIMEZONE", "UTC"))
+	outboxDoneRetention := getEnvDuration("OUTBOX_DONE_RETENTION", 30*24*time.Hour)
+	outboxRetentionInterval := getEnvDuration("OUTBOX_RETENTION_INTERVAL", time.Hour)
+	if outboxDoneRetention <= 0 || outboxRetentionInterval <= 0 {
+		log.Fatal("Fatal: OUTBOX_DONE_RETENTION and OUTBOX_RETENTION_INTERVAL must be positive durations")
+	}
 	mediaProvider := strings.ToLower(getEnvString("MEDIA_PROVIDER", "s3"))
 	mediaS3Bucket := strings.TrimSpace(os.Getenv("MEDIA_S3_BUCKET"))
 	mediaS3Region := strings.TrimSpace(getEnvString("MEDIA_S3_REGION", "us-east-1"))
@@ -552,6 +559,8 @@ func Load() *Config {
 		RedisURL:                  redisURL,
 		SearchURL:                 searchURL,
 		ReportsTimezone:           reportsTimezone,
+		OutboxDoneRetention:       outboxDoneRetention,
+		OutboxRetentionInterval:   outboxRetentionInterval,
 		SearchMasterKey:           searchMasterKey,
 		SearchIndexPrefix:         searchIndexPrefix,
 		MediaProvider:             mediaProvider,
@@ -664,6 +673,19 @@ func getEnvInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	return val
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		log.Printf("Warning: Invalid %s: %v. Using default: %s", key, err, defaultValue)
+		return defaultValue
+	}
+	return parsed
 }
 
 func getEnvFloat(key string, defaultValue float64) float64 {

@@ -11,13 +11,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 )
 
 func TestCreateCheckoutBuildsSignedRedirectForm(t *testing.T) {
 	adapter := newAdapter(t)
-	amount, _ := money.New(249, "EUR")
+	amount := mustMoney(249, "EUR")
 	orderID := uuid.New()
 	session, err := adapter.CreateCheckout(context.Background(), paymentsDomain.CheckoutPayment{OrderID: orderID, IdempotencyKey: "checkout-1", Amount: amount, ReturnURL: "https://store.test/ok", CancelURL: "https://store.test/ko"})
 	if err != nil {
@@ -44,7 +43,7 @@ func TestVerifyWebhookValidatesSignatureAndMapsPaidEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if event.OrderID != orderID || event.ProviderReference != orderRef || event.Status != "paid" || event.Amount.Amount != 249 || event.Amount.Currency != "EUR" {
+	if event.OrderID != orderID || event.ProviderReference != orderRef || event.Status != "paid" || event.Amount.Amount() != 249 || event.Amount.Currency() != "EUR" {
 		t.Fatalf("event=%+v", event)
 	}
 	_, err = adapter.VerifyWebhook(context.Background(), paymentsDomain.WebhookRequest{Payload: []byte(url.Values{"Ds_MerchantParameters": {encoded}, "Ds_Signature": {"bad"}}.Encode())})
@@ -75,7 +74,7 @@ func TestRefundPostsSignedRESTRequest(t *testing.T) {
 	}))
 	defer server.Close()
 	adapter.restURL = server.URL
-	amount, _ := money.New(249, "EUR")
+	amount := mustMoney(249, "EUR")
 	if err := adapter.Refund(context.Background(), paymentsDomain.RefundRequest{PaymentReference: "0000ABCDEF12", Amount: amount, IdempotencyKey: "refund-1"}); err != nil {
 		t.Fatal(err)
 	}

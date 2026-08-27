@@ -24,7 +24,7 @@ func TestRefundProjectorIsIdempotentAndReversesRevenue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	amount, err := money.New(1_250, "UAH")
+	amount, err := money.NewMoney(1_250, "UAH")
 	if err != nil {
 		t.Fatal(err)
 	}

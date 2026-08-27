@@ -298,6 +298,19 @@ order and lifecycle snapshot ports. `reports:rebuild` is deliberately separate
 from `reports:read`; health exposes active rebuild state and the last processed
 event timestamp.
 
+## Phase 15 — Financial and asynchronous-workflow hardening
+
+**Status: complete.** All monetary values remain signed integer minor units.
+Checkout allocates a cart-level promotion across immutable order lines with the
+deterministic largest-remainder algorithm, so the invoice-level discount always
+equals the sum of line discounts. The Outbox persists only bounded W3C trace
+metadata and restores it for consumers; PostgreSQL and Redis operations produce
+safe client spans without payloads, SQL, or credentials. Completed delivery
+rows move to an archive in bounded `SKIP LOCKED` batches after a configurable
+retention window, while high-churn delivery status changes use aggressive
+per-table autovacuum settings. Dead deliveries and immutable domain events
+remain queryable for manual recovery, Audit, and Reports.
+
 ## Global rules
 
 - Do not fork for a store.

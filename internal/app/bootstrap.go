@@ -125,6 +125,7 @@ type Application struct {
 	SearchOutboxWorker     *eventsApp.OutboxWorker
 	MediaOutboxWorker      *eventsApp.OutboxWorker
 	ReportsOutboxWorker    *eventsApp.OutboxWorker
+	OutboxRetention        *eventsApp.RetentionWorker
 	MediaOrphanCleanup     *mediaApp.OrphanCleanupWorker
 	SearchService          searchDomain.SearchService
 	MediaUploadService     *mediaApp.UploadService
@@ -365,6 +366,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var searchOutboxWorker *eventsApp.OutboxWorker
 	var mediaOutboxWorker *eventsApp.OutboxWorker
 	var reportsOutboxWorker *eventsApp.OutboxWorker
+	outboxRetention, err := eventsApp.NewRetentionWorker(eventsPostgres.NewRetentionStore(db), cfg.OutboxDoneRetention, 1000, logger.Log)
+	if err != nil {
+		return nil, fmt.Errorf("configure outbox retention: %w", err)
+	}
 	var mediaOrphanCleanup *mediaApp.OrphanCleanupWorker
 	var productEventPublisher eventsDomain.TransactionalEventPublisher
 	var searchService searchDomain.SearchService
@@ -528,6 +533,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		SearchOutboxWorker:     searchOutboxWorker,
 		MediaOutboxWorker:      mediaOutboxWorker,
 		ReportsOutboxWorker:    reportsOutboxWorker,
+		OutboxRetention:        outboxRetention,
 		MediaOrphanCleanup:     mediaOrphanCleanup,
 		SearchService:          searchService,
 		MediaUploadService:     mediaUploadService,

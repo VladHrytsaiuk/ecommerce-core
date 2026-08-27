@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/observability"
 	transaction "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
@@ -42,6 +43,9 @@ type eventRecord struct {
 	IdempotencyKey uuid.UUID
 	Payload        string
 	OccurredAt     time.Time
+	TraceParent    string `gorm:"column:traceparent"`
+	TraceState     string `gorm:"column:tracestate"`
+	RequestID      string `gorm:"column:request_id"`
 }
 
 func (eventRecord) TableName() string { return "domain_events" }
@@ -67,6 +71,8 @@ func (p *Publisher) Publish(ctx context.Context, event eventsDomain.DomainEvent)
 	if err != nil {
 		return err
 	}
+	ctx, span := observability.StartOutboxPublish(ctx, event.Topic())
+	defer span.End()
 	payload, err := event.MarshalPayload()
 	if err != nil {
 		return fmt.Errorf("marshal %s event: %w", event.Topic(), err)
@@ -78,7 +84,8 @@ func (p *Publisher) Publish(ctx context.Context, event eventsDomain.DomainEvent)
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
 	}
-	record := eventRecord{ID: uuid.New(), Topic: event.Topic(), AggregateType: event.AggregateType(), AggregateID: event.AggregateID(), IdempotencyKey: event.IdempotencyKey(), Payload: string(payload), OccurredAt: occurredAt}
+	traceContext := observability.CaptureOutboxTraceContext(ctx)
+	record := eventRecord{ID: uuid.New(), Topic: event.Topic(), AggregateType: event.AggregateType(), AggregateID: event.AggregateID(), IdempotencyKey: event.IdempotencyKey(), Payload: string(payload), OccurredAt: occurredAt, TraceParent: traceContext.TraceParent, TraceState: traceContext.TraceState, RequestID: traceContext.RequestID}
 	result := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "topic"}, {Name: "idempotency_key"}}, DoNothing: true}).Create(&record)
 	if result.Error != nil {
 		return result.Error
@@ -109,6 +116,9 @@ type claimedDelivery struct {
 	Consumer      string
 	Attempts      int
 	OccurredAt    time.Time
+	TraceParent   string `gorm:"column:traceparent"`
+	TraceState    string `gorm:"column:tracestate"`
+	RequestID     string `gorm:"column:request_id"`
 }
 
 // Claim obtains one due row without blocking another worker that is processing
@@ -135,7 +145,7 @@ FROM candidate, domain_events AS event
 WHERE delivery.event_id = candidate.event_id
   AND delivery.consumer = candidate.consumer
   AND event.id = delivery.event_id
-RETURNING delivery.event_id, event.topic, event.aggregate_type, event.aggregate_id, event.payload, delivery.consumer, delivery.attempts, event.occurred_at`
+RETURNING delivery.event_id, event.topic, event.aggregate_type, event.aggregate_id, event.payload, delivery.consumer, delivery.attempts, event.occurred_at, event.traceparent, event.tracestate, event.request_id`
 	result := s.db.WithContext(ctx).Raw(query, consumer, now, now.Add(-lease), now).Scan(&record)
 	if result.Error != nil {
 		return nil, result.Error
@@ -143,7 +153,7 @@ RETURNING delivery.event_id, event.topic, event.aggregate_type, event.aggregate_
 	if result.RowsAffected == 0 {
 		return nil, nil
 	}
-	return &eventsDomain.Delivery{EventID: record.EventID, Topic: record.Topic, AggregateType: record.AggregateType, AggregateID: record.AggregateID, Payload: []byte(record.Payload), Consumer: record.Consumer, Attempts: record.Attempts, OccurredAt: record.OccurredAt}, nil
+	return &eventsDomain.Delivery{EventID: record.EventID, Topic: record.Topic, AggregateType: record.AggregateType, AggregateID: record.AggregateID, Payload: []byte(record.Payload), Consumer: record.Consumer, Attempts: record.Attempts, OccurredAt: record.OccurredAt, TraceParent: record.TraceParent, TraceState: record.TraceState, RequestID: record.RequestID}, nil
 }
 
 func (s *DeliveryStore) Complete(ctx context.Context, eventID uuid.UUID, consumer string, completedAt time.Time) error {

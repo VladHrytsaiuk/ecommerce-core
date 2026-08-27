@@ -41,8 +41,8 @@ func (r *VariantRepository) CreateVariant(ctx context.Context, variant *domain.P
 		SKU:         nullableString(variant.SKU),
 		Barcode:     nullableString(variant.Barcode),
 		Status:      variant.Status,
-		PriceAmount: variant.Price.Amount,
-		Currency:    variant.Price.Currency,
+		PriceAmount: variant.Price.Amount(),
+		Currency:    variant.Price.Currency(),
 		WeightGrams: variant.WeightGrams,
 	}
 	return r.db.WithContext(ctx).Create(&record).Error
@@ -79,7 +79,7 @@ func (r *VariantRepository) FindActiveForCheckout(ctx context.Context, variantID
 		}
 		return nil, err
 	}
-	price, err := money.New(record.PriceAmount, record.Currency)
+	price, err := money.NewMoney(record.PriceAmount, record.Currency)
 	if err != nil {
 		return nil, err
 	}

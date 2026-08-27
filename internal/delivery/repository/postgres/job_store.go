@@ -77,7 +77,7 @@ func (s *JobStore) Claim(ctx context.Context, now time.Time) (*domain.DispatchJo
 		if err := tx.Where("order_id = ?", job.OrderID).Find(&items).Error; err != nil {
 			return err
 		}
-		amount, err := money.New(order.TotalAmount, order.Currency)
+		amount, err := money.NewMoney(order.TotalAmount, order.Currency)
 		if err != nil {
 			return err
 		}

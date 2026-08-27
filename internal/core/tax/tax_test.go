@@ -26,16 +26,25 @@ func TestPolicyCalculate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewPolicy() error = %v", err)
 			}
-			amount, _ := money.New(tt.amount, "EUR")
+			amount := mustMoney(t, tt.amount, "EUR")
 			got, err := policy.Calculate(amount)
 			if err != nil {
 				t.Fatalf("Calculate() error = %v", err)
 			}
-			if got.Subtotal.Amount != tt.wantSubtotal || got.Tax.Amount != tt.wantTax || got.Total.Amount != tt.wantTotal || got.Total.Currency != "EUR" {
+			if got.Subtotal.Amount() != tt.wantSubtotal || got.Tax.Amount() != tt.wantTax || got.Total.Amount() != tt.wantTotal || got.Total.Currency() != "EUR" {
 				t.Fatalf("Calculate() = %+v", got)
 			}
 		})
 	}
+}
+
+func mustMoney(t *testing.T, amount int64, currency string) money.Money {
+	t.Helper()
+	value, err := money.NewMoney(amount, currency)
+	if err != nil {
+		panic(err)
+	}
+	return value
 }
 
 func TestNewPolicyRejectsInvalidConfiguration(t *testing.T) {

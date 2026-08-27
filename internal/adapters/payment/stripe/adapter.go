@@ -76,16 +76,16 @@ func (a *Adapter) CreateCheckout(ctx context.Context, payment paymentsDomain.Che
 	if payment.OrderID == uuid.Nil || strings.TrimSpace(payment.IdempotencyKey) == "" {
 		return paymentsDomain.PaymentSession{}, fmt.Errorf("stripe checkout requires order and idempotency key")
 	}
-	if payment.Amount.Amount <= 0 {
+	if payment.Amount.Amount() <= 0 {
 		return paymentsDomain.PaymentSession{}, fmt.Errorf("stripe checkout amount must be positive")
 	}
-	if _, err := money.New(payment.Amount.Amount, payment.Amount.Currency); err != nil {
+	if err := payment.Amount.Validate(); err != nil {
 		return paymentsDomain.PaymentSession{}, fmt.Errorf("invalid stripe checkout amount: %w", err)
 	}
 
 	form := url.Values{
-		"amount":                             {strconv.FormatInt(payment.Amount.Amount, 10)},
-		"currency":                           {strings.ToLower(payment.Amount.Currency)},
+		"amount":                             {strconv.FormatInt(payment.Amount.Amount(), 10)},
+		"currency":                           {strings.ToLower(payment.Amount.Currency())},
 		"automatic_payment_methods[enabled]": {"true"},
 		"metadata[order_id]":                 {payment.OrderID.String()},
 		"metadata[checkout_id]":              {payment.IdempotencyKey},
@@ -121,7 +121,7 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request paymentsDomain.Webhoo
 	if event.Type == "payment_intent.succeeded" {
 		amountValue = event.Data.Object.AmountReceived
 	}
-	amount, err := money.New(amountValue, event.Data.Object.Currency)
+	amount, err := money.NewMoney(amountValue, event.Data.Object.Currency)
 	if err != nil {
 		return paymentsDomain.PaymentEvent{}, fmt.Errorf("stripe webhook amount: %w", err)
 	}
@@ -145,16 +145,16 @@ func (a *Adapter) VerifyWebhook(_ context.Context, request paymentsDomain.Webhoo
 }
 
 func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundRequest) error {
-	if strings.TrimSpace(request.PaymentReference) == "" || strings.TrimSpace(request.IdempotencyKey) == "" || request.Amount.Amount <= 0 {
+	if strings.TrimSpace(request.PaymentReference) == "" || strings.TrimSpace(request.IdempotencyKey) == "" || request.Amount.Amount() <= 0 {
 		return fmt.Errorf("stripe refund requires payment reference, amount and idempotency key")
 	}
-	if _, err := money.New(request.Amount.Amount, request.Amount.Currency); err != nil {
+	if err := request.Amount.Validate(); err != nil {
 		return fmt.Errorf("invalid stripe refund amount: %w", err)
 	}
 	var response struct {
 		ID string `json:"id"`
 	}
-	if err := a.postForm(ctx, "/v1/refunds", url.Values{"payment_intent": {request.PaymentReference}, "amount": {strconv.FormatInt(request.Amount.Amount, 10)}}, request.IdempotencyKey, &response); err != nil {
+	if err := a.postForm(ctx, "/v1/refunds", url.Values{"payment_intent": {request.PaymentReference}, "amount": {strconv.FormatInt(request.Amount.Amount(), 10)}}, request.IdempotencyKey, &response); err != nil {
 		return err
 	}
 	if strings.TrimSpace(response.ID) == "" {
