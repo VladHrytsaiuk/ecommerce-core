@@ -136,7 +136,7 @@ func assertOrderPaidEventAndDispatch(t *testing.T, ctx context.Context, db *gorm
 	t.Helper()
 	var eventID uuid.UUID
 	var topic, payload, status, consumer string
-	if err := db.Raw(`SELECT event.id, event.topic, event.payload, delivery.consumer, delivery.status FROM domain_events event JOIN event_deliveries delivery ON delivery.event_id = event.id WHERE event.aggregate_id = ?`, orderID).Row().Scan(&eventID, &topic, &payload, &consumer, &status); err != nil {
+	if err := db.Raw(`SELECT event.id, event.topic, event.payload, delivery.consumer, delivery.status FROM domain_events event JOIN event_deliveries delivery ON delivery.event_id = event.id WHERE event.aggregate_id = ? AND event.topic = ?`, orderID, eventsDomain.TopicOrderPaid).Row().Scan(&eventID, &topic, &payload, &consumer, &status); err != nil {
 		t.Fatal(err)
 	}
 	if topic != eventsDomain.TopicOrderPaid || consumer != eventsDomain.ConsumerNotifications || status != "pending" || !strings.Contains(payload, orderID.String()) {

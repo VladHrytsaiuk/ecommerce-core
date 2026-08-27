@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,10 +24,11 @@ import (
 )
 
 type Repository struct {
-	db          *gorm.DB
-	syncEnabled bool
-	hooks       []workflowDomain.TransactionHook
-	events      eventsDomain.TransactionalEventPublisher
+	db           *gorm.DB
+	syncEnabled  bool
+	hooks        []workflowDomain.TransactionHook
+	events       eventsDomain.TransactionalEventPublisher
+	statusPolicy workflowDomain.OperationalTransitionPolicy
 }
 
 // NewRepository constructs the one cross-context PostgreSQL transaction
@@ -49,6 +51,14 @@ func (r *Repository) WithTransactionHook(hook workflowDomain.TransactionHook) *R
 // existing database transaction. The publisher must never perform network I/O.
 func (r *Repository) WithEventPublisher(publisher eventsDomain.TransactionalEventPublisher) *Repository {
 	r.events = publisher
+	return r
+}
+
+// WithOperationalTransitionPolicy attaches the optional Orders workflow
+// policy. Bootstrap enables it only with the orders workflow module; payment
+// webhooks continue to use their dedicated financial transition methods.
+func (r *Repository) WithOperationalTransitionPolicy(policy workflowDomain.OperationalTransitionPolicy) *Repository {
+	r.statusPolicy = policy
 	return r
 }
 
@@ -203,6 +213,18 @@ func (paymentAnomalyRecord) TableName() string { return "payment_anomalies" }
 
 func (paymentCheckoutAttemptRecord) TableName() string { return "payment_checkout_attempts" }
 
+// statusHistoryAudit carries trusted actor evidence from the workflow entry
+// point into the transaction owner. It is deliberately private to this
+// cross-context adapter: modules exchange only the durable history/event
+// records, never persistence details.
+type statusHistoryAudit struct {
+	ActorType  ordersDomain.StatusActorType
+	ActorID    *uuid.UUID
+	Reason     string
+	EventID    uuid.UUID
+	OccurredAt time.Time
+}
+
 func (deliveryJobRecord) TableName() string { return "delivery_jobs" }
 
 func (r *Repository) CreatePending(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID) error {
@@ -232,6 +254,9 @@ func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Orde
 			}
 		}
 		if err := createOrderSnapshot(tx, order); err != nil {
+			return err
+		}
+		if err := r.appendInitialStatusHistory(ctx, tx, order); err != nil {
 			return err
 		}
 		if attempt != nil {
@@ -285,7 +310,7 @@ func (r *Repository) createPending(ctx context.Context, order *ordersDomain.Orde
 			if err := tx.First(&state, "id = ?", order.ID).Error; err != nil {
 				return err
 			}
-			return r.completePending(ctx, tx, state, order.ID, ordersDomain.StatusPaid, nil)
+			return r.completePending(ctx, tx, state, order.ID, ordersDomain.StatusPaid, nil, nil, nil)
 		}
 		return nil
 	})
@@ -333,7 +358,24 @@ func enqueueOrderCreated(tx *gorm.DB, order *ordersDomain.Order) error {
 }
 
 func (r *Repository) CancelPending(ctx context.Context, orderID uuid.UUID) error {
-	return r.transition(ctx, orderID, nil, ordersDomain.StatusCancelled)
+	return r.transition(ctx, orderID, nil, ordersDomain.StatusCancelled, nil)
+}
+
+// CancelPendingWithActor is the audited human cancellation path. TTL and
+// recovery jobs continue to call CancelPending and are therefore recorded as
+// system actions, never attributed to an administrator.
+func (r *Repository) CancelPendingWithActor(ctx context.Context, cancellation workflowDomain.AdminCancellation) error {
+	if cancellation.OrderID == uuid.Nil || cancellation.ActorID == uuid.Nil || strings.TrimSpace(cancellation.Reason) == "" {
+		return fmt.Errorf("invalid admin order cancellation")
+	}
+	if cancellation.EventID == uuid.Nil {
+		cancellation.EventID = uuid.New()
+	}
+	return r.transition(ctx, cancellation.OrderID, nil, ordersDomain.StatusCancelled, &statusHistoryAudit{
+		ActorType: ordersDomain.StatusActorAdmin, ActorID: &cancellation.ActorID,
+		Reason: strings.TrimSpace(cancellation.Reason), EventID: cancellation.EventID,
+		OccurredAt: time.Now().UTC(),
+	})
 }
 
 func (r *Repository) RegisterPayment(ctx context.Context, attempt workflowDomain.PaymentAttempt) error {
@@ -473,11 +515,11 @@ func (r *Repository) RetryCheckoutAttempt(ctx context.Context, orderID uuid.UUID
 }
 
 func (r *Repository) MarkPaid(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
-	return r.transition(ctx, confirmation.OrderID, &confirmation, ordersDomain.StatusPaid)
+	return r.transition(ctx, confirmation.OrderID, &confirmation, ordersDomain.StatusPaid, nil)
 }
 
 func (r *Repository) MarkFailed(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
-	return r.transition(ctx, confirmation.OrderID, &confirmation, ordersDomain.StatusCancelled)
+	return r.transition(ctx, confirmation.OrderID, &confirmation, ordersDomain.StatusCancelled, nil)
 }
 
 func (r *Repository) MarkRefunded(ctx context.Context, confirmation workflowDomain.PaymentConfirmation) error {
@@ -496,13 +538,23 @@ func (r *Repository) MarkRefunded(ctx context.Context, confirmation workflowDoma
 		if order.Status == ordersDomain.StatusRefunded && payment.Status == "refunded" {
 			return nil
 		}
-		if order.Status != ordersDomain.StatusPaid || payment.Status != "paid" {
+		// Financial truth belongs to the verified payment record. An order can
+		// already be processing, shipped or delivered when a provider confirms a
+		// refund; rejecting that webhook would leave captured funds unaccounted.
+		if payment.Status != "paid" {
 			return workflowDomain.ErrInvalidOrderTransition
 		}
 		if err := tx.Model(&order).Update("status", ordersDomain.StatusRefunded).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&payment).Update("status", "refunded").Error; err != nil {
+			return err
+		}
+		audit := defaultStatusHistoryAudit(order, ordersDomain.StatusRefunded, &confirmation)
+		if err := r.appendStatusHistory(ctx, tx, order, ordersDomain.StatusRefunded, audit); err != nil {
+			return err
+		}
+		if err := r.publishStatusChanged(transaction.WithContext(ctx, tx), tx, order.ID, order.Status, ordersDomain.StatusRefunded, audit.ActorType, audit.EventID, audit.OccurredAt); err != nil {
 			return err
 		}
 		for _, hook := range r.hooks {
@@ -523,7 +575,102 @@ func (r *Repository) MarkRefunded(ctx context.Context, confirmation workflowDoma
 	})
 }
 
-func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirmation *workflowDomain.PaymentConfirmation, targetStatus string) error {
+// CurrentStatusForUpdate reads an order's status under a row lock. Callers
+// performing a state change must pass an existing transaction context so that
+// this lock is retained through validation, authorization and mutation.
+func (r *Repository) CurrentStatusForUpdate(ctx context.Context, orderID uuid.UUID) (string, error) {
+	var status string
+	err := r.withTransaction(ctx, func(tx *gorm.DB) error {
+		var order orderStateRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", orderID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return workflowDomain.ErrInvalidOrderTransition
+			}
+			return err
+		}
+		status = order.Status
+		return nil
+	})
+	return status, err
+}
+
+// TransitionOperational performs an operational-only transition. It never
+// changes payment, refund or cancellation state: those paths reserve/release
+// inventory and reconcile provider data in their dedicated methods above.
+func (r *Repository) TransitionOperational(ctx context.Context, transition workflowDomain.OperationalStatusTransition) error {
+	if r.statusPolicy == nil {
+		return fmt.Errorf("order workflow policy is not configured")
+	}
+	if transition.OccurredAt.IsZero() {
+		transition.OccurredAt = time.Now().UTC()
+	}
+	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+		var order orderStateRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", transition.OrderID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return workflowDomain.ErrInvalidOrderTransition
+			}
+			return err
+		}
+		if transition.FromStatusCode != "" && transition.FromStatusCode != order.Status {
+			return workflowDomain.ErrInvalidOrderTransition
+		}
+		if order.Status == ordersDomain.StatusPendingPayment || isFinancialStatus(transition.ToStatusCode) || transition.Trigger == ordersDomain.TransitionTriggerPaymentWebhook {
+			return workflowDomain.ErrInvalidOrderTransition
+		}
+		transition.FromStatusCode = order.Status
+		txContext := transaction.WithContext(ctx, tx)
+		if _, err := r.statusPolicy.ValidateTransition(txContext, ordersDomain.TransitionRequest{
+			FromStatusCode:   transition.FromStatusCode,
+			ToStatusCode:     transition.ToStatusCode,
+			Trigger:          transition.Trigger,
+			PaymentConfirmed: transition.PaymentConfirmed,
+			TrackingNumber:   transition.TrackingNumber,
+			Reason:           transition.Reason,
+		}); err != nil {
+			return err
+		}
+		eventID := transition.EventID
+		inserted, err := r.statusPolicy.AppendStatusHistory(txContext, ordersDomain.OrderStatusHistory{
+			OrderID: order.ID, FromStatusCode: order.Status, ToStatusCode: transition.ToStatusCode,
+			ActorType: transition.ActorType, ActorID: transition.ActorID, Reason: transition.Reason,
+			Metadata: transition.Metadata, EventID: &eventID, OccurredAt: transition.OccurredAt,
+		})
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			if order.Status == transition.ToStatusCode {
+				return nil
+			}
+			return workflowDomain.ErrInvalidOrderTransition
+		}
+		result := tx.Model(&orderStateRecord{}).
+			Where("id = ? AND status = ?", order.ID, order.Status).
+			Updates(map[string]any{"status": transition.ToStatusCode, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return workflowDomain.ErrInvalidOrderTransition
+		}
+		if err := r.publishStatusChanged(txContext, tx, order.ID, order.Status, transition.ToStatusCode, transition.ActorType, transition.EventID, transition.OccurredAt); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func isFinancialStatus(status string) bool {
+	switch status {
+	case ordersDomain.StatusPendingPayment, ordersDomain.StatusPaid, ordersDomain.StatusCancelled, ordersDomain.StatusRefunded:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirmation *workflowDomain.PaymentConfirmation, targetStatus string, audit *statusHistoryAudit) error {
 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
 		var order orderStateRecord
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, "id = ?", orderID).Error; err != nil {
@@ -563,7 +710,7 @@ func (r *Repository) transition(ctx context.Context, orderID uuid.UUID, confirma
 		if confirmation != nil {
 			paymentToUpdate = &payment
 		}
-		return r.completePending(ctx, tx, order, orderID, targetStatus, paymentToUpdate)
+		return r.completePending(ctx, tx, order, orderID, targetStatus, paymentToUpdate, confirmation, audit)
 	})
 }
 
@@ -577,7 +724,7 @@ func (r *Repository) withTransaction(ctx context.Context, fn func(*gorm.DB) erro
 	return r.db.WithContext(ctx).Transaction(fn)
 }
 
-func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order orderStateRecord, orderID uuid.UUID, targetStatus string, payment *paymentRecord) error {
+func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order orderStateRecord, orderID uuid.UUID, targetStatus string, payment *paymentRecord, confirmation *workflowDomain.PaymentConfirmation, audit *statusHistoryAudit) error {
 	var reservations []reservationRecord
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_id = ?", orderID).Find(&reservations).Error; err != nil {
 		return err
@@ -621,6 +768,16 @@ func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order ord
 			return err
 		}
 	}
+	if audit == nil {
+		defaultAudit := defaultStatusHistoryAudit(order, targetStatus, confirmation)
+		audit = &defaultAudit
+	}
+	if err := r.appendStatusHistory(ctx, tx, order, targetStatus, *audit); err != nil {
+		return err
+	}
+	if err := r.publishStatusChanged(transaction.WithContext(ctx, tx), tx, order.ID, order.Status, targetStatus, audit.ActorType, audit.EventID, audit.OccurredAt); err != nil {
+		return err
+	}
 	if targetStatus == ordersDomain.StatusPaid && order.DeliveryProvider != "" {
 		var details deliveryDetailsRecord
 		if err := tx.First(&details, "order_id = ?", orderID).Error; err != nil {
@@ -661,6 +818,103 @@ func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order ord
 	return nil
 }
 
+// defaultStatusHistoryAudit builds trusted evidence for closed payment,
+// expiry and free-checkout flows. Administrator cancellation supplies its
+// own actor context, while TTL/recovery remains explicitly system-originated.
+func defaultStatusHistoryAudit(order orderStateRecord, targetStatus string, confirmation *workflowDomain.PaymentConfirmation) statusHistoryAudit {
+	actorType := ordersDomain.StatusActorSystem
+	eventMaterial := "order-status:" + order.Status + ":" + targetStatus
+	if confirmation != nil {
+		actorType = ordersDomain.StatusActorPaymentWebhook
+		eventMaterial += ":" + confirmation.Provider + ":" + confirmation.ProviderReference
+	}
+	return statusHistoryAudit{
+		ActorType:  actorType,
+		EventID:    uuid.NewSHA1(order.ID, []byte(eventMaterial)),
+		OccurredAt: time.Now().UTC(),
+	}
+}
+
+// appendStatusHistory writes immutable evidence inside the transaction that
+// owns the status update. It is optional during the additive rollout, but the
+// event publisher still records a status event whenever Outbox is configured.
+func (r *Repository) appendStatusHistory(ctx context.Context, tx *gorm.DB, order orderStateRecord, targetStatus string, audit statusHistoryAudit) error {
+	if r.statusPolicy == nil {
+		return nil
+	}
+	if audit.OccurredAt.IsZero() {
+		audit.OccurredAt = time.Now().UTC()
+	}
+	if audit.EventID == uuid.Nil || !validOrderStatusActorType(audit.ActorType) {
+		return fmt.Errorf("invalid order status history audit")
+	}
+	metadata := map[string]string{"trigger": string(audit.ActorType)}
+	if audit.ActorType == ordersDomain.StatusActorPaymentWebhook {
+		metadata["trigger"] = string(ordersDomain.TransitionTriggerPaymentWebhook)
+	}
+	rawMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("marshal order status metadata: %w", err)
+	}
+	inserted, err := r.statusPolicy.AppendStatusHistory(transaction.WithContext(ctx, tx), ordersDomain.OrderStatusHistory{
+		OrderID: order.ID, FromStatusCode: order.Status, ToStatusCode: targetStatus,
+		ActorType: audit.ActorType, ActorID: audit.ActorID, Reason: audit.Reason,
+		Metadata: rawMetadata, EventID: &audit.EventID, OccurredAt: audit.OccurredAt,
+	})
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		// A duplicate event can be successful only when the preceding order
+		// state mutation was also a no-op. This helper runs after a conditional
+		// mutation, so a duplicate here indicates corrupt/inconsistent history.
+		return fmt.Errorf("order status history is already present for transition %s -> %s", order.Status, targetStatus)
+	}
+	return nil
+}
+
+func validOrderStatusActorType(actorType ordersDomain.StatusActorType) bool {
+	switch actorType {
+	case ordersDomain.StatusActorAdmin, ordersDomain.StatusActorSystem, ordersDomain.StatusActorPaymentWebhook, ordersDomain.StatusActorDeliveryWebhook, ordersDomain.StatusActorCustomer:
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *Repository) publishStatusChanged(ctx context.Context, tx *gorm.DB, orderID uuid.UUID, fromStatus, toStatus string, actorType ordersDomain.StatusActorType, transitionID uuid.UUID, occurredAt time.Time) error {
+	if r.events == nil {
+		return nil
+	}
+	event, err := ordersDomain.NewOrderStatusChangedEvent(orderID, fromStatus, toStatus, actorType, occurredAt, transitionID)
+	if err != nil {
+		return err
+	}
+	return r.events.Publish(transaction.WithContext(ctx, tx), event)
+}
+
+func (r *Repository) appendInitialStatusHistory(ctx context.Context, tx *gorm.DB, order *ordersDomain.Order) error {
+	if r.statusPolicy == nil {
+		return nil
+	}
+	eventID := uuid.NewSHA1(order.ID, []byte("order-status:initial:"+order.Status))
+	metadata, err := json.Marshal(map[string]string{"trigger": string(ordersDomain.TransitionTriggerSystem)})
+	if err != nil {
+		return fmt.Errorf("marshal initial order status metadata: %w", err)
+	}
+	inserted, err := r.statusPolicy.AppendStatusHistory(transaction.WithContext(ctx, tx), ordersDomain.OrderStatusHistory{
+		OrderID: order.ID, ToStatusCode: order.Status, ActorType: ordersDomain.StatusActorSystem,
+		Metadata: metadata, EventID: &eventID, OccurredAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		return fmt.Errorf("initial order status history is already present for order %s", order.ID)
+	}
+	return nil
+}
+
 // ExpirePendingCheckout claims one expired pending order with SKIP LOCKED and
 // releases every local reservation through the same workflow transaction.
 func (r *Repository) ExpirePendingCheckout(ctx context.Context, now time.Time) (bool, error) {
@@ -673,7 +927,7 @@ func (r *Repository) ExpirePendingCheckout(ctx context.Context, now time.Time) (
 			}
 			return err
 		}
-		if err := r.completePending(ctx, tx, order, order.ID, ordersDomain.StatusCancelled, nil); err != nil {
+		if err := r.completePending(ctx, tx, order, order.ID, ordersDomain.StatusCancelled, nil, nil, nil); err != nil {
 			return err
 		}
 		expired = true

@@ -275,6 +275,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// Inventory repository implementation.
 	workflowRepository := workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync")).
 		WithEventPublisher(eventsPostgres.NewPublisher(eventConsumers...))
+	var operationalWorkflowPolicy *ordersApp.WorkflowService
+	if contains(storeConfig.EnabledModules, "orders") {
+		operationalWorkflowPolicy, err = ordersApp.NewWorkflowService(ordersPostgres.NewWorkflowRepository(db))
+		if err != nil {
+			return nil, fmt.Errorf("configure order workflow policy: %w", err)
+		}
+		workflowRepository.WithOperationalTransitionPolicy(operationalWorkflowPolicy)
+	}
 	basePriceCalculator, err := checkoutDomain.NewCheckoutPriceCalculator(taxPolicy)
 	if err != nil {
 		return nil, err
@@ -482,6 +490,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		ordersAdminFacade, err = adminApp.NewOrdersAdminFacade(adminAuthorizer, orderWorkflowService, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
 		if err != nil {
 			return nil, fmt.Errorf("configure admin orders facade: %w", err)
+		}
+		if operationalWorkflowPolicy != nil {
+			ordersAdminFacade.WithStatusWorkflow(operationalWorkflowPolicy, orderWorkflowService)
+			ordersAdminFacade.WithWorkflowConfiguration(operationalWorkflowPolicy)
 		}
 	}
 	sqlDB, err := db.DB()

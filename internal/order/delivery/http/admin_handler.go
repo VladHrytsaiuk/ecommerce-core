@@ -37,7 +37,7 @@ func NewAdminOrderHandler(s domain.AdminOrderService, l logger.Logger) *AdminOrd
 // @Param        limit        query     int       false "Items per page"
 // @Param        sort_by      query     string    false "Sort field (created_at, total_price)"
 // @Param        order        query     string    false "Sort direction (asc, desc)"
-// @Success      200          {object}  pagination.PagedResponse{data=[]AdminOrderListResponse}
+// @Success      200          {object}  map[string]interface{}
 // @Failure      400          {object}  ErrorResponse
 // @Failure      401          {object}  ErrorResponse
 // @Failure      403          {object}  ErrorResponse

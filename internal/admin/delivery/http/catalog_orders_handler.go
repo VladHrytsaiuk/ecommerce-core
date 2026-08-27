@@ -123,7 +123,14 @@ func RegisterOrdersRoutes(g *gin.RouterGroup, a adminDomain.Authorizer, f *admin
 			c.JSON(400, gin.H{"error": "INVALID_ID"})
 			return
 		}
-		if err = f.Cancel(c, actor, idempotency(c), id, c.ClientIP()); err != nil {
+		var request struct {
+			Reason string `json:"reason" binding:"required,max=2000"`
+		}
+		if err = c.ShouldBindJSON(&request); err != nil {
+			c.JSON(400, gin.H{"error": "INVALID_REQUEST"})
+			return
+		}
+		if err = f.Cancel(c, actor, idempotency(c), id, c.ClientIP(), request.Reason); err != nil {
 			catalogError(c, err)
 			return
 		}

@@ -97,6 +97,20 @@ func (s *Service) CancelPending(ctx context.Context, orderID uuid.UUID) error {
 	return s.repo.CancelPending(ctx, orderID)
 }
 
+func (s *Service) CancelPendingWithActor(ctx context.Context, cancellation workflowDomain.AdminCancellation) error {
+	if cancellation.OrderID == uuid.Nil || cancellation.ActorID == uuid.Nil || strings.TrimSpace(cancellation.Reason) == "" {
+		return fmt.Errorf("invalid admin order cancellation")
+	}
+	if cancellation.EventID == uuid.Nil {
+		cancellation.EventID = uuid.New()
+	}
+	repository, ok := s.repo.(workflowDomain.AdminCancellationRepository)
+	if !ok {
+		return fmt.Errorf("admin cancellation is not supported")
+	}
+	return repository.CancelPendingWithActor(ctx, cancellation)
+}
+
 func (s *Service) RegisterPayment(ctx context.Context, attempt workflowDomain.PaymentAttempt) error {
 	if err := validatePaymentAttempt(attempt); err != nil {
 		return err
@@ -122,6 +136,25 @@ func (s *Service) MarkRefunded(ctx context.Context, confirmation workflowDomain.
 		return err
 	}
 	return s.repo.MarkRefunded(ctx, confirmation)
+}
+
+func (s *Service) CurrentStatusForUpdate(ctx context.Context, orderID uuid.UUID) (string, error) {
+	if orderID == uuid.Nil {
+		return "", fmt.Errorf("invalid order id")
+	}
+	return s.repo.CurrentStatusForUpdate(ctx, orderID)
+}
+
+func (s *Service) TransitionOperational(ctx context.Context, transition workflowDomain.OperationalStatusTransition) error {
+	if transition.OrderID == uuid.Nil || strings.TrimSpace(transition.ToStatusCode) == "" ||
+		strings.TrimSpace(string(transition.Trigger)) == "" || strings.TrimSpace(string(transition.ActorType)) == "" ||
+		transition.EventID == uuid.Nil {
+		return fmt.Errorf("invalid operational order transition")
+	}
+	if transition.OccurredAt.IsZero() {
+		transition.OccurredAt = time.Now().UTC()
+	}
+	return s.repo.TransitionOperational(ctx, transition)
 }
 
 func validateReservationIDs(reservationIDs []uuid.UUID) error {

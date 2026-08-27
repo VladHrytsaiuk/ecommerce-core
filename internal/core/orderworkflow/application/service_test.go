@@ -79,6 +79,14 @@ type fakeRepository struct {
 	registered     workflowDomain.PaymentAttempt
 }
 
+func (r *fakeRepository) CurrentStatusForUpdate(_ context.Context, _ uuid.UUID) (string, error) {
+	return ordersDomain.StatusPaid, nil
+}
+
+func (r *fakeRepository) TransitionOperational(_ context.Context, _ workflowDomain.OperationalStatusTransition) error {
+	return nil
+}
+
 func (*fakeRepository) RecordCheckoutAttempt(context.Context, workflowDomain.CheckoutAttemptRequest) error {
 	return nil
 }
@@ -112,6 +120,10 @@ func (*fakeRepository) ExpirePendingCheckout(context.Context, time.Time) (bool, 
 }
 func (r *fakeRepository) CancelPending(_ context.Context, orderID uuid.UUID) error {
 	r.cancelled = orderID
+	return nil
+}
+func (r *fakeRepository) CancelPendingWithActor(_ context.Context, cancellation workflowDomain.AdminCancellation) error {
+	r.cancelled = cancellation.OrderID
 	return nil
 }
 func (r *fakeRepository) MarkPaid(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {

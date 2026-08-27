@@ -169,6 +169,20 @@ Use `POST /api/v1/admin/reports/rebuild` only with the separate
 date range asynchronously. `GET /api/v1/admin/reports/health` reports active
 rebuild state and projection freshness.
 
+### Optional order workflow
+
+Add `orders,admin` to `ENABLED_MODULES` before running migrations to enable
+the data-driven operational workflow. The initial graph seeds
+`pending_payment`, `paid`, `processing`, `shipped`, `delivered`, `received`,
+`refunded`, and `cancelled`; only non-financial operational moves are exposed
+through `POST /api/v1/admin/orders/{id}/transition`. The request requires an
+`Idempotency-Key`, validates the configured edge and its requirements (for
+example, a tracking number for `processing -> shipped`), and appends immutable
+`order_status_history` plus an `admin.action.v1` Outbox audit event in the same
+transaction. Payment, cancellation, and refund flows retain their dedicated
+workflow methods so an editable transition graph cannot bypass inventory or
+payment-provider invariants.
+
 ### Customer identity and optional profiles
 
 Password registration and login are always available at `POST /api/auth/register`

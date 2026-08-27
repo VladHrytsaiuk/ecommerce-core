@@ -63,7 +63,7 @@ func (h *DocumentHandler) GetDocumentBySlug(c *gin.Context) {
 // @Security     bearerAuth
 // @Param        page query int false "Page number"
 // @Param        limit query int false "Items per page"
-// @Success      200  {object} pagination.PagedResponse{data=[]DocumentListResponse}
+// @Success      200  {object} map[string]interface{}
 // @Failure      500  {object} map[string]string
 // @Router       /api/admin/documents [get]
 func (h *DocumentHandler) ListDocuments(c *gin.Context) {
