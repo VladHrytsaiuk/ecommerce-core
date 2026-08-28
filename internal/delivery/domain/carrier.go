@@ -26,6 +26,14 @@ type Carrier interface {
 	Track(context.Context, TrackingRequest) (TrackingResult, error)
 }
 
+// ShipmentFinder is an optional capability of a carrier that can reconcile an
+// ambiguous CreateShipment result using the stable idempotency reference sent
+// to the provider. It deliberately remains separate from Carrier so existing
+// providers do not pretend to support lookup semantics they do not have.
+type ShipmentFinder interface {
+	FindShipment(context.Context, string) (*ShipmentResult, error)
+}
+
 // LocationProvider is deliberately separate from Carrier: delivery providers
 // that cannot expose selectable service points remain valid carriers.
 type LocationProvider interface {
@@ -120,6 +128,9 @@ type TrackingRequest struct {
 }
 
 type TrackingResult struct {
-	Status     string
-	OccurredAt time.Time
+	// Status is the local delivery status. OrderStatusCode is the (optional)
+	// operational order status to transition to after this result is persisted.
+	Status          string
+	OrderStatusCode string
+	OccurredAt      time.Time
 }

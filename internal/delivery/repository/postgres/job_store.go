@@ -87,7 +87,7 @@ func (s *JobStore) Claim(ctx context.Context, now time.Time) (*domain.DispatchJo
 				shipmentItems = append(shipmentItems, domain.ShipmentItem{VariantID: *item.VariantID, Quantity: item.Quantity, WeightGrams: item.UnitWeightGrams})
 			}
 		}
-		claimed = &domain.DispatchJob{ID: job.ID, OrderID: job.OrderID, Provider: job.Provider, IdempotencyKey: job.IdempotencyKey, Destination: domain.Address{RecipientName: details.RecipientName, RecipientPhone: details.RecipientPhone, CountryCode: details.CountryCode, PostalCode: details.PostalCode, City: details.City, Line1: details.Line1, Line2: details.Line2, LocalityID: details.LocalityID, ServicePointID: details.ServicePointID}, Items: shipmentItems, DeclaredValue: amount}
+		claimed = &domain.DispatchJob{ID: job.ID, OrderID: job.OrderID, Provider: job.Provider, IdempotencyKey: job.IdempotencyKey, Destination: domain.Address{RecipientName: details.RecipientName, RecipientPhone: details.RecipientPhone, CountryCode: details.CountryCode, PostalCode: details.PostalCode, City: details.City, Line1: details.Line1, Line2: details.Line2, LocalityID: details.LocalityID, ServicePointID: details.ServicePointID}, Items: shipmentItems, DeclaredValue: amount, Attempts: job.Attempts + 1}
 		return nil
 	})
 	return claimed, err
@@ -98,7 +98,13 @@ func (s *JobStore) Complete(ctx context.Context, id uuid.UUID, result domain.Shi
 		if err := tx.First(&job, "id = ? AND status = 'processing'", id).Error; err != nil {
 			return err
 		}
-		if err := tx.Exec(`INSERT INTO deliveries (id, order_id, provider, tracking_number, status) VALUES (?, ?, ?, ?, 'created') ON CONFLICT (provider, tracking_number) WHERE tracking_number IS NOT NULL DO NOTHING`, uuid.New(), job.OrderID, job.Provider, result.TrackingNumber).Error; err != nil {
+		if err := tx.Exec(`INSERT INTO deliveries (id, order_id, provider, provider_reference, tracking_number, status)
+            VALUES (?, ?, ?, ?, ?, 'created')
+            ON CONFLICT (order_id, provider) DO UPDATE
+            SET provider_reference = EXCLUDED.provider_reference,
+                tracking_number = EXCLUDED.tracking_number,
+                status = CASE WHEN deliveries.status IN ('cancelled', 'received') THEN deliveries.status ELSE 'created' END,
+                updated_at = CURRENT_TIMESTAMP`, uuid.New(), job.OrderID, job.Provider, result.ProviderReference, result.TrackingNumber).Error; err != nil {
 			return err
 		}
 		return tx.Model(&job).Updates(map[string]any{"status": "completed", "locked_at": nil, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error
@@ -109,6 +115,9 @@ func (s *JobStore) Retry(ctx context.Context, id uuid.UUID, cause error, availab
 }
 func (s *JobStore) Fail(ctx context.Context, id uuid.UUID, cause error) error {
 	return s.transition(ctx, id, "failed", cause, time.Time{})
+}
+func (s *JobStore) Dead(ctx context.Context, id uuid.UUID, cause error) error {
+	return s.transition(ctx, id, "dead", cause, time.Time{})
 }
 func (s *JobStore) transition(ctx context.Context, id uuid.UUID, status string, cause error, availableAt time.Time) error {
 	values := map[string]any{"status": status, "locked_at": nil, "last_error": fmt.Sprint(cause), "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}

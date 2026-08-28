@@ -852,6 +852,9 @@ func (r *Repository) appendStatusHistory(ctx context.Context, tx *gorm.DB, order
 	if audit.ActorType == ordersDomain.StatusActorPaymentWebhook {
 		metadata["trigger"] = string(ordersDomain.TransitionTriggerPaymentWebhook)
 	}
+	if audit.ActorType == ordersDomain.StatusActorDeliveryProvider || audit.ActorType == ordersDomain.StatusActorDeliveryWebhook {
+		metadata["trigger"] = string(ordersDomain.TransitionTriggerDeliveryWebhook)
+	}
 	rawMetadata, err := json.Marshal(metadata)
 	if err != nil {
 		return fmt.Errorf("marshal order status metadata: %w", err)
@@ -875,7 +878,7 @@ func (r *Repository) appendStatusHistory(ctx context.Context, tx *gorm.DB, order
 
 func validOrderStatusActorType(actorType ordersDomain.StatusActorType) bool {
 	switch actorType {
-	case ordersDomain.StatusActorAdmin, ordersDomain.StatusActorSystem, ordersDomain.StatusActorPaymentWebhook, ordersDomain.StatusActorDeliveryWebhook, ordersDomain.StatusActorCustomer:
+	case ordersDomain.StatusActorAdmin, ordersDomain.StatusActorSystem, ordersDomain.StatusActorPaymentWebhook, ordersDomain.StatusActorDeliveryWebhook, ordersDomain.StatusActorDeliveryProvider, ordersDomain.StatusActorCustomer:
 		return true
 	default:
 		return false

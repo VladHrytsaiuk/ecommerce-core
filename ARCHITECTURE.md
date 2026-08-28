@@ -466,6 +466,13 @@ or a new field per language.
   with the job's stable idempotency key. PostgreSQL claims jobs with row locks;
   completion persists the carrier tracking number, while temporary failures are
   retried and a disabled provider is marked failed without an external call.
+  Carriers with lookup support reconcile that key before an ambiguous retry;
+  jobs become durable DLQ records after a bounded retry budget. Directory data
+  is a cacheable read port, never a source of truth. Tracking I/O happens
+  before a local transaction that locks the delivery row, persists an
+  idempotent delivery status and invokes the narrow Orders workflow bridge. A
+  delivery refusal is not a financial cancellation: it becomes an explicit
+  operational exception requiring the separate refund/settlement workflow.
 
 ## 8. Target folder structure
 

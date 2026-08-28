@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	googleAuthAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/auth/google"
+	deliveryWorkflowAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/orderworkflow"
 	adminApp "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/application"
 	adminDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
 	adminPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/repository/postgres"
@@ -295,6 +296,13 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		priceCalculator = promosApp.NewPromoCalculatorDecorator(priceCalculator, promosRepository)
 	}
 	orderWorkflowService := orderWorkflowApp.NewService(workflowRepository)
+	var deliveryOrderTransitioner *deliveryWorkflowAdapter.Bridge
+	if operationalWorkflowPolicy != nil {
+		deliveryOrderTransitioner, err = deliveryWorkflowAdapter.NewBridge(orderWorkflowService)
+		if err != nil {
+			return nil, fmt.Errorf("configure delivery order workflow bridge: %w", err)
+		}
+	}
 	paymentWebhookService := paymentsApp.NewWebhookService(paymentGateways, paymentsPostgres.NewWebhookEventStore(db), orderWorkflowService)
 	var enabledWishlist wishlistDomain.Service
 	if contains(storeConfig.EnabledModules, "wishlist") {
@@ -514,6 +522,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			},
 		})
 	}
+	deliveryTracker := deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers)
+	if deliveryOrderTransitioner != nil {
+		deliveryTracker = deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers, deliveryOrderTransitioner)
+	}
 	application := &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
 		CatalogCategoryService: categoryService,
@@ -537,9 +549,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		PaymentGateways:        paymentGateways,
 		PaymentWebhookService:  paymentWebhookService,
 		DeliveryCarriers:       deliveryCarriers,
-		DeliveryLocations:      deliveryApp.NewLocationService(deliveryCarriers),
+		DeliveryLocations:      deliveryApp.NewLocationService(deliveryCarriers, cacheService),
 		DeliveryDispatcher:     deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
-		DeliveryTracker:        deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers),
+		DeliveryTracker:        deliveryTracker,
 		OutboxWorker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
 		AdminAuditOutboxWorker: adminAuditOutboxWorker,
 		SearchOutboxWorker:     searchOutboxWorker,

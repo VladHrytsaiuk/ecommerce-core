@@ -4,16 +4,26 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
+	sharedCache "github.com/VladHrytsaiuk/ecommerce-core/internal/shared/cache"
 )
 
 // LocationService owns provider selection and input validation for checkout
 // delivery selectors. Provider HTTP calls remain in the selected adapter.
-type LocationService struct{ carriers *Registry }
+type LocationService struct {
+	carriers *Registry
+	cache    sharedCache.Service
+	cached   sync.Map // provider code -> domain.LocationProvider
+}
 
-func NewLocationService(carriers *Registry) *LocationService {
-	return &LocationService{carriers: carriers}
+func NewLocationService(carriers *Registry, caches ...sharedCache.Service) *LocationService {
+	var cache sharedCache.Service
+	if len(caches) > 0 {
+		cache = caches[0]
+	}
+	return &LocationService{carriers: carriers, cache: cache}
 }
 
 func (s *LocationService) Areas(ctx context.Context, provider string) ([]domain.Area, error) {
@@ -58,7 +68,13 @@ func (s *LocationService) locations(provider string) (domain.LocationProvider, e
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", domain.ErrLocationProviderUnavailable, provider)
 	}
-	return locations, nil
+	if s.cache == nil {
+		return locations, nil
+	}
+	// Keep one decorator per provider so its singleflight group coordinates
+	// concurrent requests rather than being recreated for every HTTP call.
+	decorated, _ := s.cached.LoadOrStore(provider, NewCachedLocationProvider(provider, locations, s.cache))
+	return decorated.(domain.LocationProvider), nil
 }
 
 func validReference(value string) bool {

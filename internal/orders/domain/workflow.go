@@ -48,11 +48,12 @@ const (
 type StatusActorType string
 
 const (
-	StatusActorAdmin           StatusActorType = "admin"
-	StatusActorSystem          StatusActorType = "system"
-	StatusActorPaymentWebhook  StatusActorType = "payment_webhook"
-	StatusActorDeliveryWebhook StatusActorType = "delivery_webhook"
-	StatusActorCustomer        StatusActorType = "customer"
+	StatusActorAdmin            StatusActorType = "admin"
+	StatusActorSystem           StatusActorType = "system"
+	StatusActorPaymentWebhook   StatusActorType = "payment_webhook"
+	StatusActorDeliveryWebhook  StatusActorType = "delivery_webhook"
+	StatusActorDeliveryProvider StatusActorType = "delivery_provider"
+	StatusActorCustomer         StatusActorType = "customer"
 )
 
 // OrderStatusDefinition is an administrator-configurable operational status.

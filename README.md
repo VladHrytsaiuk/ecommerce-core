@@ -439,6 +439,13 @@ destination through the versioned, provider-neutral API:
 pages to 100 items and returns the Nova Poshta total when supplied by the
 provider. The selected opaque city and service-point IDs are passed back to
 Checkout; they are never constructed from a user-visible address string.
+Areas and cities are cached for 24 hours; service-point pages are cached for
+6 hours and concurrent cache misses are coalesced. Redis remains optional: a
+disabled or unavailable cache falls back to the provider without changing the
+selector contract. Shipment creation reconciles the stable order UUID in Nova
+Poshta before retrying an ambiguous request, and a job moves to `dead` after
+five unsuccessful attempts for manual review. Carrier tracking changes are
+applied atomically with the configured non-financial Order workflow transition.
 
 ### DHL Express development configuration
 

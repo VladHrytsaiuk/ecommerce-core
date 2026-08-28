@@ -199,6 +199,36 @@ func (a *Adapter) CreateShipment(ctx context.Context, request deliveryDomain.Cre
 	}
 	return deliveryDomain.ShipmentResult{ProviderReference: records[0].Ref, TrackingNumber: records[0].IntDocNumber}, nil
 }
+
+// FindShipment reconciles a previous ambiguous create by the immutable client
+// barcode reference. It must succeed before Dispatcher is allowed to retry a
+// create request, otherwise a network timeout could produce duplicate TTNs.
+func (a *Adapter) FindShipment(ctx context.Context, idempotencyKey string) (*deliveryDomain.ShipmentResult, error) {
+	if _, err := uuid.Parse(strings.TrimSpace(idempotencyKey)); err != nil {
+		return nil, fmt.Errorf("invalid novaposhta reconciliation reference")
+	}
+	data, err := a.call(ctx, "InternetDocument", "getDocumentList", map[string]any{
+		"InfoRegClientBarcodes": idempotencyKey,
+		"GetFullList":           true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var records []struct {
+		Ref                   string `json:"Ref"`
+		IntDocNumber          string `json:"IntDocNumber"`
+		InfoRegClientBarcodes string `json:"InfoRegClientBarcodes"`
+	}
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, fmt.Errorf("decode novaposhta shipment lookup: %w", err)
+	}
+	for _, record := range records {
+		if record.InfoRegClientBarcodes == idempotencyKey && record.IntDocNumber != "" {
+			return &deliveryDomain.ShipmentResult{ProviderReference: record.Ref, TrackingNumber: record.IntDocNumber}, nil
+		}
+	}
+	return nil, nil
+}
 func (a *Adapter) Track(ctx context.Context, request deliveryDomain.TrackingRequest) (deliveryDomain.TrackingResult, error) {
 	if request.TrackingNumber == "" {
 		return deliveryDomain.TrackingResult{}, fmt.Errorf("novaposhta tracking number is required")
@@ -213,11 +243,25 @@ func (a *Adapter) Track(ctx context.Context, request deliveryDomain.TrackingRequ
 	if err := json.Unmarshal(data, &records); err != nil || len(records) == 0 {
 		return deliveryDomain.TrackingResult{}, fmt.Errorf("decode novaposhta tracking")
 	}
-	status := "in_transit"
-	if records[0].StatusCode == "9" {
-		status = "delivered"
+	return mapTrackingStatus(records[0].StatusCode), nil
+}
+
+func mapTrackingStatus(code string) deliveryDomain.TrackingResult {
+	// Nova Poshta status codes are provider protocol values; this mapping is the
+	// only place they are allowed to influence neutral delivery vocabulary.
+	switch strings.TrimSpace(code) {
+	case "7", "8": // arrived at the recipient branch/postomat
+		return deliveryDomain.TrackingResult{Status: "delivered", OrderStatusCode: "delivered", OccurredAt: time.Now().UTC()}
+	case "9", "10", "11": // received by recipient
+		return deliveryDomain.TrackingResult{Status: "received", OrderStatusCode: "received", OccurredAt: time.Now().UTC()}
+	case "102", "103", "106", "108": // refusal / return-to-sender states
+		// A carrier refusal must not silently cancel a paid order. Delivery is
+		// cancelled while the configured operational workflow receives the
+		// non-financial delivery_refused status for manual settlement/refund.
+		return deliveryDomain.TrackingResult{Status: "cancelled", OrderStatusCode: "delivery_refused", OccurredAt: time.Now().UTC()}
+	default: // assembled or en route
+		return deliveryDomain.TrackingResult{Status: "shipped", OrderStatusCode: "shipped", OccurredAt: time.Now().UTC()}
 	}
-	return deliveryDomain.TrackingResult{Status: status}, nil
 }
 
 type responseEnvelope struct {
@@ -315,3 +359,4 @@ func formatHryvnias(amount int64) string { return fmt.Sprintf("%d.%02d", amount/
 
 var _ deliveryDomain.Carrier = (*Adapter)(nil)
 var _ deliveryDomain.LocationProvider = (*Adapter)(nil)
+var _ deliveryDomain.ShipmentFinder = (*Adapter)(nil)

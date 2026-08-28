@@ -70,7 +70,7 @@ func (e OrderStatusChangedEvent) MarshalPayload() ([]byte, error) {
 
 func validStatusActorType(actorType StatusActorType) bool {
 	switch actorType {
-	case StatusActorAdmin, StatusActorSystem, StatusActorPaymentWebhook, StatusActorDeliveryWebhook, StatusActorCustomer:
+	case StatusActorAdmin, StatusActorSystem, StatusActorPaymentWebhook, StatusActorDeliveryWebhook, StatusActorDeliveryProvider, StatusActorCustomer:
 		return true
 	default:
 		return false

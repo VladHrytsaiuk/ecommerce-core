@@ -323,6 +323,21 @@ truncating signed input. Immutable amount/currency matching remains inside the
 existing locked OrderWorkflow transaction, so a verified provider callback
 cannot change an order using a substituted amount.
 
+## Phase 17 — Nova Poshta production logistics
+
+**Status: complete.** Provider-neutral delivery selectors are wrapped by a
+Redis-compatible cache decorator with 24-hour area/city and 6-hour
+service-point TTLs; singleflight prevents a cold-cache stampede, while the
+NoOp cache preserves direct provider reads. Nova Poshta shipment dispatch
+reconciles the durable UUID sent in `InfoRegClientBarcodes` before every retry,
+then retains a `dead` delivery job after five unsuccessful attempts for manual
+handling. Tracking status codes map only inside the Nova Poshta adapter. The
+tracker performs provider I/O before it opens the local transaction that locks
+the delivery row, persists an idempotent delivery status and invokes the narrow
+Orders state-machine bridge with `delivery_webhook` / `delivery_provider`.
+Carrier refusal is modelled as a `delivery_refused` operational exception,
+never as an unsafe automatic financial cancellation of a paid order.
+
 ## Global rules
 
 - Do not fork for a store.

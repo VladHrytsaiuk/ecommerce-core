@@ -73,7 +73,7 @@ func TestCreateShipmentMapsNeutralRequestAndStableKey(t *testing.T) {
 	}
 }
 
-func TestTrackMapsDeliveredProviderStatus(t *testing.T) {
+func TestTrackMapsReceivedProviderStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		request := decodeRequest(t, r)
 		if request.ModelName != "TrackingDocument" || request.Method != "getStatusDocuments" {
@@ -88,8 +88,25 @@ func TestTrackMapsDeliveredProviderStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Track() error = %v", err)
 	}
-	if tracking.Status != "delivered" {
+	if tracking.Status != "received" || tracking.OrderStatusCode != "received" {
 		t.Fatalf("tracking = %+v", tracking)
+	}
+}
+
+func TestMapTrackingStatusUsesNeutralDeliveryAndOrderStates(t *testing.T) {
+	tests := []struct{ code, delivery, order string }{
+		{"5", "shipped", "shipped"},
+		{"7", "delivered", "delivered"},
+		{"9", "received", "received"},
+		{"102", "cancelled", "delivery_refused"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			got := mapTrackingStatus(tt.code)
+			if got.Status != tt.delivery || got.OrderStatusCode != tt.order {
+				t.Fatalf("mapTrackingStatus(%s)=%+v", tt.code, got)
+			}
+		})
 	}
 }
 

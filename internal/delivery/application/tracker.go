@@ -10,10 +10,15 @@ import (
 type Tracker struct {
 	store    domain.TrackingStore
 	carriers *Registry
+	orders   domain.OrderTransitioner
 }
 
-func NewTracker(store domain.TrackingStore, carriers *Registry) *Tracker {
-	return &Tracker{store: store, carriers: carriers}
+func NewTracker(store domain.TrackingStore, carriers *Registry, orderTransitioners ...domain.OrderTransitioner) *Tracker {
+	var orders domain.OrderTransitioner
+	if len(orderTransitioners) > 0 {
+		orders = orderTransitioners[0]
+	}
+	return &Tracker{store: store, carriers: carriers, orders: orders}
 }
 func (t *Tracker) ReconcileOnce(ctx context.Context) error {
 	if t.store == nil || t.carriers == nil {
@@ -32,7 +37,7 @@ func (t *Tracker) ReconcileOnce(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
-		if err := t.store.UpdateStatus(ctx, delivery.ID, result); err != nil {
+		if err := t.store.UpdateStatusAndTransition(ctx, delivery, result, t.orders); err != nil {
 			return err
 		}
 	}

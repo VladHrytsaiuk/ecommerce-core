@@ -29,7 +29,8 @@ type fakeTrackingStore struct {
 func (f *fakeTrackingStore) ListActive(context.Context, int) ([]domain.TrackingDelivery, error) {
 	return f.active, nil
 }
-func (f *fakeTrackingStore) UpdateStatus(_ context.Context, id uuid.UUID, r domain.TrackingResult) error {
+func (f *fakeTrackingStore) UpdateStatusAndTransition(_ context.Context, delivery domain.TrackingDelivery, r domain.TrackingResult, _ domain.OrderTransitioner) error {
+	id := delivery.ID
 	f.updated.ID = id
 	f.updated.TrackingResult = r
 	return nil
