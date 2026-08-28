@@ -22,8 +22,18 @@ func NewWebhookHandler(service *paymentsApp.WebhookService) *WebhookHandler {
 }
 
 func (h *WebhookHandler) Handle(c *gin.Context) {
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxWebhookBodySize))
+	// Keep the original byte sequence intact: gateway signature schemes (notably
+	// Monobank's ECDSA X-Sign) sign the raw HTTP body, not a re-marshaled JSON
+	// representation. MaxBytesReader also reports an oversized request instead
+	// of silently truncating it as io.LimitReader would.
+	c.Request.Body = stdhttp.MaxBytesReader(c.Writer, c.Request.Body, maxWebhookBodySize)
+	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		var tooLarge *stdhttp.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			c.JSON(stdhttp.StatusRequestEntityTooLarge, gin.H{"error": "webhook payload is too large"})
+			return
+		}
 		c.JSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid webhook payload"})
 		return
 	}

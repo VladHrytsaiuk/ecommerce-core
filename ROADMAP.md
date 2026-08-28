@@ -311,6 +311,18 @@ retention window, while high-churn delivery status changes use aggressive
 per-table autovacuum settings. Dead deliveries and immutable domain events
 remain queryable for manual recovery, Audit, and Reports.
 
+## Phase 16 — Monobank acquiring
+
+**Status: complete.** The Monobank adapter creates UAH invoices using integer
+minor units and stores only the provider invoice identifier as the payment
+reference. Its webhook adapter validates the raw request bytes with the
+configured base64 PEM ECDSA public key before decoding JSON, then maps only
+known invoice states to the provider-neutral payment event contract. The
+generic webhook transport enforces a strict 1 MiB request-body cap without
+truncating signed input. Immutable amount/currency matching remains inside the
+existing locked OrderWorkflow transaction, so a verified provider callback
+cannot change an order using a substituted amount.
+
 ## Global rules
 
 - Do not fork for a store.

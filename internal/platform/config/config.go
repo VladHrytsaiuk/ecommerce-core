@@ -128,17 +128,21 @@ type Config struct {
 	BadgeBestSellerThreshold int
 
 	// Order / Payment
-	AdminNotificationEmail string
-	LiqPayPublicKey        string
-	LiqPayPrivateKey       string
-	LiqPayCallbackURL      string
-	StripeSecretKey        string
-	StripeWebhookSecret    string
-	RedsysMerchantCode     string
-	RedsysTerminal         string
-	RedsysSecretKey        string
-	RedsysCallbackURL      string
-	RedsysCurrencyCode     string
+	AdminNotificationEmail   string
+	LiqPayPublicKey          string
+	LiqPayPrivateKey         string
+	LiqPayCallbackURL        string
+	MonobankToken            string
+	MonobankWebhookPublicKey string
+	MonobankAPIURL           string
+	MonobankWebhookURL       string
+	StripeSecretKey          string
+	StripeWebhookSecret      string
+	RedsysMerchantCode       string
+	RedsysTerminal           string
+	RedsysSecretKey          string
+	RedsysCallbackURL        string
+	RedsysCurrencyCode       string
 
 	// Nova Poshta Sender (for TTN creation)
 	NPSenderRef               string
@@ -399,6 +403,13 @@ func Load() *Config {
 	liqPayPublicKey := os.Getenv("LIQPAY_PUBLIC_KEY")
 	liqPayPrivateKey := os.Getenv("LIQPAY_PRIVATE_KEY")
 	liqPayCallbackURL := os.Getenv("LIQPAY_CALLBACK_URL")
+	monobankToken := os.Getenv("MONOBANK_TOKEN")
+	monobankWebhookPublicKey := os.Getenv("MONOBANK_WEBHOOK_PUBLIC_KEY")
+	monobankAPIURL := strings.TrimSpace(os.Getenv("MONOBANK_API_URL"))
+	if monobankAPIURL == "" {
+		monobankAPIURL = "https://api.monobank.ua"
+	}
+	monobankWebhookURL := os.Getenv("MONOBANK_WEBHOOK_URL")
 	stripeSecretKey := os.Getenv("STRIPE_SECRET_KEY")
 	stripeWebhookSecret := os.Getenv("STRIPE_WEBHOOK_SECRET")
 	redsysMerchantCode := os.Getenv("REDSYS_MERCHANT_CODE")
@@ -604,6 +615,10 @@ func Load() *Config {
 		LiqPayPublicKey:           liqPayPublicKey,
 		LiqPayPrivateKey:          liqPayPrivateKey,
 		LiqPayCallbackURL:         liqPayCallbackURL,
+		MonobankToken:             monobankToken,
+		MonobankWebhookPublicKey:  monobankWebhookPublicKey,
+		MonobankAPIURL:            monobankAPIURL,
+		MonobankWebhookURL:        monobankWebhookURL,
 		StripeSecretKey:           stripeSecretKey,
 		StripeWebhookSecret:       stripeWebhookSecret,
 		RedsysMerchantCode:        redsysMerchantCode,

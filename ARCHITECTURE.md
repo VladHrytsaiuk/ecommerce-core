@@ -94,6 +94,7 @@ flowchart TB
     Core -. durable orders.paid.v1 outbox .-> Reports
 
     PaymentsPort --> LiqPay[LiqPay adapter]
+    PaymentsPort --> Monobank[Monobank adapter]
     PaymentsPort --> Stripe[Stripe adapter]
     PaymentsPort --> Redsys[Redsys adapter]
     DeliveryPort --> Nova[Nova Poshta adapter]

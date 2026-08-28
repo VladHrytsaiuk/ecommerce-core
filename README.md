@@ -20,8 +20,8 @@ not business logic embedded in the order flow.
 ## Features
 
 - **Pluggable payments and delivery** — provider-neutral ports for LiqPay,
-  Stripe, Redsys, Nova Poshta, DHL Express, Correos, and future adapters.
-  LiqPay, Stripe, Redsys, Nova Poshta and DHL Express are implemented clean
+  Monobank, Stripe, Redsys, Nova Poshta, DHL Express, Correos, and future adapters.
+  LiqPay, Monobank, Stripe, Redsys, Nova Poshta and DHL Express are implemented clean
   adapters. Correos remains deferred until its deployment-specific contract is
   available.
 - **Flexible inventory** — run autonomously with internal inventory, or use a
@@ -406,6 +406,17 @@ Set `PAYMENT_PROVIDERS=stripe`, `PAYMENT_DEFAULT=stripe`,
 Intent and the checkout response returns its short-lived `client_secret`; the
 storefront completes that flow using Stripe.js. Verified callbacks use
 `POST /api/webhooks/payments/stripe`.
+
+### Monobank acquiring configuration
+
+Set `PAYMENT_PROVIDERS=monobank`, `PAYMENT_DEFAULT=monobank`, `CURRENCY=UAH`,
+and `PRICE_SCALE=2`. Configure `MONOBANK_TOKEN`, a base64 PEM
+`MONOBANK_WEBHOOK_PUBLIC_KEY`, and `MONOBANK_WEBHOOK_URL` (for example
+`https://api.example.com/api/webhooks/payments/monobank`). The adapter creates
+an invoice at Monobank and returns its `pageUrl` as the buyer redirect. The
+webhook endpoint verifies the raw request body against its ECDSA `X-Sign`
+header before decoding it; verified callbacks use
+`POST /api/webhooks/payments/monobank`.
 
 ### Redsys development configuration
 

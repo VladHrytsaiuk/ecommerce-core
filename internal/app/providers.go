@@ -6,6 +6,7 @@ import (
 	dhlExpressAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/dhlexpress"
 	novaposhtaAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/novaposhta"
 	liqpayAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/liqpay"
+	monobankAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/monobank"
 	redsysAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/redsys"
 	stripeAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/payment/stripe"
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
@@ -24,6 +25,12 @@ func newPaymentRegistry(cfg *config.Config, storeConfig StoreConfig) (*paymentsA
 		switch code {
 		case "liqpay":
 			gateway, err := liqpayAdapter.New(liqpayAdapter.Config{PublicKey: cfg.LiqPayPublicKey, PrivateKey: cfg.LiqPayPrivateKey, CallbackURL: cfg.LiqPayCallbackURL, PriceScale: storeConfig.PriceScale})
+			if err != nil {
+				return nil, err
+			}
+			gateways = append(gateways, gateway)
+		case "monobank":
+			gateway, err := monobankAdapter.New(monobankAdapter.Config{Token: cfg.MonobankToken, WebhookPublicKey: cfg.MonobankWebhookPublicKey, APIURL: cfg.MonobankAPIURL, WebhookURL: cfg.MonobankWebhookURL})
 			if err != nil {
 				return nil, err
 			}

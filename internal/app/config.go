@@ -167,6 +167,13 @@ func validateEnabledAdapters(cfg *config.Config, storeConfig StoreConfig) error 
 			if strings.TrimSpace(cfg.LiqPayCallbackURL) == "" {
 				return fmt.Errorf("LIQPAY_CALLBACK_URL is required when liqpay is enabled")
 			}
+		case "monobank":
+			if strings.TrimSpace(cfg.MonobankToken) == "" || strings.TrimSpace(cfg.MonobankWebhookPublicKey) == "" || strings.TrimSpace(cfg.MonobankWebhookURL) == "" {
+				return fmt.Errorf("MONOBANK_TOKEN, MONOBANK_WEBHOOK_PUBLIC_KEY and MONOBANK_WEBHOOK_URL are required when monobank is enabled")
+			}
+			if storeConfig.Currency != "UAH" || storeConfig.PriceScale != 2 {
+				return fmt.Errorf("monobank requires CURRENCY=UAH and PRICE_SCALE=2")
+			}
 		case "stripe":
 			if strings.TrimSpace(cfg.StripeSecretKey) == "" || strings.TrimSpace(cfg.StripeWebhookSecret) == "" {
 				return fmt.Errorf("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required when stripe is enabled")

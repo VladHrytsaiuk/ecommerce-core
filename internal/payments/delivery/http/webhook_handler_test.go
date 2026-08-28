@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,19 @@ func TestWebhookHandlerRegistersGenericProviderRoute(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/webhooks/payments/fake", nil)
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestWebhookHandlerRejectsBodiesOverOneMiB(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	registry, _ := paymentsApp.NewRegistry([]string{"fake"}, "fake", httpGateway{})
+	router := gin.New()
+	RegisterWebhookRoutes(router.Group("/api"), paymentsApp.NewWebhookService(registry, &httpEventStore{}, &httpWorkflow{}))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/webhooks/payments/fake", strings.NewReader(strings.Repeat("x", maxWebhookBodySize+1)))
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }

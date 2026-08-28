@@ -54,6 +54,14 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want:   "REDSYS_MERCHANT_CODE",
 		},
 		{
+			name: "enabled monobank has no credentials",
+			mutate: func(cfg *config.Config) {
+				cfg.PaymentProviders, cfg.PaymentDefault = []string{"monobank"}, "monobank"
+				cfg.Currency, cfg.PriceScale = "UAH", 2
+			},
+			want: "MONOBANK_TOKEN",
+		},
+		{
 			name: "enabled novaposhta has no credentials",
 			mutate: func(cfg *config.Config) {
 				cfg.ShippingProviders, cfg.ShippingDefault = []string{"novaposhta"}, "novaposhta"
@@ -256,6 +264,31 @@ func TestNewStoreConfigAcceptsConfiguredStripe(t *testing.T) {
 
 	if _, err := NewStoreConfig(cfg); err != nil {
 		t.Fatalf("NewStoreConfig() error = %v", err)
+	}
+}
+
+func TestNewStoreConfigAcceptsConfiguredMonobank(t *testing.T) {
+	cfg := validConfig()
+	cfg.PaymentProviders, cfg.PaymentDefault = []string{"monobank"}, "monobank"
+	cfg.Currency, cfg.PriceScale = "UAH", 2
+	cfg.MonobankToken = "token"
+	cfg.MonobankWebhookPublicKey = "base64-public-key"
+	cfg.MonobankWebhookURL = "https://api.example.test/api/webhooks/payments/monobank"
+
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() monobank error = %v", err)
+	}
+}
+
+func TestNewStoreConfigRejectsMonobankWithNonUAHStoreCurrency(t *testing.T) {
+	cfg := validConfig()
+	cfg.PaymentProviders, cfg.PaymentDefault = []string{"monobank"}, "monobank"
+	cfg.Currency, cfg.PriceScale = "EUR", 2
+	cfg.MonobankToken, cfg.MonobankWebhookPublicKey = "token", "base64-public-key"
+	cfg.MonobankWebhookURL = "https://api.example.test/api/webhooks/payments/monobank"
+
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "CURRENCY=UAH") {
+		t.Fatalf("NewStoreConfig() error = %v, want UAH validation error", err)
 	}
 }
 

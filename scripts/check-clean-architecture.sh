@@ -20,12 +20,13 @@ active_paths=(
   migrations/modules
 )
 
-# User-profile schemas and sanitized Admin audit payloads deliberately use
-# JSONB. Neither stores translatable business content; translations remain
-# normalized everywhere else in the active migration graph.
+# User-profile schemas, sanitized Admin audit payloads, and immutable Orders
+# workflow metadata deliberately use JSONB. None stores translatable business
+# content; translations remain normalized everywhere else in the active graph.
 if rg -n -i 'jsonb' migrations/core migrations/modules \
   --glob '!migrations/modules/user_profiles/**' \
-  --glob '!migrations/modules/admin/**'; then
+  --glob '!migrations/modules/admin/**' \
+  --glob '!migrations/modules/orders/**'; then
   echo 'Active migrations must not store multilingual content in JSONB.' >&2
   exit 1
 fi
