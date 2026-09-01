@@ -13,6 +13,9 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"gorm.io/gorm"
 
+	abandonedReaders "github.com/VladHrytsaiuk/ecommerce-core/internal/abandoned_cart/adapter/readers"
+	abandonedApp "github.com/VladHrytsaiuk/ecommerce-core/internal/abandoned_cart/application"
+	abandonedPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/abandoned_cart/repository/postgres"
 	googleAuthAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/auth/google"
 	deliveryWorkflowAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/orderworkflow"
 	adminApp "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/application"
@@ -31,8 +34,10 @@ import (
 	catalogApp "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/application"
 	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
+	checkoutConsent "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/adapter/consent"
 	checkoutApp "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/application"
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
+	checkoutPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/repository/postgres"
 	comparisonDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/domain"
 	comparisonPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/repository/postgres"
 	comparisonService "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/service"
@@ -111,65 +116,68 @@ import (
 
 // Application exposes only services that belong to the active clean-slate graph.
 type Application struct {
-	Config                   *config.Config
-	StoreConfig              StoreConfig
-	TokenMaker               token.Maker
-	CatalogCategoryService   catalogDomain.CategoryService
-	CatalogProductService    catalogDomain.ProductService
-	CatalogVariantService    catalogDomain.VariantService
-	CartService              cartDomain.Service
-	CheckoutService          checkoutDomain.Service
-	CheckoutRecovery         *checkoutApp.RecoveryService
-	CheckoutExpiry           *checkoutApp.ExpiryService
-	OrderWorkflowService     orderWorkflowDomain.Service
-	InventoryService         inventoryDomain.Service
-	InventoryAvailability    catalogDomain.VariantAvailabilityReader
-	InventoryCleanup         *inventoryApp.Cleanup
-	OrderService             ordersDomain.Service
-	IdentityAuthService      identityDomain.AuthService
-	IdentityProfileService   identityDomain.ProfileService
-	CustomerProfileService   identityDomain.CustomerProfileService
-	WishlistService          wishlistDomain.Service
-	ComparisonService        comparisonDomain.Service
-	ReviewsService           reviewsDomain.Service
-	SEOService               seoDomain.Service
-	BadgesService            badgesDomain.Service
-	PaymentGateways          *paymentsApp.Registry
-	PaymentWebhookService    *paymentsApp.WebhookService
-	DeliveryCarriers         *deliveryApp.Registry
-	DeliveryLocations        *deliveryApp.LocationService
-	DeliveryDispatcher       *deliveryApp.Dispatcher
-	DeliveryTracker          *deliveryApp.Tracker
-	OutboxWorker             *eventsApp.OutboxWorker
-	AdminAuditOutboxWorker   *eventsApp.OutboxWorker
-	SearchOutboxWorker       *eventsApp.OutboxWorker
-	MediaOutboxWorker        *eventsApp.OutboxWorker
-	ReportsOutboxWorker      *eventsApp.OutboxWorker
-	OutboxRetention          *eventsApp.RetentionWorker
-	MediaOrphanCleanup       *mediaApp.OrphanCleanupWorker
-	SearchService            searchDomain.SearchService
-	MediaUploadService       *mediaApp.UploadService
-	ReportsQueryService      reportsDomain.QueryService
-	ReportsRebuilder         *reportsApp.ReportsRebuilder
-	ReturnService            *returnsApp.ReturnService
-	ReturnsOutboxWorker      *eventsApp.OutboxWorker
-	NotificationWorker       *notificationsApp.DurableWorker
-	AvailabilityService      *availabilityApp.Service
-	AvailabilityOutboxWorker *eventsApp.OutboxWorker
-	SupportService           *supportApp.Service
-	ConsentService           *consentApp.Service
-	AdminAuthorizer          adminDomain.Authorizer
-	PromosAdminFacade        *adminApp.PromosAdminFacade
-	CatalogAdminFacade       *adminApp.CatalogAdminFacade
-	OrdersAdminFacade        *adminApp.OrdersAdminFacade
-	TaxPolicy                tax.Calculator
-	HTTP                     HTTPDependencies
-	Management               *management.Server
-	resourceCloser           io.Closer
-	telemetryShutdown        func(context.Context) error
-	workerMu                 sync.Mutex
-	workerCancel             context.CancelFunc
-	workerWG                 sync.WaitGroup
+	Config                    *config.Config
+	StoreConfig               StoreConfig
+	TokenMaker                token.Maker
+	CatalogCategoryService    catalogDomain.CategoryService
+	CatalogProductService     catalogDomain.ProductService
+	CatalogVariantService     catalogDomain.VariantService
+	CartService               cartDomain.Service
+	CheckoutService           checkoutDomain.Service
+	CheckoutContactCapture    checkoutDomain.ContactCaptureService
+	CheckoutRecovery          *checkoutApp.RecoveryService
+	CheckoutExpiry            *checkoutApp.ExpiryService
+	OrderWorkflowService      orderWorkflowDomain.Service
+	InventoryService          inventoryDomain.Service
+	InventoryAvailability     catalogDomain.VariantAvailabilityReader
+	InventoryCleanup          *inventoryApp.Cleanup
+	OrderService              ordersDomain.Service
+	IdentityAuthService       identityDomain.AuthService
+	IdentityProfileService    identityDomain.ProfileService
+	CustomerProfileService    identityDomain.CustomerProfileService
+	WishlistService           wishlistDomain.Service
+	ComparisonService         comparisonDomain.Service
+	ReviewsService            reviewsDomain.Service
+	SEOService                seoDomain.Service
+	BadgesService             badgesDomain.Service
+	PaymentGateways           *paymentsApp.Registry
+	PaymentWebhookService     *paymentsApp.WebhookService
+	DeliveryCarriers          *deliveryApp.Registry
+	DeliveryLocations         *deliveryApp.LocationService
+	DeliveryDispatcher        *deliveryApp.Dispatcher
+	DeliveryTracker           *deliveryApp.Tracker
+	OutboxWorker              *eventsApp.OutboxWorker
+	AdminAuditOutboxWorker    *eventsApp.OutboxWorker
+	SearchOutboxWorker        *eventsApp.OutboxWorker
+	MediaOutboxWorker         *eventsApp.OutboxWorker
+	ReportsOutboxWorker       *eventsApp.OutboxWorker
+	OutboxRetention           *eventsApp.RetentionWorker
+	MediaOrphanCleanup        *mediaApp.OrphanCleanupWorker
+	SearchService             searchDomain.SearchService
+	MediaUploadService        *mediaApp.UploadService
+	ReportsQueryService       reportsDomain.QueryService
+	ReportsRebuilder          *reportsApp.ReportsRebuilder
+	ReturnService             *returnsApp.ReturnService
+	ReturnsOutboxWorker       *eventsApp.OutboxWorker
+	NotificationWorker        *notificationsApp.DurableWorker
+	AvailabilityService       *availabilityApp.Service
+	AvailabilityOutboxWorker  *eventsApp.OutboxWorker
+	AbandonedCartWorker       *abandonedApp.Worker
+	AbandonedCartOutboxWorker *eventsApp.OutboxWorker
+	SupportService            *supportApp.Service
+	ConsentService            *consentApp.Service
+	AdminAuthorizer           adminDomain.Authorizer
+	PromosAdminFacade         *adminApp.PromosAdminFacade
+	CatalogAdminFacade        *adminApp.CatalogAdminFacade
+	OrdersAdminFacade         *adminApp.OrdersAdminFacade
+	TaxPolicy                 tax.Calculator
+	HTTP                      HTTPDependencies
+	Management                *management.Server
+	resourceCloser            io.Closer
+	telemetryShutdown         func(context.Context) error
+	workerMu                  sync.Mutex
+	workerCancel              context.CancelFunc
+	workerWG                  sync.WaitGroup
 }
 
 type HTTPDependencies struct {
@@ -297,6 +305,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
 	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
 	availabilityEnabled := contains(storeConfig.EnabledModules, "availability_notifications")
+	abandonedCartEnabled := contains(storeConfig.EnabledModules, "abandoned_cart")
 	supportEnabled := contains(storeConfig.EnabledModules, "support")
 	consentEnabled := contains(storeConfig.EnabledModules, "consent")
 	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
@@ -325,6 +334,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		})
 		availabilityOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), availabilityDomain.ConsumerAvailabilityNotifications, time.Minute, logger.Log, handler)
 		inventoryService.WithAvailabilityPublisher(eventsPostgres.NewPublisher(availabilityDomain.ConsumerAvailabilityNotifications))
+	}
+	if abandonedCartEnabled && (!contains(storeConfig.EnabledModules, "checkout") || !notificationsEnabled || !consentEnabled) {
+		return nil, fmt.Errorf("abandoned_cart requires checkout, notifications and consent")
 	}
 	var supportService *supportApp.Service
 	if supportEnabled {
@@ -468,6 +480,8 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var reportsRebuilder *reportsApp.ReportsRebuilder
 	var returnService *returnsApp.ReturnService
 	var returnsOutboxWorker *eventsApp.OutboxWorker
+	var abandonedCartWorker *abandonedApp.Worker
+	var abandonedCartOutboxWorker *eventsApp.OutboxWorker
 	if reportsEnabled {
 		repository := reportsPostgres.NewRepository(db)
 		reportsQueryService, err = reportsApp.NewQueryService(repository, cfg.ReportsTimezone)
@@ -594,6 +608,25 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	if customerProfileService != nil {
 		checkoutService.WithCustomerProfileReader(identityApplication.NewCheckoutProfileReader(customerProfileService))
 	}
+	var checkoutContactCapture checkoutDomain.ContactCaptureService
+	if abandonedCartEnabled {
+		quietHours, quietErr := abandonedApp.ParseQuietHours(cfg.AbandonedCartQuietHours)
+		if quietErr != nil {
+			return nil, fmt.Errorf("configure abandoned-cart quiet hours: %w", quietErr)
+		}
+		contactRepository := checkoutPostgres.NewContactRepository(db)
+		checkoutContactCapture = checkoutApp.NewContactCaptureService(contactRepository, cartApp.NewService(newCartRepository(db, reportsEnabled, abandonedCartEnabled)), checkoutConsent.NewWriter(consentService), adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(abandonedApp.ConsumerCampaignProducer))
+		campaignRepository := abandonedPostgres.NewRepository(db)
+		cartReader := abandonedReaders.NewCartReader(db)
+		contactProvider := abandonedReaders.NewContactProvider(db)
+		producer, producerErr := abandonedApp.NewCampaignProducer(campaignRepository, cartReader, contactProvider, cfg.AbandonedCartDelays[0])
+		if producerErr != nil {
+			return nil, fmt.Errorf("configure abandoned-cart producer: %w", producerErr)
+		}
+		policy := abandonedApp.Policy{Delays: append([]time.Duration(nil), cfg.AbandonedCartDelays[:cfg.AbandonedCartMaxReminders]...), RequireMarketingConsent: cfg.AbandonedCartRequireMarketingConsent, QuietHours: quietHours}
+		abandonedCartWorker = abandonedApp.NewWorker(campaignRepository, cartReader, abandonedReaders.NewConsentReader(db), notificationsPostgres.NewRepository(db), adminPostgres.NewTransactionManager(db), policy)
+		abandonedCartOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), abandonedApp.ConsumerCampaignProducer, time.Minute, logger.Log, producer, abandonedApp.NewTopicConsumer(eventsDomain.TopicCheckoutEmailCaptured, producer))
+	}
 
 	categoryService := catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales).WithCache(cacheService)
 	if adminEnabled {
@@ -639,59 +672,62 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	application := &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
-		CatalogCategoryService:   categoryService,
-		CatalogProductService:    productService,
-		CatalogVariantService:    variantService,
-		CartService:              cartApp.NewService(newCartRepository(db, reportsEnabled)),
-		CheckoutService:          checkoutService,
-		CheckoutRecovery:         checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
-		CheckoutExpiry:           checkoutApp.NewExpiryService(orderWorkflowService),
-		OrderWorkflowService:     orderWorkflowService,
-		InventoryService:         inventoryService,
-		InventoryAvailability:    inventoryRepository,
-		InventoryCleanup:         inventoryApp.NewCleanup(inventoryRepository),
-		OrderService:             ordersApp.NewService(ordersPostgres.NewRepository(db)),
-		IdentityAuthService:      identityAuthService,
-		IdentityProfileService:   identityProfileService,
-		CustomerProfileService:   customerProfileService,
-		WishlistService:          enabledWishlist,
-		ComparisonService:        enabledComparison,
-		ReviewsService:           enabledReviews,
-		SEOService:               enabledSEO,
-		BadgesService:            enabledBadges,
-		PaymentGateways:          paymentGateways,
-		PaymentWebhookService:    paymentWebhookService,
-		DeliveryCarriers:         deliveryCarriers,
-		DeliveryLocations:        deliveryApp.NewLocationService(deliveryCarriers, cacheService),
-		DeliveryDispatcher:       deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
-		DeliveryTracker:          deliveryTracker,
-		OutboxWorker:             eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
-		AdminAuditOutboxWorker:   adminAuditOutboxWorker,
-		SearchOutboxWorker:       searchOutboxWorker,
-		MediaOutboxWorker:        mediaOutboxWorker,
-		ReportsOutboxWorker:      reportsOutboxWorker,
-		OutboxRetention:          outboxRetention,
-		MediaOrphanCleanup:       mediaOrphanCleanup,
-		SearchService:            searchService,
-		MediaUploadService:       mediaUploadService,
-		ReportsQueryService:      reportsQueryService,
-		ReportsRebuilder:         reportsRebuilder,
-		ReturnService:            returnService,
-		ReturnsOutboxWorker:      returnsOutboxWorker,
-		NotificationWorker:       notificationWorker,
-		AvailabilityService:      availabilityService,
-		AvailabilityOutboxWorker: availabilityOutboxWorker,
-		SupportService:           supportService,
-		ConsentService:           consentService,
-		AdminAuthorizer:          adminAuthorizer,
-		PromosAdminFacade:        promosAdminFacade,
-		CatalogAdminFacade:       catalogAdminFacade,
-		OrdersAdminFacade:        ordersAdminFacade,
-		TaxPolicy:                taxPolicy,
-		HTTP:                     httpDependencies,
-		Management:               management.NewServer(cfg.ManagementAddr, readinessChecks...),
-		resourceCloser:           closeAll(resourceClosers),
-		telemetryShutdown:        telemetryShutdown,
+		CatalogCategoryService:    categoryService,
+		CatalogProductService:     productService,
+		CatalogVariantService:     variantService,
+		CartService:               cartApp.NewService(newCartRepository(db, reportsEnabled, abandonedCartEnabled)),
+		CheckoutService:           checkoutService,
+		CheckoutContactCapture:    checkoutContactCapture,
+		CheckoutRecovery:          checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
+		CheckoutExpiry:            checkoutApp.NewExpiryService(orderWorkflowService),
+		OrderWorkflowService:      orderWorkflowService,
+		InventoryService:          inventoryService,
+		InventoryAvailability:     inventoryRepository,
+		InventoryCleanup:          inventoryApp.NewCleanup(inventoryRepository),
+		OrderService:              ordersApp.NewService(ordersPostgres.NewRepository(db)),
+		IdentityAuthService:       identityAuthService,
+		IdentityProfileService:    identityProfileService,
+		CustomerProfileService:    customerProfileService,
+		WishlistService:           enabledWishlist,
+		ComparisonService:         enabledComparison,
+		ReviewsService:            enabledReviews,
+		SEOService:                enabledSEO,
+		BadgesService:             enabledBadges,
+		PaymentGateways:           paymentGateways,
+		PaymentWebhookService:     paymentWebhookService,
+		DeliveryCarriers:          deliveryCarriers,
+		DeliveryLocations:         deliveryApp.NewLocationService(deliveryCarriers, cacheService),
+		DeliveryDispatcher:        deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
+		DeliveryTracker:           deliveryTracker,
+		OutboxWorker:              eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
+		AdminAuditOutboxWorker:    adminAuditOutboxWorker,
+		SearchOutboxWorker:        searchOutboxWorker,
+		MediaOutboxWorker:         mediaOutboxWorker,
+		ReportsOutboxWorker:       reportsOutboxWorker,
+		OutboxRetention:           outboxRetention,
+		MediaOrphanCleanup:        mediaOrphanCleanup,
+		SearchService:             searchService,
+		MediaUploadService:        mediaUploadService,
+		ReportsQueryService:       reportsQueryService,
+		ReportsRebuilder:          reportsRebuilder,
+		ReturnService:             returnService,
+		ReturnsOutboxWorker:       returnsOutboxWorker,
+		NotificationWorker:        notificationWorker,
+		AvailabilityService:       availabilityService,
+		AvailabilityOutboxWorker:  availabilityOutboxWorker,
+		AbandonedCartWorker:       abandonedCartWorker,
+		AbandonedCartOutboxWorker: abandonedCartOutboxWorker,
+		SupportService:            supportService,
+		ConsentService:            consentService,
+		AdminAuthorizer:           adminAuthorizer,
+		PromosAdminFacade:         promosAdminFacade,
+		CatalogAdminFacade:        catalogAdminFacade,
+		OrdersAdminFacade:         ordersAdminFacade,
+		TaxPolicy:                 taxPolicy,
+		HTTP:                      httpDependencies,
+		Management:                management.NewServer(cfg.ManagementAddr, readinessChecks...),
+		resourceCloser:            closeAll(resourceClosers),
+		telemetryShutdown:         telemetryShutdown,
 	}
 	bootstrapComplete = true
 	return application, nil
@@ -718,10 +754,17 @@ func inventoryMode(value string) inventoryDomain.Mode {
 	return inventoryDomain.ModeExternal
 }
 
-func newCartRepository(db *gorm.DB, reportsEnabled bool) *cartPostgres.Repository {
+func newCartRepository(db *gorm.DB, reportsEnabled, abandonedCartEnabled bool) *cartPostgres.Repository {
 	repository := cartPostgres.NewRepository(db)
+	consumers := make([]string, 0, 2)
 	if reportsEnabled {
-		repository.WithEventPublisher(eventsPostgres.NewPublisher(eventsDomain.ConsumerReportsProjection))
+		consumers = append(consumers, eventsDomain.ConsumerReportsProjection)
+	}
+	if abandonedCartEnabled {
+		consumers = append(consumers, abandonedApp.ConsumerCampaignProducer)
+	}
+	if len(consumers) > 0 {
+		repository.WithEventPublisher(eventsPostgres.NewPublisher(consumers...))
 	}
 	return repository
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
@@ -18,12 +19,63 @@ import (
 // CheckoutV1Handler is the RFC 9457/API-envelope transport facade over the
 // existing checkout application service.
 type CheckoutV1Handler struct {
-	legacy *Handler
-	errors *apiresponse.ErrorRenderer
+	legacy   *Handler
+	contacts checkoutDomain.ContactCaptureService
+	errors   *apiresponse.ErrorRenderer
 }
 
 func NewCheckoutV1Handler(legacy *Handler, renderer *apiresponse.ErrorRenderer) *CheckoutV1Handler {
 	return &CheckoutV1Handler{legacy: legacy, errors: renderer}
+}
+
+func (h *CheckoutV1Handler) WithContactCapture(service checkoutDomain.ContactCaptureService) *CheckoutV1Handler {
+	h.contacts = service
+	return h
+}
+
+type captureContactRequest struct {
+	CartID         string `json:"cart_id"`
+	Email          string `json:"email"`
+	MarketingOptIn bool   `json:"marketing_opt_in"`
+}
+
+// CaptureContact godoc
+// @Summary Capture an early checkout contact
+// @Tags Checkout v1
+// @Accept json
+// @Produce json
+// @Param request body captureContactRequest true "Checkout contact"
+// @Success 202 {object} apiresponse.SuccessResponse
+// @Failure 400 {object} apiresponse.ProblemDetails
+// @Router /api/v1/checkout/contact [post]
+func (h *CheckoutV1Handler) CaptureContact(c *gin.Context) {
+	if h.contacts == nil {
+		h.errors.Abort(c, apiresponse.ValidationFailed(fmt.Errorf("checkout contact capture is disabled")))
+		return
+	}
+	var request captureContactRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		h.errors.Abort(c, apiresponse.InvalidPayload(err))
+		return
+	}
+	cartID, err := uuid.Parse(request.CartID)
+	if err != nil || cartID == uuid.Nil {
+		h.errors.Abort(c, apiresponse.InvalidPayload(fmt.Errorf("cart_id must be a UUID")))
+		return
+	}
+	owner, created, err := cartowner.FromContext(c)
+	if err != nil {
+		h.errors.Abort(c, apiresponse.ValidationFailed(err))
+		return
+	}
+	if created {
+		cartowner.SetSessionCookie(c, *owner.SessionID, h.legacy.secureCookies)
+	}
+	if err := h.contacts.CaptureContact(c.Request.Context(), checkoutDomain.CaptureContactCommand{CartID: cartID, Owner: owner, Email: request.Email, MarketingOptIn: request.MarketingOptIn, IPAddress: c.ClientIP()}); err != nil {
+		h.errors.Abort(c, checkoutValidationError(err))
+		return
+	}
+	apiresponse.Success(c, stdhttp.StatusAccepted, gin.H{"cart_id": cartID})
 }
 
 // QuoteDelivery godoc

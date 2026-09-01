@@ -37,3 +37,13 @@ func RegisterV1Routes(group *gin.RouterGroup, service checkoutDomain.Service, ca
 	group.POST("/delivery-options", handler.QuoteDelivery)
 	group.POST("/payment", handler.StartPayment)
 }
+
+// RegisterV1ContactRoute keeps the early-contact endpoint non-localized. The
+// contact is an opaque checkout workflow input, not translatable content.
+func RegisterV1ContactRoute(group *gin.RouterGroup, service checkoutDomain.Service, contacts checkoutDomain.ContactCaptureService, carts cartDomain.Service, reservationTTL time.Duration, warehouseID uuid.UUID, secureCookies bool, renderer *apiresponse.ErrorRenderer) {
+	if group == nil || service == nil || contacts == nil || carts == nil || warehouseID == uuid.Nil || renderer == nil {
+		return
+	}
+	handler := NewCheckoutV1Handler(NewHandler(service, carts, reservationTTL, warehouseID, secureCookies), renderer).WithContactCapture(contacts)
+	group.POST("/contact", handler.CaptureContact)
+}

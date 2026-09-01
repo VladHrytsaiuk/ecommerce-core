@@ -309,6 +309,9 @@ func (c StoreConfig) Validate() error {
 	if contains(c.EnabledModules, "availability_notifications") && (!contains(c.EnabledModules, "inventory") || !contains(c.EnabledModules, "notifications")) {
 		return fmt.Errorf("availability_notifications requires ENABLED_MODULES to include inventory and notifications")
 	}
+	if contains(c.EnabledModules, "abandoned_cart") && (!contains(c.EnabledModules, "checkout") || !contains(c.EnabledModules, "notifications") || !contains(c.EnabledModules, "consent")) {
+		return fmt.Errorf("abandoned_cart requires ENABLED_MODULES to include checkout, notifications and consent")
+	}
 	if contains(c.EnabledModules, "support") && (!contains(c.EnabledModules, "notifications") || !contains(c.EnabledModules, "admin")) {
 		return fmt.Errorf("support requires ENABLED_MODULES to include notifications and admin")
 	}

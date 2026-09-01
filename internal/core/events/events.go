@@ -32,6 +32,10 @@ const (
 	TopicOrderRefunded        = "orders.refunded.v1"
 	TopicCartCreated          = "carts.created.v1"
 	TopicCheckoutStarted      = "checkout.started.v1"
+	TopicCartUpdated          = "cart.updated.v1"
+	// TopicCheckoutEmailCaptured deliberately contains no address or other PII.
+	// Consumers resolve the current contact through a narrowly scoped port.
+	TopicCheckoutEmailCaptured = "checkout.email_captured.v1"
 )
 
 // DomainEvent is an immutable versioned message. Its payload must contain
@@ -43,6 +47,66 @@ type DomainEvent interface {
 	IdempotencyKey() uuid.UUID
 	OccurredAt() time.Time
 	MarshalPayload() ([]byte, error)
+}
+
+// CheckoutEmailCapturedEvent is emitted after the contact snapshot has been
+// committed. The payload is intentionally limited to the cart identity.
+type CheckoutEmailCapturedEvent struct {
+	CartID uuid.UUID
+	At     time.Time
+}
+
+func NewCheckoutEmailCapturedEvent(cartID uuid.UUID, at time.Time) (CheckoutEmailCapturedEvent, error) {
+	if cartID == uuid.Nil {
+		return CheckoutEmailCapturedEvent{}, fmt.Errorf("invalid checkout email captured event")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	return CheckoutEmailCapturedEvent{CartID: cartID, At: at.UTC()}, nil
+}
+func (CheckoutEmailCapturedEvent) Topic() string            { return TopicCheckoutEmailCaptured }
+func (CheckoutEmailCapturedEvent) AggregateType() string    { return "checkout_contact" }
+func (e CheckoutEmailCapturedEvent) AggregateID() uuid.UUID { return e.CartID }
+func (e CheckoutEmailCapturedEvent) IdempotencyKey() uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(e.CartID.String()+":"+e.At.Format(time.RFC3339Nano)))
+}
+func (e CheckoutEmailCapturedEvent) OccurredAt() time.Time { return e.At }
+func (e CheckoutEmailCapturedEvent) MarshalPayload() ([]byte, error) {
+	return json.Marshal(struct {
+		Version int       `json:"version"`
+		CartID  uuid.UUID `json:"cart_id"`
+	}{Version: 1, CartID: e.CartID})
+}
+
+type CartUpdatedEvent struct {
+	CartID     uuid.UUID
+	CustomerID *uuid.UUID
+	At         time.Time
+}
+
+func NewCartUpdatedEvent(cartID uuid.UUID, customerID *uuid.UUID, at time.Time) (CartUpdatedEvent, error) {
+	if cartID == uuid.Nil {
+		return CartUpdatedEvent{}, fmt.Errorf("invalid cart updated event")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	return CartUpdatedEvent{cartID, customerID, at.UTC()}, nil
+}
+func (CartUpdatedEvent) Topic() string            { return TopicCartUpdated }
+func (CartUpdatedEvent) AggregateType() string    { return "cart" }
+func (e CartUpdatedEvent) AggregateID() uuid.UUID { return e.CartID }
+func (e CartUpdatedEvent) IdempotencyKey() uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(e.CartID.String()+e.At.Format(time.RFC3339Nano)))
+}
+func (e CartUpdatedEvent) OccurredAt() time.Time { return e.At }
+func (e CartUpdatedEvent) MarshalPayload() ([]byte, error) {
+	return json.Marshal(struct {
+		Version    int        `json:"version"`
+		CartID     uuid.UUID  `json:"cart_id"`
+		CustomerID *uuid.UUID `json:"customer_id,omitempty"`
+	}{1, e.CartID, e.CustomerID})
 }
 
 // TransactionalEventPublisher appends an event and its configured deliveries

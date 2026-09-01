@@ -79,6 +79,14 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.AvailabilityOutboxWorker.Run(workerCtx, 5*time.Second) }()
 	}
+	if a.AbandonedCartOutboxWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.AbandonedCartOutboxWorker.Run(workerCtx, 5*time.Second) }()
+	}
+	if a.AbandonedCartWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.AbandonedCartWorker.Run(workerCtx, 5*time.Second) }()
+	}
 	if a.OutboxRetention != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.OutboxRetention.Run(workerCtx, a.Config.OutboxRetentionInterval) }()

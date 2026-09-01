@@ -18,7 +18,16 @@ type document consent.LegalDocument
 
 func (document) TableName() string { return "legal_documents" }
 
-type customerConsent consent.CustomerConsent
+type customerConsent struct {
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey"`
+	CustomerID      *uuid.UUID
+	DocumentType    string
+	DocumentVersion string
+	ContactEmail    *string
+	GrantedAt       time.Time
+	WithdrawnAt     *time.Time
+	IPAddress       string
+}
 
 func (customerConsent) TableName() string { return "customer_consents" }
 
@@ -27,7 +36,7 @@ type privacy consent.PrivacyRequest
 func (privacy) TableName() string { return "privacy_requests" }
 func (r *Repository) ActiveDocuments(c context.Context) (v []consent.LegalDocument, e error) {
 	var x []document
-	e = r.db.WithContext(c).Where("is_active = true").Order("type").Find(&x).Error
+	e = r.database(c).Where("is_active = true").Order("type").Find(&x).Error
 	for _, q := range x {
 		v = append(v, consent.LegalDocument(q))
 	}
@@ -35,22 +44,29 @@ func (r *Repository) ActiveDocuments(c context.Context) (v []consent.LegalDocume
 }
 func (r *Repository) Consents(c context.Context, id uuid.UUID) (v []consent.CustomerConsent, e error) {
 	var x []customerConsent
-	e = r.db.WithContext(c).Where("customer_id=?", id).Order("granted_at DESC").Find(&x).Error
+	e = r.database(c).Where("customer_id=?", id).Order("granted_at DESC").Find(&x).Error
 	for _, q := range x {
-		v = append(v, consent.CustomerConsent(q))
+		v = append(v, toConsent(q))
 	}
 	return
 }
 func (r *Repository) IsActiveDocument(c context.Context, t, v string) (bool, error) {
 	var n int64
-	e := r.db.WithContext(c).Table("legal_documents").Where("type=? AND version=? AND is_active=true", t, v).Count(&n).Error
+	e := r.database(c).Table("legal_documents").Where("type=? AND version=? AND is_active=true", t, v).Count(&n).Error
 	return n == 1, e
 }
 func (r *Repository) Grant(c context.Context, x consent.CustomerConsent) error {
-	return r.db.WithContext(c).Create((*customerConsent)(&x)).Error
+	var customerID *uuid.UUID
+	if x.CustomerID != uuid.Nil {
+		customerID = &x.CustomerID
+	}
+	return r.database(c).Create(&customerConsent{ID: x.ID, CustomerID: customerID, DocumentType: x.DocumentType, DocumentVersion: x.DocumentVersion, ContactEmail: x.ContactEmail, GrantedAt: x.GrantedAt, WithdrawnAt: x.WithdrawnAt, IPAddress: x.IPAddress}).Error
 }
 func (r *Repository) Withdraw(c context.Context, id uuid.UUID, t string, at time.Time) error {
-	return r.db.WithContext(c).Model((*customerConsent)(nil)).Where("customer_id=? AND document_type=? AND withdrawn_at IS NULL", id, t).Update("withdrawn_at", at).Error
+	return r.database(c).Model((*customerConsent)(nil)).Where("customer_id=? AND document_type=? AND withdrawn_at IS NULL", id, t).Update("withdrawn_at", at).Error
+}
+func (r *Repository) WithdrawMarketingByEmail(c context.Context, email string, at time.Time) error {
+	return r.database(c).Model((*customerConsent)(nil)).Where("contact_email=? AND document_type='marketing' AND withdrawn_at IS NULL", email).Update("withdrawn_at", at).Error
 }
 func (r *Repository) CreatePrivacyRequest(c context.Context, x consent.PrivacyRequest) error {
 	return r.db.WithContext(c).Create((*privacy)(&x)).Error
@@ -112,3 +128,11 @@ func (r *Repository) database(c context.Context) *gorm.DB {
 }
 
 var _ consent.Repository = (*Repository)(nil)
+
+func toConsent(record customerConsent) consent.CustomerConsent {
+	var customerID uuid.UUID
+	if record.CustomerID != nil {
+		customerID = *record.CustomerID
+	}
+	return consent.CustomerConsent{ID: record.ID, CustomerID: customerID, DocumentType: record.DocumentType, DocumentVersion: record.DocumentVersion, ContactEmail: record.ContactEmail, GrantedAt: record.GrantedAt, WithdrawnAt: record.WithdrawnAt, IPAddress: record.IPAddress}
+}

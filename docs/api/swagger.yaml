@@ -1038,6 +1038,15 @@ definitions:
       return_url:
         type: string
     type: object
+  internal_checkout_delivery_http.captureContactRequest:
+    properties:
+      cart_id:
+        type: string
+      email:
+        type: string
+      marketing_opt_in:
+        type: boolean
+    type: object
   internal_discount_delivery_http.ErrorResponse:
     properties:
       details: {}
@@ -3908,6 +3917,31 @@ paths:
           schema:
             $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
       summary: Start an idempotent checkout payment (v1)
+      tags:
+      - Checkout v1
+  /api/v1/checkout/contact:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Checkout contact
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_checkout_delivery_http.captureContactRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Capture an early checkout contact
       tags:
       - Checkout v1
   /api/v1/customers/me/addresses:

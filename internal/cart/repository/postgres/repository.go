@@ -117,6 +117,15 @@ func (r *Repository) mutate(ctx context.Context, owner domain.Owner, change func
 		if err := tx.Model(cart).Update("updated_at", gorm.Expr("CURRENT_TIMESTAMP")).Error; err != nil {
 			return err
 		}
+		if r.events != nil {
+			event, err := eventsDomain.NewCartUpdatedEvent(cart.ID, cart.CustomerID, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if err := r.events.Publish(transaction.WithContext(ctx, tx), event); err != nil {
+				return err
+			}
+		}
 		result, err = load(tx, cart, owner)
 		return err
 	})

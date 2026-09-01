@@ -3406,6 +3406,45 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/checkout/contact": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Checkout v1"
+                ],
+                "summary": "Capture an early checkout contact",
+                "parameters": [
+                    {
+                        "description": "Checkout contact",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_checkout_delivery_http.captureContactRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/checkout/{lang}/delivery-options": {
             "post": {
                 "consumes": [
@@ -6250,6 +6289,20 @@ const docTemplate = `{
                 },
                 "return_url": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_checkout_delivery_http.captureContactRequest": {
+            "type": "object",
+            "properties": {
+                "cart_id": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "marketing_opt_in": {
+                    "type": "boolean"
                 }
             }
         },

@@ -413,6 +413,20 @@ active document version; Terms withdrawal consults a narrow Orders activity
 port before changing consent state. Legal and consent records are module-owned
 and do not add cross-module foreign keys.
 
+## Phase 24 — Abandoned-cart recovery
+
+**Status: complete.** The opt-in `abandoned_cart` module keeps campaign state
+separate from Cart, Checkout, Consent, and Notifications. Cart mutations and
+early checkout contact capture append identity-only events to the transactional
+Outbox; the campaign producer resolves the latest contact through narrow
+readers, so PII never enters event payloads. `checkout_contacts` holds a
+correctable contact snapshot, while an optional marketing opt-in is persisted
+in the same transaction as the snapshot and event. The worker uses leased
+`FOR UPDATE SKIP LOCKED` claims, rechecks cart state just in time, honors
+configurable delays and quiet hours, and transactionally schedules durable
+notification jobs. Campaigns require the `checkout`, `consent`, and
+`notifications` modules and stop cleanly with the application lifecycle.
+
 ## Global rules
 
 - Do not fork for a store.

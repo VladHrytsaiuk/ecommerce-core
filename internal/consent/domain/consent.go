@@ -17,6 +17,7 @@ type LegalDocument struct {
 type CustomerConsent struct {
 	ID, CustomerID                uuid.UUID
 	DocumentType, DocumentVersion string
+	ContactEmail                  *string
 	GrantedAt                     time.Time
 	WithdrawnAt                   *time.Time
 	IPAddress                     string
@@ -42,6 +43,7 @@ type Repository interface {
 	Consents(context.Context, uuid.UUID) ([]CustomerConsent, error)
 	Grant(context.Context, CustomerConsent) error
 	Withdraw(context.Context, uuid.UUID, string, time.Time) error
+	WithdrawMarketingByEmail(context.Context, string, time.Time) error
 	CreatePrivacyRequest(context.Context, PrivacyRequest) error
 	IsActiveDocument(context.Context, string, string) (bool, error)
 	CreateDocument(context.Context, LegalDocument) error

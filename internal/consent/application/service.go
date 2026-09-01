@@ -68,6 +68,33 @@ func (s *Service) Grant(c context.Context, id uuid.UUID, t, v, ip string) error 
 	}
 	return s.repo.Grant(c, consent.CustomerConsent{ID: uuid.New(), CustomerID: id, DocumentType: strings.TrimSpace(t), DocumentVersion: strings.TrimSpace(v), GrantedAt: s.now(), IPAddress: ip})
 }
+
+// GrantActiveMarketing records consent for the currently published marketing
+// document. It is intentionally usable inside a caller-owned transaction.
+func (s *Service) GrantActiveMarketing(c context.Context, customerID *uuid.UUID, email, ip string) error {
+	if (customerID == nil || *customerID == uuid.Nil) && strings.TrimSpace(email) == "" {
+		return consent.ErrInvalid
+	}
+	documents, err := s.repo.ActiveDocuments(c)
+	if err != nil {
+		return err
+	}
+	for _, document := range documents {
+		if document.Type == "marketing" {
+			var id uuid.UUID
+			if customerID != nil {
+				id = *customerID
+			}
+			var contactEmail *string
+			if id == uuid.Nil {
+				normalized := strings.ToLower(strings.TrimSpace(email))
+				contactEmail = &normalized
+			}
+			return s.repo.Grant(c, consent.CustomerConsent{ID: uuid.New(), CustomerID: id, ContactEmail: contactEmail, DocumentType: "marketing", DocumentVersion: document.Version, GrantedAt: s.now(), IPAddress: ip})
+		}
+	}
+	return consent.ErrDocumentInactive
+}
 func (s *Service) Withdraw(c context.Context, id uuid.UUID, t string) error {
 	if t == "terms" {
 		active, e := s.orders.HasActiveOrders(c, id)
@@ -79,6 +106,18 @@ func (s *Service) Withdraw(c context.Context, id uuid.UUID, t string) error {
 		}
 	}
 	return s.repo.Withdraw(c, id, strings.TrimSpace(t), s.now())
+}
+
+// WithdrawMarketingByEmail supports a signed unsubscribe endpoint for a guest
+// contact without granting that caller access to customer-scoped consent data.
+// The HTTP capability/token transport is intentionally left to the delivery
+// module; this use case is the domain-safe persistence boundary.
+func (s *Service) WithdrawMarketingByEmail(c context.Context, email string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return consent.ErrInvalid
+	}
+	return s.repo.WithdrawMarketingByEmail(c, email, s.now())
 }
 func (s *Service) PrivacyRequest(c context.Context, id uuid.UUID, t string) error {
 	if t != "export" && t != "erasure" {
