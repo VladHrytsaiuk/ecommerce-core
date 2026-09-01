@@ -66,6 +66,7 @@ flowchart TB
     Bootstrap --> Media[Media asset module\noptional]
     Bootstrap --> Reports[Business reports module\noptional]
     Bootstrap --> Returns[Returns / RMA module\noptional]
+    Bootstrap --> Support[Customer support module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders

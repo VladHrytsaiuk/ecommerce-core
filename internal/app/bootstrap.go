@@ -98,6 +98,9 @@ import (
 	seoService "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/service"
 	sharedCache "github.com/VladHrytsaiuk/ecommerce-core/internal/shared/cache"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/ratelimit"
+	supportIdentity "github.com/VladHrytsaiuk/ecommerce-core/internal/support/adapter/identity"
+	supportApp "github.com/VladHrytsaiuk/ecommerce-core/internal/support/application"
+	supportPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/support/repository/postgres"
 	wishlistDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
 	wishlistPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/repository/postgres"
 	wishlistService "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/service"
@@ -150,6 +153,7 @@ type Application struct {
 	NotificationWorker       *notificationsApp.DurableWorker
 	AvailabilityService      *availabilityApp.Service
 	AvailabilityOutboxWorker *eventsApp.OutboxWorker
+	SupportService           *supportApp.Service
 	AdminAuthorizer          adminDomain.Authorizer
 	PromosAdminFacade        *adminApp.PromosAdminFacade
 	CatalogAdminFacade       *adminApp.CatalogAdminFacade
@@ -186,6 +190,12 @@ type HTTPDependencies struct {
 func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker) (*Application, error) {
 	if err := storeConfig.Validate(); err != nil {
 		return nil, err
+	}
+	// Support ticket creation is an abuse-sensitive public endpoint. Its limiter
+	// must be shared and durable across replicas; a per-process fallback would
+	// silently multiply the quota during a rollout or restart.
+	if contains(storeConfig.EnabledModules, "support") && !cfg.RedisEnabled {
+		return nil, fmt.Errorf("support requires REDIS_ENABLED=true for distributed anti-spam enforcement")
 	}
 	taxPolicy, err := tax.NewPolicy(tax.Mode(storeConfig.TaxMode), storeConfig.VATRate)
 	if err != nil {
@@ -283,6 +293,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
 	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
 	availabilityEnabled := contains(storeConfig.EnabledModules, "availability_notifications")
+	supportEnabled := contains(storeConfig.EnabledModules, "support")
 	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
 	returnsEnabled := contains(storeConfig.EnabledModules, "returns")
 	eventConsumers := make([]string, 0, 1)
@@ -309,6 +320,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		})
 		availabilityOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), availabilityDomain.ConsumerAvailabilityNotifications, time.Minute, logger.Log, handler)
 		inventoryService.WithAvailabilityPublisher(eventsPostgres.NewPublisher(availabilityDomain.ConsumerAvailabilityNotifications))
+	}
+	var supportService *supportApp.Service
+	if supportEnabled {
+		if !notificationsEnabled || !adminEnabled {
+			return nil, fmt.Errorf("support requires notifications and admin")
+		}
+		notificationRepository := notificationsPostgres.NewRepository(db)
+		supportService = supportApp.NewService(supportPostgres.NewRepository(db), supportApp.NewSpamProtector(loginLimiter), supportIdentity.NewEmailReader(db)).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), notificationRepository)
 	}
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
@@ -653,6 +672,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		NotificationWorker:       notificationWorker,
 		AvailabilityService:      availabilityService,
 		AvailabilityOutboxWorker: availabilityOutboxWorker,
+		SupportService:           supportService,
 		AdminAuthorizer:          adminAuthorizer,
 		PromosAdminFacade:        promosAdminFacade,
 		CatalogAdminFacade:       catalogAdminFacade,

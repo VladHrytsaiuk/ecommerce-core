@@ -390,8 +390,11 @@ func Load() *Config {
 
 	trustedProxiesStr := os.Getenv("TRUSTED_PROXIES")
 	var trustedProxies []string
-	if trustedProxiesStr == "all" {
-		trustedProxies = nil // nil means trust all proxies in Gin
+	if strings.EqualFold(strings.TrimSpace(trustedProxiesStr), "all") {
+		// Trusting arbitrary proxy hops lets an internet client forge
+		// X-Forwarded-For and evade IP-scoped abuse controls. Deployments must
+		// explicitly enumerate their ingress CIDRs instead.
+		log.Fatal("Fatal: TRUSTED_PROXIES=all is forbidden; configure explicit ingress proxy CIDRs")
 	} else if trustedProxiesStr != "" {
 		trustedProxies = strings.Split(trustedProxiesStr, ",")
 	} else {

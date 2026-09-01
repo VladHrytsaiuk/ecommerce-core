@@ -392,6 +392,18 @@ the existing verified `orders.refunded.v1` event is delivered back to Returns.
 Partial refunds and store credit remain explicitly unsupported by automatic
 settlement until their pricing/credit policies are implemented.
 
+## Phase 22 — Customer support / contact
+
+**Status: in progress (step 1 complete).** The optional `support` module owns
+ticket and message records without cross-module foreign keys. Its public v1
+intake accepts a bounded request body, resolves an authenticated customer's
+email through a narrow Identity adapter, and checks an atomic Redis IP/email
+rate limit before any database mutation. The module fails fast when Redis is
+disabled, rather than silently weakening its quota on multiple replicas.
+Customer follow-up messages are scoped to
+the JWT subject in SQL; anonymous follow-ups remain deliberately unavailable
+until a signed, single-purpose ticket capability is introduced.
+
 ## Global rules
 
 - Do not fork for a store.

@@ -35,6 +35,8 @@ not business logic embedded in the order flow.
 - **Customer self-service** — optional `customers` supplies a JWT-scoped
   profile and address book; Checkout consumes only configured field-presence
   facts and orders preserve immutable delivery snapshots.
+- **Customer support** — optional `support` provides bounded public ticket
+  intake with IP/email anti-spam controls and JWT-scoped customer follow-ups.
 
 ## Architecture and Roadmap
 
