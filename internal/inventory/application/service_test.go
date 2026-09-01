@@ -6,9 +6,28 @@ import (
 	"testing"
 	"time"
 
+	events "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	"github.com/google/uuid"
 )
+
+func TestAdjustPublishesOnlyAtomicAvailabilityCrossing(t *testing.T) {
+	repo := &availabilityRepository{became: true}
+	publisher := &eventPublisher{}
+	if err := NewService(domain.ModeInternal, repo).WithAvailabilityPublisher(publisher).Adjust(context.Background(), uuid.New(), uuid.New(), 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.events) != 1 || publisher.events[0].Topic() != domain.TopicVariantAvailable {
+		t.Fatalf("availability events = %d", len(publisher.events))
+	}
+	repo.became = false
+	if err := NewService(domain.ModeInternal, repo).WithAvailabilityPublisher(publisher).Adjust(context.Background(), uuid.New(), uuid.New(), 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.events) != 1 {
+		t.Fatal("published a non-crossing adjustment")
+	}
+}
 
 func TestExternalModeBlocksStockAdjustmentButAllowsReservation(t *testing.T) {
 	repo := &fakeRepository{}
@@ -36,6 +55,22 @@ func TestExternalQuantityReplacementIsOnlyAvailableInExternalMode(t *testing.T) 
 type fakeRepository struct {
 	reserved bool
 	replaced int
+}
+
+type availabilityRepository struct {
+	fakeRepository
+	became bool
+}
+
+func (r *availabilityRepository) AdjustAndReportAvailability(context.Context, uuid.UUID, uuid.UUID, int) (bool, error) {
+	return r.became, nil
+}
+
+type eventPublisher struct{ events []events.DomainEvent }
+
+func (p *eventPublisher) Publish(_ context.Context, e events.DomainEvent) error {
+	p.events = append(p.events, e)
+	return nil
 }
 
 func (r *fakeRepository) Reserve(_ context.Context, q domain.ReservationRequest) (*domain.Reservation, error) {

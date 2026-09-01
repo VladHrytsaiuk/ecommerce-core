@@ -2,11 +2,41 @@ package domain
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+const TopicVariantAvailable = "inventory.variant.available.v1"
+
+// AvailabilityAdjustment is returned by storage atomically with a stock
+// mutation; it prevents a read-then-write 0->positive race.
+type AvailabilityAdjustment interface {
+	AdjustAndReportAvailability(context.Context, uuid.UUID, uuid.UUID, int) (bool, error)
+}
+
+type VariantAvailableEvent struct {
+	VariantID uuid.UUID
+	EventID   uuid.UUID
+	At        time.Time
+}
+
+func (VariantAvailableEvent) Topic() string               { return TopicVariantAvailable }
+func (e VariantAvailableEvent) AggregateType() string     { return "inventory_variant" }
+func (e VariantAvailableEvent) AggregateID() uuid.UUID    { return e.VariantID }
+func (e VariantAvailableEvent) IdempotencyKey() uuid.UUID { return e.EventID }
+func (e VariantAvailableEvent) OccurredAt() time.Time     { return e.At }
+func (e VariantAvailableEvent) MarshalPayload() ([]byte, error) {
+	if e.VariantID == uuid.Nil || e.EventID == uuid.Nil {
+		return nil, errors.New("invalid variant available event")
+	}
+	return json.Marshal(struct {
+		Version   int       `json:"version"`
+		VariantID uuid.UUID `json:"variant_id"`
+	}{1, e.VariantID})
+}
 
 var (
 	ErrInsufficientStock      = errors.New("insufficient stock")

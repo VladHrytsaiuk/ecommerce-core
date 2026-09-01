@@ -6,6 +6,7 @@ import (
 
 	adminHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
+	availabilityHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/availability_notifications/delivery/http"
 	cartHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/delivery/http"
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
@@ -62,6 +63,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	v1Catalog := v1.Group("/catalog/:lang")
 	v1Catalog.Use(application.HTTP.RequestBodyLimit, application.HTTP.LocaleMiddleware)
 	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer, application.InventoryAvailability)
+	availabilityHTTP.RegisterV1Routes(v1, application.AvailabilityService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth)
 	if application.SearchService != nil {
 		searchHTTP.RegisterV1Routes(v1Catalog, application.SearchService, application.HTTP.ErrorRenderer)
 	}

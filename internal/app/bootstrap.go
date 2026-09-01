@@ -18,6 +18,10 @@ import (
 	adminApp "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/application"
 	adminDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
 	adminPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/repository/postgres"
+	availabilityIdentity "github.com/VladHrytsaiuk/ecommerce-core/internal/availability_notifications/adapter/identity"
+	availabilityApp "github.com/VladHrytsaiuk/ecommerce-core/internal/availability_notifications/application"
+	availabilityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/availability_notifications/domain"
+	availabilityPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/availability_notifications/repository/postgres"
 	badgesDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/domain"
 	badgesPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/repository/postgres"
 	badgesService "github.com/VladHrytsaiuk/ecommerce-core/internal/badges/service"
@@ -101,60 +105,63 @@ import (
 
 // Application exposes only services that belong to the active clean-slate graph.
 type Application struct {
-	Config                 *config.Config
-	StoreConfig            StoreConfig
-	TokenMaker             token.Maker
-	CatalogCategoryService catalogDomain.CategoryService
-	CatalogProductService  catalogDomain.ProductService
-	CatalogVariantService  catalogDomain.VariantService
-	CartService            cartDomain.Service
-	CheckoutService        checkoutDomain.Service
-	CheckoutRecovery       *checkoutApp.RecoveryService
-	CheckoutExpiry         *checkoutApp.ExpiryService
-	OrderWorkflowService   orderWorkflowDomain.Service
-	InventoryService       inventoryDomain.Service
-	InventoryAvailability  catalogDomain.VariantAvailabilityReader
-	InventoryCleanup       *inventoryApp.Cleanup
-	OrderService           ordersDomain.Service
-	IdentityAuthService    identityDomain.AuthService
-	IdentityProfileService identityDomain.ProfileService
-	CustomerProfileService identityDomain.CustomerProfileService
-	WishlistService        wishlistDomain.Service
-	ComparisonService      comparisonDomain.Service
-	ReviewsService         reviewsDomain.Service
-	SEOService             seoDomain.Service
-	BadgesService          badgesDomain.Service
-	PaymentGateways        *paymentsApp.Registry
-	PaymentWebhookService  *paymentsApp.WebhookService
-	DeliveryCarriers       *deliveryApp.Registry
-	DeliveryLocations      *deliveryApp.LocationService
-	DeliveryDispatcher     *deliveryApp.Dispatcher
-	DeliveryTracker        *deliveryApp.Tracker
-	OutboxWorker           *eventsApp.OutboxWorker
-	AdminAuditOutboxWorker *eventsApp.OutboxWorker
-	SearchOutboxWorker     *eventsApp.OutboxWorker
-	MediaOutboxWorker      *eventsApp.OutboxWorker
-	ReportsOutboxWorker    *eventsApp.OutboxWorker
-	OutboxRetention        *eventsApp.RetentionWorker
-	MediaOrphanCleanup     *mediaApp.OrphanCleanupWorker
-	SearchService          searchDomain.SearchService
-	MediaUploadService     *mediaApp.UploadService
-	ReportsQueryService    reportsDomain.QueryService
-	ReportsRebuilder       *reportsApp.ReportsRebuilder
-	ReturnService          *returnsApp.ReturnService
-	ReturnsOutboxWorker    *eventsApp.OutboxWorker
-	AdminAuthorizer        adminDomain.Authorizer
-	PromosAdminFacade      *adminApp.PromosAdminFacade
-	CatalogAdminFacade     *adminApp.CatalogAdminFacade
-	OrdersAdminFacade      *adminApp.OrdersAdminFacade
-	TaxPolicy              tax.Calculator
-	HTTP                   HTTPDependencies
-	Management             *management.Server
-	resourceCloser         io.Closer
-	telemetryShutdown      func(context.Context) error
-	workerMu               sync.Mutex
-	workerCancel           context.CancelFunc
-	workerWG               sync.WaitGroup
+	Config                   *config.Config
+	StoreConfig              StoreConfig
+	TokenMaker               token.Maker
+	CatalogCategoryService   catalogDomain.CategoryService
+	CatalogProductService    catalogDomain.ProductService
+	CatalogVariantService    catalogDomain.VariantService
+	CartService              cartDomain.Service
+	CheckoutService          checkoutDomain.Service
+	CheckoutRecovery         *checkoutApp.RecoveryService
+	CheckoutExpiry           *checkoutApp.ExpiryService
+	OrderWorkflowService     orderWorkflowDomain.Service
+	InventoryService         inventoryDomain.Service
+	InventoryAvailability    catalogDomain.VariantAvailabilityReader
+	InventoryCleanup         *inventoryApp.Cleanup
+	OrderService             ordersDomain.Service
+	IdentityAuthService      identityDomain.AuthService
+	IdentityProfileService   identityDomain.ProfileService
+	CustomerProfileService   identityDomain.CustomerProfileService
+	WishlistService          wishlistDomain.Service
+	ComparisonService        comparisonDomain.Service
+	ReviewsService           reviewsDomain.Service
+	SEOService               seoDomain.Service
+	BadgesService            badgesDomain.Service
+	PaymentGateways          *paymentsApp.Registry
+	PaymentWebhookService    *paymentsApp.WebhookService
+	DeliveryCarriers         *deliveryApp.Registry
+	DeliveryLocations        *deliveryApp.LocationService
+	DeliveryDispatcher       *deliveryApp.Dispatcher
+	DeliveryTracker          *deliveryApp.Tracker
+	OutboxWorker             *eventsApp.OutboxWorker
+	AdminAuditOutboxWorker   *eventsApp.OutboxWorker
+	SearchOutboxWorker       *eventsApp.OutboxWorker
+	MediaOutboxWorker        *eventsApp.OutboxWorker
+	ReportsOutboxWorker      *eventsApp.OutboxWorker
+	OutboxRetention          *eventsApp.RetentionWorker
+	MediaOrphanCleanup       *mediaApp.OrphanCleanupWorker
+	SearchService            searchDomain.SearchService
+	MediaUploadService       *mediaApp.UploadService
+	ReportsQueryService      reportsDomain.QueryService
+	ReportsRebuilder         *reportsApp.ReportsRebuilder
+	ReturnService            *returnsApp.ReturnService
+	ReturnsOutboxWorker      *eventsApp.OutboxWorker
+	NotificationWorker       *notificationsApp.DurableWorker
+	AvailabilityService      *availabilityApp.Service
+	AvailabilityOutboxWorker *eventsApp.OutboxWorker
+	AdminAuthorizer          adminDomain.Authorizer
+	PromosAdminFacade        *adminApp.PromosAdminFacade
+	CatalogAdminFacade       *adminApp.CatalogAdminFacade
+	OrdersAdminFacade        *adminApp.OrdersAdminFacade
+	TaxPolicy                tax.Calculator
+	HTTP                     HTTPDependencies
+	Management               *management.Server
+	resourceCloser           io.Closer
+	telemetryShutdown        func(context.Context) error
+	workerMu                 sync.Mutex
+	workerCancel             context.CancelFunc
+	workerWG                 sync.WaitGroup
 }
 
 type HTTPDependencies struct {
@@ -275,6 +282,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	inventoryRepository := inventoryPostgres.NewRepository(db)
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
 	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
+	availabilityEnabled := contains(storeConfig.EnabledModules, "availability_notifications")
 	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
 	returnsEnabled := contains(storeConfig.EnabledModules, "returns")
 	eventConsumers := make([]string, 0, 1)
@@ -286,6 +294,21 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	if returnsEnabled {
 		eventConsumers = append(eventConsumers, returnsDomain.ConsumerSettlement)
+	}
+	var availabilityService *availabilityApp.Service
+	var availabilityOutboxWorker *eventsApp.OutboxWorker
+	if availabilityEnabled {
+		if !notificationsEnabled {
+			return nil, fmt.Errorf("availability_notifications requires notifications")
+		}
+		notificationRepository := notificationsPostgres.NewRepository(db)
+		repository := availabilityPostgres.NewRepository(db)
+		availabilityService = availabilityApp.NewService(repository, availabilityIdentity.NewEmailReader(db))
+		handler := availabilityApp.NewHandler(repository, notificationRepository, func(ctx context.Context, fn func(context.Context) error) error {
+			return adminPostgres.NewTransactionManager(db).WithinTransaction(ctx, fn)
+		})
+		availabilityOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), availabilityDomain.ConsumerAvailabilityNotifications, time.Minute, logger.Log, handler)
+		inventoryService.WithAvailabilityPublisher(eventsPostgres.NewPublisher(availabilityDomain.ConsumerAvailabilityNotifications))
 	}
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
@@ -382,6 +405,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		identityProfileService = identityService.NewProfileService(*storeConfig.ProfilePolicy, identityPostgres.NewProfileRepository(db))
 	}
 	outboxHandlers := make([]eventsApp.Consumer, 0, 1)
+	var notificationWorker *notificationsApp.DurableWorker
 	if notificationsEnabled {
 		cipher, err := encryption.NewAESGCM(cfg.NotificationEncryptionKey)
 		if err != nil {
@@ -394,6 +418,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		repository := notificationsPostgres.NewRepository(db)
 		renderer := notificationsApp.NewTemplateRenderer(repository, storeConfig.DefaultLocale)
 		outboxHandlers = append(outboxHandlers, notificationsApp.NewOrderPaidEventHandler(repository, cipher, renderer, sender))
+		notificationWorker = notificationsApp.NewDurableWorker(repository, renderer, sender)
 	}
 	var promosAdminFacade *adminApp.PromosAdminFacade
 	var catalogAdminFacade *adminApp.CatalogAdminFacade
@@ -586,54 +611,57 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	application := &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
-		CatalogCategoryService: categoryService,
-		CatalogProductService:  productService,
-		CatalogVariantService:  variantService,
-		CartService:            cartApp.NewService(newCartRepository(db, reportsEnabled)),
-		CheckoutService:        checkoutService,
-		CheckoutRecovery:       checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
-		CheckoutExpiry:         checkoutApp.NewExpiryService(orderWorkflowService),
-		OrderWorkflowService:   orderWorkflowService,
-		InventoryService:       inventoryService,
-		InventoryAvailability:  inventoryRepository,
-		InventoryCleanup:       inventoryApp.NewCleanup(inventoryRepository),
-		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
-		IdentityAuthService:    identityAuthService,
-		IdentityProfileService: identityProfileService,
-		CustomerProfileService: customerProfileService,
-		WishlistService:        enabledWishlist,
-		ComparisonService:      enabledComparison,
-		ReviewsService:         enabledReviews,
-		SEOService:             enabledSEO,
-		BadgesService:          enabledBadges,
-		PaymentGateways:        paymentGateways,
-		PaymentWebhookService:  paymentWebhookService,
-		DeliveryCarriers:       deliveryCarriers,
-		DeliveryLocations:      deliveryApp.NewLocationService(deliveryCarriers, cacheService),
-		DeliveryDispatcher:     deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
-		DeliveryTracker:        deliveryTracker,
-		OutboxWorker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
-		AdminAuditOutboxWorker: adminAuditOutboxWorker,
-		SearchOutboxWorker:     searchOutboxWorker,
-		MediaOutboxWorker:      mediaOutboxWorker,
-		ReportsOutboxWorker:    reportsOutboxWorker,
-		OutboxRetention:        outboxRetention,
-		MediaOrphanCleanup:     mediaOrphanCleanup,
-		SearchService:          searchService,
-		MediaUploadService:     mediaUploadService,
-		ReportsQueryService:    reportsQueryService,
-		ReportsRebuilder:       reportsRebuilder,
-		ReturnService:          returnService,
-		ReturnsOutboxWorker:    returnsOutboxWorker,
-		AdminAuthorizer:        adminAuthorizer,
-		PromosAdminFacade:      promosAdminFacade,
-		CatalogAdminFacade:     catalogAdminFacade,
-		OrdersAdminFacade:      ordersAdminFacade,
-		TaxPolicy:              taxPolicy,
-		HTTP:                   httpDependencies,
-		Management:             management.NewServer(cfg.ManagementAddr, readinessChecks...),
-		resourceCloser:         closeAll(resourceClosers),
-		telemetryShutdown:      telemetryShutdown,
+		CatalogCategoryService:   categoryService,
+		CatalogProductService:    productService,
+		CatalogVariantService:    variantService,
+		CartService:              cartApp.NewService(newCartRepository(db, reportsEnabled)),
+		CheckoutService:          checkoutService,
+		CheckoutRecovery:         checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
+		CheckoutExpiry:           checkoutApp.NewExpiryService(orderWorkflowService),
+		OrderWorkflowService:     orderWorkflowService,
+		InventoryService:         inventoryService,
+		InventoryAvailability:    inventoryRepository,
+		InventoryCleanup:         inventoryApp.NewCleanup(inventoryRepository),
+		OrderService:             ordersApp.NewService(ordersPostgres.NewRepository(db)),
+		IdentityAuthService:      identityAuthService,
+		IdentityProfileService:   identityProfileService,
+		CustomerProfileService:   customerProfileService,
+		WishlistService:          enabledWishlist,
+		ComparisonService:        enabledComparison,
+		ReviewsService:           enabledReviews,
+		SEOService:               enabledSEO,
+		BadgesService:            enabledBadges,
+		PaymentGateways:          paymentGateways,
+		PaymentWebhookService:    paymentWebhookService,
+		DeliveryCarriers:         deliveryCarriers,
+		DeliveryLocations:        deliveryApp.NewLocationService(deliveryCarriers, cacheService),
+		DeliveryDispatcher:       deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
+		DeliveryTracker:          deliveryTracker,
+		OutboxWorker:             eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
+		AdminAuditOutboxWorker:   adminAuditOutboxWorker,
+		SearchOutboxWorker:       searchOutboxWorker,
+		MediaOutboxWorker:        mediaOutboxWorker,
+		ReportsOutboxWorker:      reportsOutboxWorker,
+		OutboxRetention:          outboxRetention,
+		MediaOrphanCleanup:       mediaOrphanCleanup,
+		SearchService:            searchService,
+		MediaUploadService:       mediaUploadService,
+		ReportsQueryService:      reportsQueryService,
+		ReportsRebuilder:         reportsRebuilder,
+		ReturnService:            returnService,
+		ReturnsOutboxWorker:      returnsOutboxWorker,
+		NotificationWorker:       notificationWorker,
+		AvailabilityService:      availabilityService,
+		AvailabilityOutboxWorker: availabilityOutboxWorker,
+		AdminAuthorizer:          adminAuthorizer,
+		PromosAdminFacade:        promosAdminFacade,
+		CatalogAdminFacade:       catalogAdminFacade,
+		OrdersAdminFacade:        ordersAdminFacade,
+		TaxPolicy:                taxPolicy,
+		HTTP:                     httpDependencies,
+		Management:               management.NewServer(cfg.ManagementAddr, readinessChecks...),
+		resourceCloser:           closeAll(resourceClosers),
+		telemetryShutdown:        telemetryShutdown,
 	}
 	bootstrapComplete = true
 	return application, nil

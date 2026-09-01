@@ -5,13 +5,20 @@ import (
 	"fmt"
 	"time"
 
+	events "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/domain"
 	"github.com/google/uuid"
 )
 
 type Service struct {
-	mode domain.Mode
-	repo domain.Repository
+	mode      domain.Mode
+	repo      domain.Repository
+	publisher events.TransactionalEventPublisher
+}
+
+func (s *Service) WithAvailabilityPublisher(p events.TransactionalEventPublisher) *Service {
+	s.publisher = p
+	return s
 }
 
 func NewService(mode domain.Mode, repo domain.Repository) *Service {
@@ -61,6 +68,19 @@ func (s *Service) Adjust(ctx context.Context, variantID, warehouseID uuid.UUID, 
 	}
 	if variantID == uuid.Nil || warehouseID == uuid.Nil || delta == 0 {
 		return fmt.Errorf("invalid stock adjustment")
+	}
+	if reporter, ok := s.repo.(domain.AvailabilityAdjustment); ok {
+		becameAvailable, err := reporter.AdjustAndReportAvailability(ctx, variantID, warehouseID, delta)
+		if err != nil {
+			return err
+		}
+		if becameAvailable && s.publisher != nil {
+			e := domain.VariantAvailableEvent{VariantID: variantID, EventID: uuid.New(), At: time.Now().UTC()}
+			if err := s.publisher.Publish(ctx, e); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return s.repo.Adjust(ctx, variantID, warehouseID, delta)
 }

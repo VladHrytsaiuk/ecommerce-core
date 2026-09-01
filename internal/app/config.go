@@ -306,6 +306,9 @@ func (c StoreConfig) Validate() error {
 	if contains(c.EnabledModules, "returns") && (c.ReturnWindowDays < 1 || c.ReturnWindowDays > 3650) {
 		return fmt.Errorf("RETURN_WINDOW must be between 1 and 3650 days when returns is enabled")
 	}
+	if contains(c.EnabledModules, "availability_notifications") && (!contains(c.EnabledModules, "inventory") || !contains(c.EnabledModules, "notifications")) {
+		return fmt.Errorf("availability_notifications requires ENABLED_MODULES to include inventory and notifications")
+	}
 	if contains(c.EnabledModules, "returns") {
 		if !contains(c.EnabledModules, "orders") || !contains(c.EnabledModules, "admin") {
 			return fmt.Errorf("returns requires ENABLED_MODULES to include orders and admin")

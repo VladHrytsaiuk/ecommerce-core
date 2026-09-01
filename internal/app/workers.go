@@ -51,6 +51,10 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.OutboxWorker.Run(workerCtx, 5*time.Second) }()
 	}
+	if a.NotificationWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.NotificationWorker.Run(workerCtx, 5*time.Second) }()
+	}
 	if a.AdminAuditOutboxWorker != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.AdminAuditOutboxWorker.Run(workerCtx, 5*time.Second) }()
@@ -70,6 +74,10 @@ func (a *Application) Start(ctx context.Context) {
 	if a.ReturnsOutboxWorker != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.ReturnsOutboxWorker.Run(workerCtx, 5*time.Second) }()
+	}
+	if a.AvailabilityOutboxWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.AvailabilityOutboxWorker.Run(workerCtx, 5*time.Second) }()
 	}
 	if a.OutboxRetention != nil {
 		a.workerWG.Add(1)

@@ -105,6 +105,53 @@ func (r *Repository) transition(ctx context.Context, reservationID uuid.UUID, or
 }
 
 func (r *Repository) Adjust(ctx context.Context, variantID, warehouseID uuid.UUID, delta int) error {
+	_, err := r.AdjustAndReportAvailability(ctx, variantID, warehouseID, delta)
+	return err
+}
+
+// AdjustAndReportAvailability holds the stock row lock while deciding whether
+// this mutation crossed the public availability threshold.
+func (r *Repository) AdjustAndReportAvailability(ctx context.Context, variantID, warehouseID uuid.UUID, delta int) (bool, error) {
+	if delta == 0 {
+		return false, nil
+	}
+	var becameAvailable bool
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
+		var row struct {
+			QuantityOnHand   int
+			QuantityReserved int
+		}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Table("stock_items").Select("quantity_on_hand, quantity_reserved").Where("variant_id = ? AND warehouse_id = ?", variantID, warehouseID).Take(&row).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		before := row.QuantityOnHand > row.QuantityReserved
+		if delta > 0 {
+			if err := tx.Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand) VALUES (?, ?, ?, ?) ON CONFLICT (variant_id, warehouse_id) DO UPDATE SET quantity_on_hand = stock_items.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = CURRENT_TIMESTAMP`, uuid.New(), variantID, warehouseID, delta).Error; err != nil {
+				return err
+			}
+		} else {
+			result := tx.Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand + ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_on_hand + ? >= quantity_reserved`, delta, variantID, warehouseID, delta)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return domain.ErrInsufficientStock
+			}
+		}
+		var after struct {
+			QuantityOnHand   int
+			QuantityReserved int
+		}
+		if err := tx.Table("stock_items").Select("quantity_on_hand, quantity_reserved").Where("variant_id=? AND warehouse_id=?", variantID, warehouseID).Take(&after).Error; err != nil {
+			return err
+		}
+		becameAvailable = !before && after.QuantityOnHand > after.QuantityReserved
+		return nil
+	})
+	return becameAvailable, err
+}
+
+func (r *Repository) legacyAdjust(ctx context.Context, variantID, warehouseID uuid.UUID, delta int) error {
 	if delta > 0 {
 		return r.database(ctx).Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand) VALUES (?, ?, ?, ?) ON CONFLICT (variant_id, warehouse_id) DO UPDATE SET quantity_on_hand = stock_items.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = CURRENT_TIMESTAMP`, uuid.New(), variantID, warehouseID, delta).Error
 	}
