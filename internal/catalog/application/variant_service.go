@@ -58,5 +58,8 @@ func (s *VariantService) validate(variant *domain.ProductVariant) error {
 	if variant.WeightGrams < 0 {
 		return fmt.Errorf("%w: variant weight must not be negative", domain.ErrInvalidProduct)
 	}
+	if err := variant.ValidateOptionValues(); err != nil {
+		return fmt.Errorf("%w: variant option values must belong to distinct options of this product", domain.ErrInvalidProduct)
+	}
 	return nil
 }

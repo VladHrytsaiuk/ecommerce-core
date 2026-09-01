@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 )
@@ -104,10 +105,34 @@ func TestGroupMediaGroupsRolesAndVariants(t *testing.T) {
 	}
 }
 
+func TestCatalogV1ProductResponseContainsOptionMatrixAndAvailability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	productID, colorID, redID, variantID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	price := mustMoney(1299, "EUR")
+	service := &v1ProductService{product: &domain.Product{ID: productID, Status: "active", Options: []domain.ProductOption{{ID: colorID, ProductID: productID, Name: "Color", Values: []domain.ProductOptionValue{{ID: redID, OptionID: colorID, ProductID: productID, Value: "Red"}}}}, Variants: []domain.ProductVariant{{ID: variantID, ProductID: productID, Price: price, OptionValues: []domain.ProductOptionValue{{ID: redID, OptionID: colorID, ProductID: productID}}}}}}
+	renderer := apiresponse.NewErrorRenderer(nil)
+	router := gin.New()
+	router.Use(renderer.Middleware())
+	group := router.Group("/api/v1/catalog/:lang")
+	group.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{FallbackLocale: "uk", SupportedLocales: []string{"uk"}}))
+	RegisterV1Routes(group, service, renderer, availabilityFake{values: map[uuid.UUID]bool{variantID: true}})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/products/by-slug/cream", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	for _, expected := range []string{`"options":[{`, `"name":"Color"`, `"option_value_ids":["` + redID.String(), `"is_available":true`} {
+		if !strings.Contains(recorder.Body.String(), expected) {
+			t.Fatalf("response misses %s: %s", expected, recorder.Body.String())
+		}
+	}
+}
+
 type v1ProductService struct {
 	products  []domain.Product
 	findErr   error
 	findCalls int
+	product   *domain.Product
 }
 
 func (s *v1ProductService) Create(context.Context, *domain.Product) error { return nil }
@@ -116,7 +141,27 @@ func (s *v1ProductService) FindBySlug(context.Context, string, string) (*domain.
 	if s.findErr != nil {
 		return nil, s.findErr
 	}
+	if s.product != nil {
+		return s.product, nil
+	}
 	return nil, domain.ErrProductNotFound
+}
+
+type availabilityFake struct {
+	values map[uuid.UUID]bool
+	err    error
+}
+
+func (f availabilityFake) AvailabilityForVariants(context.Context, []uuid.UUID) (map[uuid.UUID]bool, error) {
+	return f.values, f.err
+}
+
+func mustMoney(amount int64, currency string) money.Money {
+	value, err := money.NewMoney(amount, currency)
+	if err != nil {
+		panic(err)
+	}
+	return value
 }
 func (s *v1ProductService) List(context.Context, string) ([]domain.Product, error) {
 	return s.products, nil

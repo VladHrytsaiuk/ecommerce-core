@@ -28,6 +28,13 @@ type CatalogProductDeleter interface {
 type CatalogProductSnapshots interface {
 	FindByIDForUpdate(context.Context, uuid.UUID) (*domain.Product, error)
 }
+type CatalogProductOptions interface {
+	CreateProductOption(context.Context, *domain.ProductOption) error
+	CreateVariant(context.Context, *domain.ProductVariant, []uuid.UUID) error
+}
+type InventoryAdjuster interface {
+	Adjust(context.Context, uuid.UUID, uuid.UUID, int) error
+}
 type CatalogCategories interface {
 	Create(context.Context, *domain.Category) error
 	Update(context.Context, *domain.Category) error
@@ -44,6 +51,25 @@ type CatalogAdminFacade struct {
 	publisher     events.TransactionalEventPublisher
 	productEvents events.TransactionalEventPublisher
 	mediaReader   domain.MediaReader
+	options       CatalogProductOptions
+	inventory     InventoryAdjuster
+	warehouseID   uuid.UUID
+}
+
+func (f *CatalogAdminFacade) WithProductOptions(service CatalogProductOptions) *CatalogAdminFacade {
+	if f != nil {
+		f.options = service
+	}
+	return f
+}
+
+// WithInventoryAdjustment supplies the configured default warehouse only at
+// composition time. The HTTP boundary never accepts a warehouse identifier.
+func (f *CatalogAdminFacade) WithInventoryAdjustment(service InventoryAdjuster, warehouseID uuid.UUID) *CatalogAdminFacade {
+	if f != nil {
+		f.inventory, f.warehouseID = service, warehouseID
+	}
+	return f
 }
 
 func (f *CatalogAdminFacade) WithMediaReader(r domain.MediaReader) *CatalogAdminFacade {
@@ -178,6 +204,91 @@ func (f *CatalogAdminFacade) publishProductChanged(ctx context.Context, eventKey
 		return err
 	}
 	return f.productEvents.Publish(ctx, event)
+}
+
+func (f *CatalogAdminFacade) CreateProductOption(ctx context.Context, cmd CatalogCommand, productID uuid.UUID, option *domain.ProductOption) error {
+	if err := f.authorizer.Require(ctx, cmd.ActorUserID, PermissionCatalogWrite); err != nil {
+		return err
+	}
+	if f.options == nil || productID == uuid.Nil || option == nil {
+		return fmt.Errorf("catalog options are not configured")
+	}
+	if cmd.EventKey == uuid.Nil {
+		cmd.EventKey = uuid.New()
+	}
+	return f.tx.WithinTransaction(ctx, func(tx context.Context) error {
+		reader, ok := f.products.(CatalogProductSnapshots)
+		if !ok {
+			return fmt.Errorf("catalog product snapshot reader is not configured")
+		}
+		if _, err := reader.FindByIDForUpdate(tx, productID); err != nil {
+			return err
+		}
+		option.ProductID = productID
+		if err := f.options.CreateProductOption(tx, option); err != nil {
+			return err
+		}
+		raw, err := json.Marshal(option)
+		if err != nil {
+			return err
+		}
+		e, err := adminDomain.NewAdminActionEvent(cmd.EventKey, cmd.ActorUserID, "catalog.product_option.create", "product_option", option.ID, nil, raw, cmd.IPAddress, nil, nowUTC())
+		if err != nil {
+			return err
+		}
+		if err := f.publisher.Publish(tx, e); err != nil {
+			return err
+		}
+		return f.publishProductChanged(tx, cmd.EventKey, productID, domain.ProductChangeUpsert)
+	})
+}
+
+func (f *CatalogAdminFacade) CreateProductVariant(ctx context.Context, cmd CatalogCommand, productID uuid.UUID, variant *domain.ProductVariant, optionValueIDs []uuid.UUID, initialQuantity int) error {
+	if err := f.authorizer.Require(ctx, cmd.ActorUserID, PermissionCatalogWrite); err != nil {
+		return err
+	}
+	if f.options == nil || productID == uuid.Nil || variant == nil || initialQuantity < 0 {
+		return fmt.Errorf("catalog variant request is invalid")
+	}
+	if initialQuantity > 0 && (f.inventory == nil || f.warehouseID == uuid.Nil) {
+		return fmt.Errorf("inventory adjustment is not configured")
+	}
+	if cmd.EventKey == uuid.Nil {
+		cmd.EventKey = uuid.New()
+	}
+	return f.tx.WithinTransaction(ctx, func(tx context.Context) error {
+		reader, ok := f.products.(CatalogProductSnapshots)
+		if !ok {
+			return fmt.Errorf("catalog product snapshot reader is not configured")
+		}
+		if _, err := reader.FindByIDForUpdate(tx, productID); err != nil {
+			return err
+		}
+		variant.ProductID = productID
+		if err := f.options.CreateVariant(tx, variant, optionValueIDs); err != nil {
+			return err
+		}
+		if initialQuantity > 0 {
+			if err := f.inventory.Adjust(tx, variant.ID, f.warehouseID, initialQuantity); err != nil {
+				return err
+			}
+		}
+		raw, err := json.Marshal(struct {
+			Variant         *domain.ProductVariant `json:"variant"`
+			InitialQuantity int                    `json:"initial_quantity"`
+		}{variant, initialQuantity})
+		if err != nil {
+			return err
+		}
+		e, err := adminDomain.NewAdminActionEvent(cmd.EventKey, cmd.ActorUserID, "catalog.product_variant.create", "product_variant", variant.ID, nil, raw, cmd.IPAddress, nil, nowUTC())
+		if err != nil {
+			return err
+		}
+		if err := f.publisher.Publish(tx, e); err != nil {
+			return err
+		}
+		return f.publishProductChanged(tx, cmd.EventKey, productID, domain.ProductChangeUpsert)
+	})
 }
 func (f *CatalogAdminFacade) CreateCategory(ctx context.Context, cmd CatalogCommand, c *domain.Category) error {
 	return f.category(ctx, cmd, c, false)

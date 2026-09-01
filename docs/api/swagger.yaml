@@ -813,6 +813,64 @@ definitions:
     required:
     - reason
     type: object
+  internal_admin_delivery_http.createProductOptionRequest:
+    properties:
+      name:
+        maxLength: 100
+        type: string
+      position:
+        minimum: 0
+        type: integer
+      values:
+        items:
+          $ref: '#/definitions/internal_admin_delivery_http.createProductOptionValue'
+        maxItems: 100
+        minItems: 1
+        type: array
+    required:
+    - name
+    - values
+    type: object
+  internal_admin_delivery_http.createProductOptionValue:
+    properties:
+      position:
+        minimum: 0
+        type: integer
+      value:
+        maxLength: 255
+        type: string
+    required:
+    - value
+    type: object
+  internal_admin_delivery_http.createProductVariantRequest:
+    properties:
+      barcode:
+        type: string
+      currency:
+        type: string
+      inventory_quantity:
+        minimum: 0
+        type: integer
+      option_value_ids:
+        items:
+          type: string
+        maxItems: 32
+        minItems: 1
+        type: array
+      price_amount:
+        minimum: 0
+        type: integer
+      sku:
+        type: string
+      status:
+        type: string
+      weight_grams:
+        minimum: 0
+        type: integer
+    required:
+    - currency
+    - option_value_ids
+    type: object
   internal_admin_delivery_http.createPromoRequest:
     properties:
       code:
@@ -3164,6 +3222,58 @@ paths:
             $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
       summary: Transition an order through the configured operational workflow (v1
         admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/products/{id}/options:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Option and values
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_admin_delivery_http.createProductOptionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+      summary: Create a product option and its values (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/products/{id}/variants:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Variant
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_admin_delivery_http.createProductVariantRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+      summary: Create a sellable product variant (v1 admin)
       tags:
       - Admin v1
   /api/v1/admin/promos:

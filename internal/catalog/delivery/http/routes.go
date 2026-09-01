@@ -35,8 +35,8 @@ func RegisterCategoryRoutes(localeGroup, adminGroup *gin.RouterGroup, service do
 
 // RegisterV1Routes attaches the additive Catalog v1 contract. Legacy catalog
 // routes remain registered independently for existing clients.
-func RegisterV1Routes(group *gin.RouterGroup, service domain.ProductService, renderer *apiresponse.ErrorRenderer) {
-	handler := NewCatalogV1Handler(service, renderer)
+func RegisterV1Routes(group *gin.RouterGroup, service domain.ProductService, renderer *apiresponse.ErrorRenderer, availability ...domain.VariantAvailabilityReader) {
+	handler := NewCatalogV1Handler(service, renderer, availability...)
 	group.GET("/products", handler.List)
 	group.GET("/products/by-slug/:slug", handler.GetBySlug)
 }

@@ -59,6 +59,28 @@ func TestVariantServiceRejectsNegativeWeight(t *testing.T) {
 	}
 }
 
+func TestVariantServiceRejectsDuplicateOrForeignOptionValues(t *testing.T) {
+	service := NewVariantService(&fakeVariantRepository{}, []string{"es"}, "EUR")
+	productID := uuid.New()
+	optionID := uuid.New()
+	variant := &domain.ProductVariant{
+		ProductID: productID,
+		Price:     mustMoney(100, "EUR"),
+		OptionValues: []domain.ProductOptionValue{
+			{ID: uuid.New(), OptionID: optionID, ProductID: productID, Value: "Red"},
+			{ID: uuid.New(), OptionID: optionID, ProductID: productID, Value: "Blue"},
+		},
+	}
+	if err := service.Create(context.Background(), variant); !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Create() error = %v, want ErrInvalidProduct", err)
+	}
+
+	variant.OptionValues = []domain.ProductOptionValue{{ID: uuid.New(), OptionID: uuid.New(), ProductID: uuid.New(), Value: "Red"}}
+	if err := service.Create(context.Background(), variant); !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Create() error = %v, want ErrInvalidProduct", err)
+	}
+}
+
 type fakeVariantRepository struct {
 	created bool
 }

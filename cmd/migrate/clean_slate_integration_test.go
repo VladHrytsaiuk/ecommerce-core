@@ -23,6 +23,7 @@ import (
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
 	localePostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/repository/postgres"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
 	reviewsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/domain"
 	reviewsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/repository/postgres"
 )
@@ -72,7 +73,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		"sync_outbox", "sync_external_entity_state", "sync_cursors", "schema_migrations_module_sync",
 		"user_profiles", "schema_migrations_module_user_profiles",
 		"customer_profiles", "customer_addresses", "schema_migrations_module_customers",
-		"product_media", "schema_migrations_module_catalog",
+		"product_media", "product_options", "product_option_values", "variant_option_values", "schema_migrations_module_catalog",
 		"wishlist_items", "schema_migrations_module_wishlist",
 		"comparison_lists", "comparison_items", "schema_migrations_module_comparison",
 		"reviews", "product_review_ratings", "schema_migrations_module_reviews",
@@ -101,6 +102,7 @@ func TestCleanSlateSchema(t *testing.T) {
 	if err := productService.Create(ctx, product); err != nil {
 		t.Fatalf("create three-locale product: %v", err)
 	}
+	assertProductOptionMatrix(t, ctx, productService, catalogApp.NewProductOptionsService(catalogPostgres.NewOptionsRepository(db), "EUR"), product.ID)
 
 	storedCategory, err := categoryService.FindBySlug(ctx, "en", "skincare")
 	if err != nil || len(storedCategory.Translations) != 3 {
@@ -115,6 +117,39 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("rollback clean-slate schema: %v", err)
 	}
 	assertTablesAbsent(t, db, "locales", "products", "product_variants", "user_oauth_identities", "oauth_authorization_attempts", "user_profiles", "customer_profiles", "customer_addresses", "product_media", "wishlist_items", "comparison_lists", "comparison_items", "reviews", "product_review_ratings", "roles", "permissions", "report_processed_events", "report_daily_sales", "report_daily_product_sales", "report_daily_funnel", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors")
+}
+
+func assertProductOptionMatrix(t *testing.T, ctx context.Context, products *catalogApp.ProductService, options *catalogApp.ProductOptionsService, productID uuid.UUID) {
+	t.Helper()
+	color := &catalogDomain.ProductOption{ProductID: productID, Name: "Color", Values: []catalogDomain.ProductOptionValue{{Value: "Red"}, {Value: "Blue"}}}
+	size := &catalogDomain.ProductOption{ProductID: productID, Name: "Size", Values: []catalogDomain.ProductOptionValue{{Value: "S"}, {Value: "M"}}}
+	if err := options.CreateProductOption(ctx, color); err != nil {
+		t.Fatalf("create color option: %v", err)
+	}
+	if err := options.CreateProductOption(ctx, size); err != nil {
+		t.Fatalf("create size option: %v", err)
+	}
+	for _, colorValue := range color.Values {
+		for _, sizeValue := range size.Values {
+			price, err := money.NewMoney(1299, "EUR")
+			if err != nil {
+				t.Fatal(err)
+			}
+			variant := &catalogDomain.ProductVariant{ProductID: productID, Price: price}
+			if err := options.CreateVariant(ctx, variant, []uuid.UUID{colorValue.ID, sizeValue.ID}); err != nil {
+				t.Fatalf("create matrix variant: %v", err)
+			}
+		}
+	}
+	stored, err := products.FindByID(ctx, productID)
+	if err != nil || len(stored.Options) != 2 || len(stored.Variants) != 4 {
+		t.Fatalf("hydrate option matrix = (%+v, %v)", stored, err)
+	}
+	for _, variant := range stored.Variants {
+		if len(variant.OptionValues) != 2 {
+			t.Fatalf("variant %s has %d option values", variant.ID, len(variant.OptionValues))
+		}
+	}
 }
 
 func assertConcurrentReviewProjection(t *testing.T, db *gorm.DB, productID uuid.UUID) {

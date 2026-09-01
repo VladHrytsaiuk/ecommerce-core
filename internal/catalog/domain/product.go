@@ -26,6 +26,33 @@ type Product struct {
 	SEO          *ProductSEO          `gorm:"-" json:"seo,omitempty"`
 	Badges       []ProductBadge       `gorm:"-" json:"badges,omitempty"`
 	Media        []ProductMedia       `gorm:"foreignKey:ProductID" json:"media,omitempty"`
+	// Options are loaded explicitly by the product-options read port. They are
+	// not GORM-preloaded by the base product repository to keep existing reads
+	// backward-compatible and avoid an accidental N+1 query.
+	Options  []ProductOption  `gorm:"-" json:"options,omitempty"`
+	Variants []ProductVariant `gorm:"-" json:"variants,omitempty"`
+}
+
+// ProductOption is a merchant-defined dimension of a product, such as Color,
+// Size or Volume. Its values compose a ProductVariant; it never replaces the
+// variant as the sellable and inventory-tracked unit.
+type ProductOption struct {
+	ID        uuid.UUID            `json:"id"`
+	ProductID uuid.UUID            `json:"product_id"`
+	Name      string               `json:"name"`
+	Position  int                  `json:"position"`
+	Values    []ProductOptionValue `gorm:"-" json:"values,omitempty"`
+}
+
+// ProductOptionValue is one value within an option, for example Red or XL.
+// ProductID is retained in the DTO to make ownership explicit at the module
+// boundary; persistence additionally enforces it with composite foreign keys.
+type ProductOptionValue struct {
+	ID        uuid.UUID `json:"id"`
+	OptionID  uuid.UUID `json:"option_id"`
+	ProductID uuid.UUID `json:"product_id"`
+	Value     string    `json:"value"`
+	Position  int       `json:"position"`
 }
 type ProductMedia struct {
 	ProductID uuid.UUID  `json:"product_id"`
@@ -105,6 +132,26 @@ type ProductRepository interface {
 // projections. Existing Catalog command/query ports remain unchanged.
 type ProductSnapshotRepository interface {
 	FindByID(context.Context, uuid.UUID) (*Product, error)
+}
+
+// ProductOptionsRepository owns option-matrix writes. Implementations must
+// keep every write for one product in a single transaction.
+type ProductOptionsRepository interface {
+	CreateProductOption(context.Context, *ProductOption) error
+	CreateVariantWithOptionValues(context.Context, *ProductVariant, []uuid.UUID) error
+}
+
+// ProductOptionsService is the narrow command port used by the audited Admin
+// facade. It deliberately has no HTTP or persistence dependencies.
+type ProductOptionsService interface {
+	CreateProductOption(context.Context, *ProductOption) error
+	CreateVariant(context.Context, *ProductVariant, []uuid.UUID) error
+}
+
+// VariantAvailabilityReader is a Catalog-owned read port. Inventory adapters
+// may implement it, but availability never becomes a client-provided field.
+type VariantAvailabilityReader interface {
+	AvailabilityForVariants(context.Context, []uuid.UUID) (map[uuid.UUID]bool, error)
 }
 
 type ActiveProductRepository interface {

@@ -24,6 +24,9 @@ func (r *ProductRepository) FindByID(ctx context.Context, id uuid.UUID) (*domain
 		}
 		return nil, err
 	}
+	if err := r.hydrateMatrix(ctx, &product); err != nil {
+		return nil, err
+	}
 	return &product, nil
 }
 
@@ -53,6 +56,9 @@ func (r *ProductRepository) FindBySlug(ctx context.Context, locale, slug string)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrProductNotFound
 		}
+		return nil, err
+	}
+	if err := r.hydrateMatrix(ctx, &product); err != nil {
 		return nil, err
 	}
 	return &product, nil
@@ -141,7 +147,18 @@ func (r *ProductRepository) FindByIDForUpdate(ctx context.Context, id uuid.UUID)
 	if err := r.database(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Preload("Translations").Preload("Media").First(&product, "id = ?", id).Error; err != nil {
 		return nil, err
 	}
+	if err := r.hydrateMatrix(ctx, &product); err != nil {
+		return nil, err
+	}
 	return &product, nil
+}
+
+func (r *ProductRepository) hydrateMatrix(ctx context.Context, product *domain.Product) error {
+	values, err := loadProductOptions(ctx, r.database(ctx), product)
+	if err != nil {
+		return err
+	}
+	return loadProductVariants(ctx, r.database(ctx), product, values)
 }
 func (r *ProductRepository) replaceMedia(db *gorm.DB, p *domain.Product) error {
 	if p.Media == nil {

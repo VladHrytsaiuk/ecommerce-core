@@ -2571,6 +2571,86 @@
                 }
             }
         },
+        "/api/v1/admin/products/{id}/options": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin v1"
+                ],
+                "summary": "Create a product option and its values (v1 admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Option and values",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_admin_delivery_http.createProductOptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/products/{id}/variants": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin v1"
+                ],
+                "summary": "Create a sellable product variant (v1 admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Variant",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_admin_delivery_http.createProductVariantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/promos": {
             "post": {
                 "consumes": [
@@ -5651,6 +5731,88 @@
                 "reason": {
                     "type": "string",
                     "maxLength": 2000
+                }
+            }
+        },
+        "internal_admin_delivery_http.createProductOptionRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "values"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "maxLength": 100
+                },
+                "position": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "values": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/internal_admin_delivery_http.createProductOptionValue"
+                    }
+                }
+            }
+        },
+        "internal_admin_delivery_http.createProductOptionValue": {
+            "type": "object",
+            "required": [
+                "value"
+            ],
+            "properties": {
+                "position": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "value": {
+                    "type": "string",
+                    "maxLength": 255
+                }
+            }
+        },
+        "internal_admin_delivery_http.createProductVariantRequest": {
+            "type": "object",
+            "required": [
+                "currency",
+                "option_value_ids"
+            ],
+            "properties": {
+                "barcode": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "inventory_quantity": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "option_value_ids": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "price_amount": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "sku": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "weight_grams": {
+                    "type": "integer",
+                    "minimum": 0
                 }
             }
         },

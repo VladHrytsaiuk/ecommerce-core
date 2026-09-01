@@ -1,12 +1,14 @@
 package http
 
 import (
+	"context"
 	"errors"
 	stdhttp "net/http"
 	"strings"
 	"unicode"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
@@ -16,12 +18,17 @@ import (
 // CatalogV1Handler owns the additive, versioned Catalog wire contract. It
 // delegates unchanged to the existing Catalog application port.
 type CatalogV1Handler struct {
-	service domain.ProductService
-	errors  *apiresponse.ErrorRenderer
+	service      domain.ProductService
+	errors       *apiresponse.ErrorRenderer
+	availability domain.VariantAvailabilityReader
 }
 
-func NewCatalogV1Handler(service domain.ProductService, renderer *apiresponse.ErrorRenderer) *CatalogV1Handler {
-	return &CatalogV1Handler{service: service, errors: renderer.WithClassifier(classifyCatalogError)}
+func NewCatalogV1Handler(service domain.ProductService, renderer *apiresponse.ErrorRenderer, readers ...domain.VariantAvailabilityReader) *CatalogV1Handler {
+	h := &CatalogV1Handler{service: service, errors: renderer.WithClassifier(classifyCatalogError)}
+	if len(readers) > 0 {
+		h.availability = readers[0]
+	}
+	return h
 }
 
 type listProductsQuery struct {
@@ -90,7 +97,29 @@ func (h *CatalogV1Handler) GetBySlug(c *gin.Context) {
 		h.errors.Abort(c, err)
 		return
 	}
+	if err := h.hydrateAvailability(c.Request.Context(), product); err != nil {
+		h.errors.Abort(c, err)
+		return
+	}
 	apiresponse.Success(c, stdhttp.StatusOK, mapProduct(product))
+}
+
+func (h *CatalogV1Handler) hydrateAvailability(ctx context.Context, product *domain.Product) error {
+	if product == nil || len(product.Variants) == 0 || h.availability == nil {
+		return nil
+	}
+	ids := make([]uuid.UUID, 0, len(product.Variants))
+	for _, variant := range product.Variants {
+		ids = append(ids, variant.ID)
+	}
+	available, err := h.availability.AvailabilityForVariants(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for index := range product.Variants {
+		product.Variants[index].IsAvailable = available[product.Variants[index].ID]
+	}
+	return nil
 }
 
 // validV1Slug accepts localized letters and digits plus conventional hyphens.

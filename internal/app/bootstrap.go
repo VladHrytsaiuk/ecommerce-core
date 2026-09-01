@@ -107,6 +107,7 @@ type Application struct {
 	CheckoutExpiry         *checkoutApp.ExpiryService
 	OrderWorkflowService   orderWorkflowDomain.Service
 	InventoryService       inventoryDomain.Service
+	InventoryAvailability  catalogDomain.VariantAvailabilityReader
 	InventoryCleanup       *inventoryApp.Cleanup
 	OrderService           ordersDomain.Service
 	IdentityAuthService    identityDomain.AuthService
@@ -262,6 +263,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 
 	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
+	productOptionsService := catalogApp.NewProductOptionsService(catalogPostgres.NewOptionsRepository(db), storeConfig.Currency)
 	inventoryRepository := inventoryPostgres.NewRepository(db)
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
 	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
@@ -504,6 +506,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			return nil, fmt.Errorf("configure admin catalog facade: %w", err)
 		}
 		catalogAdminFacade.WithProductEventPublisher(productEventPublisher)
+		catalogAdminFacade.WithProductOptions(productOptionsService).WithInventoryAdjustment(inventoryService, storeConfig.DefaultWarehouseID)
 		if mediaCatalogReader != nil {
 			catalogAdminFacade.WithMediaReader(mediaCatalogReader)
 		}
@@ -549,6 +552,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		CheckoutExpiry:         checkoutApp.NewExpiryService(orderWorkflowService),
 		OrderWorkflowService:   orderWorkflowService,
 		InventoryService:       inventoryService,
+		InventoryAvailability:  inventoryRepository,
 		InventoryCleanup:       inventoryApp.NewCleanup(inventoryRepository),
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		IdentityAuthService:    identityAuthService,

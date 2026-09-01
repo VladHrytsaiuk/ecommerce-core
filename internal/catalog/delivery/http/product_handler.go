@@ -41,6 +41,28 @@ type ProductResponse struct {
 	SEO          *domain.ProductSEO           `json:"seo,omitempty"`
 	Badges       []domain.ProductBadge        `json:"badges,omitempty"`
 	Media        ProductMediaResponse         `json:"media,omitempty"`
+	Options      []ProductOptionResponse      `json:"options,omitempty"`
+	Variants     []ProductVariantResponse     `json:"variants,omitempty"`
+}
+type ProductOptionResponse struct {
+	ID       uuid.UUID                    `json:"id"`
+	Name     string                       `json:"name"`
+	Position int                          `json:"position"`
+	Values   []ProductOptionValueResponse `json:"values"`
+}
+type ProductOptionValueResponse struct {
+	ID       uuid.UUID `json:"id"`
+	Value    string    `json:"value"`
+	Position int       `json:"position"`
+}
+type ProductVariantResponse struct {
+	ID             uuid.UUID   `json:"id"`
+	SKU            string      `json:"sku,omitempty"`
+	Barcode        string      `json:"barcode,omitempty"`
+	PriceAmount    int64       `json:"price_amount"`
+	Currency       string      `json:"currency"`
+	OptionValueIDs []uuid.UUID `json:"option_value_ids"`
+	IsAvailable    bool        `json:"is_available"`
 }
 type ProductMediaResponse struct {
 	Main     string              `json:"main,omitempty"`
@@ -127,7 +149,39 @@ func mapProduct(product *domain.Product) ProductResponse {
 	response.SEO = product.SEO
 	response.Badges = product.Badges
 	response.Media = groupMedia(product.Media, nil)
+	response.Options = mapProductOptions(product.Options)
+	response.Variants = mapProductVariants(product.Variants)
 	return response
+}
+
+func mapProductOptions(options []domain.ProductOption) []ProductOptionResponse {
+	if len(options) == 0 {
+		return nil
+	}
+	result := make([]ProductOptionResponse, 0, len(options))
+	for _, option := range options {
+		out := ProductOptionResponse{ID: option.ID, Name: option.Name, Position: option.Position, Values: make([]ProductOptionValueResponse, 0, len(option.Values))}
+		for _, value := range option.Values {
+			out.Values = append(out.Values, ProductOptionValueResponse{ID: value.ID, Value: value.Value, Position: value.Position})
+		}
+		result = append(result, out)
+	}
+	return result
+}
+
+func mapProductVariants(variants []domain.ProductVariant) []ProductVariantResponse {
+	if len(variants) == 0 {
+		return nil
+	}
+	result := make([]ProductVariantResponse, 0, len(variants))
+	for _, variant := range variants {
+		out := ProductVariantResponse{ID: variant.ID, SKU: variant.SKU, Barcode: variant.Barcode, PriceAmount: variant.Price.Amount(), Currency: variant.Price.Currency(), IsAvailable: variant.IsAvailable, OptionValueIDs: make([]uuid.UUID, 0, len(variant.OptionValues))}
+		for _, value := range variant.OptionValues {
+			out.OptionValueIDs = append(out.OptionValueIDs, value.ID)
+		}
+		result = append(result, out)
+	}
+	return result
 }
 func groupMedia(links []domain.ProductMedia, urls map[uuid.UUID]string) ProductMediaResponse {
 	out := ProductMediaResponse{Variants: map[string][]string{}}

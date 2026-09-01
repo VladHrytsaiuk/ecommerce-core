@@ -357,6 +357,22 @@ to require typed fields or configured metadata keys without receiving profile
 values. Orders remain independent: checkout copies its delivery data into the
 existing immutable `order_delivery_details` snapshot, never an address-book ID.
 
+## Phase 19 — Product options and multi-variant Catalog
+
+**Status: in progress (steps 1–2 complete).** Catalog now owns normalized option
+axes (`product_options`), their values and the `variant_option_values` matrix;
+`product_variants` remains the only sellable and inventory-tracked unit with
+SKU, barcode, price and currency. Composite foreign keys make every attached
+option value belong to the same product as its variant. One value per option is
+enforced per variant, while a deferred PostgreSQL constraint trigger rejects a
+duplicate canonical option-value combination at transaction commit. Product
+hydration loads options, values and variant selections only for detail reads;
+the public localized slug endpoint exposes an availability matrix without
+leaking stock quantities. Audited RBAC-protected Admin Facade commands create
+options/variants, initialize internal stock through the configured warehouse,
+and append both audit and Search product-change outbox events in one local
+transaction. Checkout's variant-based contract remains unchanged.
+
 ## Global rules
 
 - Do not fork for a store.

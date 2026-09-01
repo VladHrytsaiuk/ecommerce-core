@@ -106,9 +106,9 @@ func (r *Repository) transition(ctx context.Context, reservationID uuid.UUID, or
 
 func (r *Repository) Adjust(ctx context.Context, variantID, warehouseID uuid.UUID, delta int) error {
 	if delta > 0 {
-		return r.db.WithContext(ctx).Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand) VALUES (?, ?, ?, ?) ON CONFLICT (variant_id, warehouse_id) DO UPDATE SET quantity_on_hand = stock_items.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = CURRENT_TIMESTAMP`, uuid.New(), variantID, warehouseID, delta).Error
+		return r.database(ctx).Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand) VALUES (?, ?, ?, ?) ON CONFLICT (variant_id, warehouse_id) DO UPDATE SET quantity_on_hand = stock_items.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = CURRENT_TIMESTAMP`, uuid.New(), variantID, warehouseID, delta).Error
 	}
-	result := r.db.WithContext(ctx).Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand + ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_on_hand + ? >= quantity_reserved`, delta, variantID, warehouseID, delta)
+	result := r.database(ctx).Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand + ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_on_hand + ? >= quantity_reserved`, delta, variantID, warehouseID, delta)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -118,10 +118,33 @@ func (r *Repository) Adjust(ctx context.Context, variantID, warehouseID uuid.UUI
 	return nil
 }
 
+// AvailabilityForVariants is a narrow read projection consumed structurally
+// by Catalog. No stock quantity crosses the public Catalog boundary.
+func (r *Repository) AvailabilityForVariants(ctx context.Context, variantIDs []uuid.UUID) (map[uuid.UUID]bool, error) {
+	result := make(map[uuid.UUID]bool, len(variantIDs))
+	if len(variantIDs) == 0 {
+		return result, nil
+	}
+	for _, id := range variantIDs {
+		result[id] = false
+	}
+	var rows []struct {
+		VariantID uuid.UUID `gorm:"column:variant_id"`
+		Available bool      `gorm:"column:available"`
+	}
+	if err := r.database(ctx).Table("stock_items").Select("variant_id, bool_or(quantity_on_hand > quantity_reserved) AS available").Where("variant_id IN ?", variantIDs).Group("variant_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.VariantID] = row.Available
+	}
+	return result, nil
+}
+
 // ReplaceQuantity preserves already promised local stock. An ERP snapshot may
 // arrive late, but it may never invalidate an active checkout reservation.
 func (r *Repository) ReplaceQuantity(ctx context.Context, variantID, warehouseID uuid.UUID, quantity int) error {
-	result := r.db.WithContext(ctx).Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand)
+	result := r.database(ctx).Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand)
 VALUES (?, ?, ?, ?)
 ON CONFLICT (variant_id, warehouse_id) DO UPDATE
 SET quantity_on_hand = EXCLUDED.quantity_on_hand, updated_at = CURRENT_TIMESTAMP
@@ -133,6 +156,13 @@ WHERE stock_items.quantity_reserved <= EXCLUDED.quantity_on_hand`, uuid.New(), v
 		return domain.ErrInsufficientStock
 	}
 	return nil
+}
+
+func (r *Repository) database(ctx context.Context) *gorm.DB {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return tx.WithContext(ctx)
+	}
+	return r.db.WithContext(ctx)
 }
 
 // ReleaseExpiredUnattached only releases reservations that never reached an
