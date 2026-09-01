@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"fmt"
 	stdhttp "net/http"
 	"time"
@@ -44,7 +45,7 @@ func (h *CheckoutV1Handler) QuoteDelivery(c *gin.Context) {
 	}
 	_, _, lines, err := h.ownerCartAndLines(c)
 	if err != nil {
-		h.errors.Abort(c, apiresponse.ValidationFailed(err))
+		h.errors.Abort(c, checkoutValidationError(err))
 		return
 	}
 	quote, err := h.legacy.service.QuoteDelivery(c.Request.Context(), checkoutDomain.DeliveryQuoteRequest{Locale: middleware.GetLanguage(c), Lines: lines, DeliveryProvider: request.DeliveryProvider, Delivery: *mapDeliveryOrEmpty(request.Delivery)})
@@ -53,6 +54,18 @@ func (h *CheckoutV1Handler) QuoteDelivery(c *gin.Context) {
 		return
 	}
 	apiresponse.Success(c, stdhttp.StatusOK, DeliveryQuoteResponse{Provider: quote.Provider, Options: quote.Options})
+}
+
+func checkoutValidationError(err error) *apiresponse.PublicError {
+	var incomplete *checkoutDomain.ProfileIncompleteError
+	if errors.As(err, &incomplete) {
+		invalid := make([]apiresponse.InvalidParam, 0, len(incomplete.MissingFields))
+		for _, field := range incomplete.MissingFields {
+			invalid = append(invalid, apiresponse.InvalidParam{Field: field, Code: "required"})
+		}
+		return apiresponse.ValidationFailed(err, invalid...)
+	}
+	return apiresponse.ValidationFailed(err)
 }
 
 // StartPayment godoc
@@ -88,7 +101,7 @@ func (h *CheckoutV1Handler) StartPayment(c *gin.Context) {
 		CartID:      cart.ID, CustomerID: owner.CustomerID, CustomerEmail: request.CustomerEmail, CustomerPhone: request.CustomerPhone, DeliveryProvider: request.DeliveryProvider, DeliveryOptionCode: request.DeliveryOptionCode, Delivery: mapDelivery(request.Delivery), ReturnURL: request.ReturnURL, CancelURL: request.CancelURL,
 	})
 	if err != nil {
-		h.errors.Abort(c, apiresponse.ValidationFailed(err))
+		h.errors.Abort(c, checkoutValidationError(err))
 		return
 	}
 	apiresponse.Success(c, stdhttp.StatusCreated, StartPaymentResponse{OrderID: started.Order.ID, OrderNumber: started.Order.Number, PaymentProvider: started.Order.PaymentProvider, ProviderReference: started.Session.ProviderReference, RedirectURL: started.Session.RedirectURL, PaymentForm: started.Session.FormFields, ClientSecret: started.Session.ClientSecret, ExpiresAt: started.Prepared.ExpiresAt})

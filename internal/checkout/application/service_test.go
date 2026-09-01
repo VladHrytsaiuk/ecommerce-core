@@ -134,6 +134,58 @@ func TestStartPaymentAppliesCheckoutPolicyBeforeReservation(t *testing.T) {
 	}
 }
 
+func TestStartPaymentRequiresVerifiedEmailBeforeReservation(t *testing.T) {
+	inventory := &fakeInventory{}
+	price := mustMoney(1000, "EUR")
+	customerID := uuid.New()
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, RequireVerifiedEmail: true}, &fakeWorkflow{}, &fakeGateway{}).
+		WithCustomerVerificationReader(fakeVerificationReader{status: checkoutDomain.VerificationStatus{IsPhoneVerified: true}})
+
+	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, CustomerID: &customerID, CustomerEmail: "buyer@example.com", OrderNumber: "ES-verified-email"})
+	if !errors.Is(err, checkoutDomain.ErrEmailVerificationRequired) || len(inventory.batch) != 0 {
+		t.Fatalf("StartPayment() error = %v, reservations = %+v", err, inventory.batch)
+	}
+}
+
+func TestStartPaymentRequiresVerifiedPhoneBeforeReservation(t *testing.T) {
+	inventory := &fakeInventory{}
+	price := mustMoney(1000, "EUR")
+	customerID := uuid.New()
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, RequireVerifiedPhone: true}, &fakeWorkflow{}, &fakeGateway{}).
+		WithCustomerVerificationReader(fakeVerificationReader{status: checkoutDomain.VerificationStatus{IsEmailVerified: true}})
+
+	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, CustomerID: &customerID, CustomerEmail: "buyer@example.com", CustomerPhone: "+34123456789", OrderNumber: "ES-verified-phone"})
+	if !errors.Is(err, checkoutDomain.ErrPhoneVerificationRequired) || len(inventory.batch) != 0 {
+		t.Fatalf("StartPayment() error = %v, reservations = %+v", err, inventory.batch)
+	}
+}
+
+func TestStartPaymentFailsClosedWhenVerificationReaderIsMissing(t *testing.T) {
+	inventory := &fakeInventory{}
+	price := mustMoney(1000, "EUR")
+	customerID := uuid.New()
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, RequireVerifiedEmail: true}, &fakeWorkflow{}, &fakeGateway{})
+
+	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, CustomerID: &customerID, CustomerEmail: "buyer@example.com", OrderNumber: "ES-reader"})
+	if !errors.Is(err, checkoutDomain.ErrVerificationReaderUnavailable) || len(inventory.batch) != 0 {
+		t.Fatalf("StartPayment() error = %v, reservations = %+v", err, inventory.batch)
+	}
+}
+
+func TestStartPaymentRequiresConfiguredProfileFieldsBeforeReservation(t *testing.T) {
+	inventory := &fakeInventory{}
+	price := mustMoney(1000, "EUR")
+	customerID := uuid.New()
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, RequiredProfileFields: []string{"gender", "date_of_birth"}}, &fakeWorkflow{}, &fakeGateway{}).
+		WithCustomerProfileReader(fakeProfileReader{fields: map[string]bool{"gender": true}})
+
+	_, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, CustomerID: &customerID, CustomerEmail: "buyer@example.com", OrderNumber: "ES-profile"})
+	var incomplete *checkoutDomain.ProfileIncompleteError
+	if !errors.As(err, &incomplete) || len(incomplete.MissingFields) != 1 || incomplete.MissingFields[0] != "date_of_birth" || len(inventory.batch) != 0 {
+		t.Fatalf("StartPayment() error = %v, incomplete=%+v reservations=%+v", err, incomplete, inventory.batch)
+	}
+}
+
 func TestStartPaymentRequiresCustomerEmailBeforeReservation(t *testing.T) {
 	inventory := &fakeInventory{}
 	price := mustMoney(1000, "EUR")
@@ -335,6 +387,24 @@ func (*fakeWorkflow) MarkRefunded(context.Context, workflowDomain.PaymentConfirm
 type fakeGateway struct {
 	payment paymentsDomain.CheckoutPayment
 	err     error
+}
+
+type fakeVerificationReader struct {
+	status checkoutDomain.VerificationStatus
+	err    error
+}
+
+type fakeProfileReader struct {
+	fields map[string]bool
+	err    error
+}
+
+func (f fakeProfileReader) GetAvailableProfileFields(context.Context, uuid.UUID) (map[string]bool, error) {
+	return f.fields, f.err
+}
+
+func (f fakeVerificationReader) GetVerificationStatus(context.Context, uuid.UUID) (checkoutDomain.VerificationStatus, error) {
+	return f.status, f.err
 }
 
 type fakeCarriers map[string]deliveryDomain.Carrier

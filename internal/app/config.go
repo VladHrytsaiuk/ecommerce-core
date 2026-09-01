@@ -26,29 +26,32 @@ var searchIndexPrefixPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 // Composition Root. It coexists with platform/config.Config while legacy
 // services are migrated to narrow policies.
 type StoreConfig struct {
-	Code                   string
-	Name                   string
-	DefaultLocale          string
-	SupportedLocales       []string
-	FallbackLocale         string
-	Currency               string
-	PriceScale             int
-	TaxMode                string
-	VATRate                int
-	PaymentProviders       []string
-	PaymentDefault         string
-	ShippingProviders      []string
-	ShippingDefault        string
-	InventoryMode          string
-	EnabledModules         []string
-	CheckoutAllowGuest     bool
-	CheckoutRequirePhone   bool
-	CheckoutReservationTTL time.Duration
-	DefaultWarehouseID     uuid.UUID
-	GoogleOAuth            *GoogleOAuthConfig
-	OAuthAttemptTTL        time.Duration
-	ProfilePolicy          *identityDomain.ProfilePolicy
-	ComparisonMaxItems     int
+	Code                          string
+	Name                          string
+	DefaultLocale                 string
+	SupportedLocales              []string
+	FallbackLocale                string
+	Currency                      string
+	PriceScale                    int
+	TaxMode                       string
+	VATRate                       int
+	PaymentProviders              []string
+	PaymentDefault                string
+	ShippingProviders             []string
+	ShippingDefault               string
+	InventoryMode                 string
+	EnabledModules                []string
+	CheckoutAllowGuest            bool
+	CheckoutRequirePhone          bool
+	CheckoutRequireVerifiedEmail  bool
+	CheckoutRequireVerifiedPhone  bool
+	CheckoutRequiredProfileFields []string
+	CheckoutReservationTTL        time.Duration
+	DefaultWarehouseID            uuid.UUID
+	GoogleOAuth                   *GoogleOAuthConfig
+	OAuthAttemptTTL               time.Duration
+	ProfilePolicy                 *identityDomain.ProfilePolicy
+	ComparisonMaxItems            int
 }
 
 type GoogleOAuthConfig struct {
@@ -75,19 +78,22 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		FallbackLocale:   normalize(cfg.FallbackLocale),
 		Currency:         strings.ToUpper(strings.TrimSpace(cfg.Currency)),
 		PriceScale:       cfg.PriceScale, TaxMode: normalize(cfg.TaxMode), VATRate: cfg.VATRate,
-		PaymentProviders:       normalizeAll(cfg.PaymentProviders),
-		PaymentDefault:         normalize(cfg.PaymentDefault),
-		ShippingProviders:      normalizeAll(cfg.ShippingProviders),
-		ShippingDefault:        normalize(cfg.ShippingDefault),
-		InventoryMode:          normalize(cfg.InventoryMode),
-		EnabledModules:         normalizeAll(cfg.EnabledModules),
-		CheckoutAllowGuest:     cfg.CheckoutAllowGuest,
-		CheckoutRequirePhone:   cfg.CheckoutRequirePhone,
-		CheckoutReservationTTL: cfg.CheckoutReservationTTL,
-		DefaultWarehouseID:     defaultWarehouseID,
-		OAuthAttemptTTL:        cfg.OAuthAttemptTTL,
-		ProfilePolicy:          profilePolicy,
-		ComparisonMaxItems:     cfg.ComparisonMaxItems,
+		PaymentProviders:              normalizeAll(cfg.PaymentProviders),
+		PaymentDefault:                normalize(cfg.PaymentDefault),
+		ShippingProviders:             normalizeAll(cfg.ShippingProviders),
+		ShippingDefault:               normalize(cfg.ShippingDefault),
+		InventoryMode:                 normalize(cfg.InventoryMode),
+		EnabledModules:                normalizeAll(cfg.EnabledModules),
+		CheckoutAllowGuest:            cfg.CheckoutAllowGuest,
+		CheckoutRequirePhone:          cfg.CheckoutRequirePhone,
+		CheckoutRequireVerifiedEmail:  cfg.CheckoutRequireVerifiedEmail,
+		CheckoutRequireVerifiedPhone:  cfg.CheckoutRequireVerifiedPhone,
+		CheckoutRequiredProfileFields: normalizeAll(cfg.CheckoutRequiredProfileFields),
+		CheckoutReservationTTL:        cfg.CheckoutReservationTTL,
+		DefaultWarehouseID:            defaultWarehouseID,
+		OAuthAttemptTTL:               cfg.OAuthAttemptTTL,
+		ProfilePolicy:                 profilePolicy,
+		ComparisonMaxItems:            cfg.ComparisonMaxItems,
 	}
 	if strings.TrimSpace(cfg.GoogleClientID) != "" || strings.TrimSpace(cfg.GoogleClientSecret) != "" || strings.TrimSpace(cfg.GoogleRedirectURI) != "" {
 		storeConfig.GoogleOAuth = &GoogleOAuthConfig{ClientID: strings.TrimSpace(cfg.GoogleClientID), ClientSecret: strings.TrimSpace(cfg.GoogleClientSecret), RedirectURI: strings.TrimSpace(cfg.GoogleRedirectURI)}
@@ -280,6 +286,17 @@ func (c StoreConfig) Validate() error {
 	}
 	if !contains(c.EnabledModules, "user_profiles") && c.ProfilePolicy != nil {
 		return fmt.Errorf("PROFILE_POLICY_JSON requires ENABLED_MODULES to include user_profiles")
+	}
+	if len(c.CheckoutRequiredProfileFields) > 0 && !contains(c.EnabledModules, "customers") {
+		return fmt.Errorf("CHECKOUT_REQUIRED_PROFILE_FIELDS requires ENABLED_MODULES to include customers")
+	}
+	if hasDuplicates(c.CheckoutRequiredProfileFields) {
+		return fmt.Errorf("CHECKOUT_REQUIRED_PROFILE_FIELDS must not contain duplicates")
+	}
+	for _, field := range c.CheckoutRequiredProfileFields {
+		if !profileFieldKeyPattern.MatchString(field) {
+			return fmt.Errorf("CHECKOUT_REQUIRED_PROFILE_FIELDS contains invalid field %q", field)
+		}
 	}
 	if contains(c.EnabledModules, "comparison") && (c.ComparisonMaxItems < 1 || c.ComparisonMaxItems > 100) {
 		return fmt.Errorf("COMPARISON_MAX_ITEMS must be between 1 and 100 when comparison is enabled")

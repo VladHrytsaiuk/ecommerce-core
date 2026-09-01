@@ -25,8 +25,31 @@ type UserRepository struct{ db *gorm.DB }
 
 func NewUserRepository(db *gorm.DB) *UserRepository { return &UserRepository{db: db} }
 
+// VerificationStatusReader performs a deliberately narrow projection. In
+// particular it must not hydrate password_hash merely to answer Checkout's
+// verification policy.
+type VerificationStatusReader struct{ db *gorm.DB }
+
+func NewVerificationStatusReader(db *gorm.DB) *VerificationStatusReader {
+	return &VerificationStatusReader{db: db}
+}
+
+func (r *VerificationStatusReader) GetVerificationStatus(ctx context.Context, userID uuid.UUID) (domain.UserVerificationStatus, error) {
+	var record struct {
+		EmailVerified bool `gorm:"column:email_verified"`
+		PhoneVerified bool `gorm:"column:phone_verified"`
+	}
+	if err := r.db.WithContext(ctx).Table("users").Select("email_verified", "phone_verified").Where("id = ?", userID).Take(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.UserVerificationStatus{}, domain.ErrUserNotFound
+		}
+		return domain.UserVerificationStatus{}, err
+	}
+	return domain.UserVerificationStatus{EmailVerified: record.EmailVerified, PhoneVerified: record.PhoneVerified}, nil
+}
+
 func (r *UserRepository) Create(ctx context.Context, user domain.NewUser) (*domain.User, error) {
-	record := userRecord{ID: uuid.New(), Email: normalizeOptional(user.Email), Phone: normalizeOptional(user.Phone), PasswordHash: nullableString(user.PasswordHash), Role: string(user.Role), Status: string(user.Status)}
+	record := userRecord{ID: uuid.New(), Email: normalizeOptional(user.Email), Phone: normalizeOptional(user.Phone), EmailVerified: user.EmailVerified, PhoneVerified: user.PhoneVerified, PasswordHash: nullableString(user.PasswordHash), Role: string(user.Role), Status: string(user.Status)}
 	if err := r.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return nil, mapUserError(err)
 	}
@@ -93,6 +116,116 @@ func (r *OAuthIdentityRepository) Create(ctx context.Context, identity domain.OA
 type ProfileRepository struct{ db *gorm.DB }
 
 func NewProfileRepository(db *gorm.DB) *ProfileRepository { return &ProfileRepository{db: db} }
+
+// CustomerProfileRepository owns the typed address-book/profile extension.
+// It is intentionally distinct from the legacy generic ProfileRepository.
+type CustomerProfileRepository struct{ db *gorm.DB }
+
+func NewCustomerProfileRepository(db *gorm.DB) *CustomerProfileRepository {
+	return &CustomerProfileRepository{db: db}
+}
+
+func (r *CustomerProfileRepository) GetCustomerProfile(ctx context.Context, userID uuid.UUID) (*domain.CustomerProfile, error) {
+	var record customerProfileRecord
+	if err := r.database(ctx).First(&record, "user_id = ?", userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrProfileNotFound
+		}
+		return nil, err
+	}
+	return record.toDomain()
+}
+
+func (r *CustomerProfileRepository) UpsertCustomerProfile(ctx context.Context, profile domain.CustomerProfile) (*domain.CustomerProfile, error) {
+	encoded, err := json.Marshal(profile.Metadata)
+	if err != nil {
+		return nil, fmt.Errorf("encode customer profile metadata: %w", err)
+	}
+	record := customerProfileRecord{UserID: profile.UserID, DateOfBirth: profile.DateOfBirth, Gender: nullableString(profile.Gender), Metadata: jsonb(encoded)}
+	db := r.database(ctx)
+	if err := db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.Assignments(map[string]any{"date_of_birth": record.DateOfBirth, "gender": record.Gender, "metadata": record.Metadata, "updated_at": time.Now().UTC()}),
+	}).Create(&record).Error; err != nil {
+		return nil, err
+	}
+	return r.GetCustomerProfile(ctx, profile.UserID)
+}
+
+func (r *CustomerProfileRepository) ListCustomerAddresses(ctx context.Context, userID uuid.UUID) ([]domain.CustomerAddress, error) {
+	var records []customerAddressRecord
+	if err := r.database(ctx).Where("user_id = ?", userID).Order("is_default DESC, created_at DESC, id DESC").Find(&records).Error; err != nil {
+		return nil, err
+	}
+	addresses := make([]domain.CustomerAddress, 0, len(records))
+	for _, record := range records {
+		addresses = append(addresses, record.toDomain())
+	}
+	return addresses, nil
+}
+
+func (r *CustomerProfileRepository) CreateCustomerAddress(ctx context.Context, address domain.CustomerAddress) (*domain.CustomerAddress, error) {
+	record := customerAddressRecordFromDomain(address)
+	if record.ID == uuid.Nil {
+		record.ID = uuid.New()
+	}
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
+		if record.IsDefault {
+			if err := tx.Model(&customerAddressRecord{}).Where("user_id = ? AND is_default", record.UserID).Update("is_default", false).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(&record).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := record.toDomain()
+	return &result, nil
+}
+
+func (r *CustomerProfileRepository) UpdateCustomerAddress(ctx context.Context, address domain.CustomerAddress) (*domain.CustomerAddress, error) {
+	record := customerAddressRecordFromDomain(address)
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
+		if record.IsDefault {
+			if err := tx.Model(&customerAddressRecord{}).Where("user_id = ? AND id <> ? AND is_default", record.UserID, record.ID).Update("is_default", false).Error; err != nil {
+				return err
+			}
+		}
+		result := tx.Model(&customerAddressRecord{}).Where("id = ? AND user_id = ?", record.ID, record.UserID).Updates(map[string]any{
+			"title": record.Title, "country": record.Country, "city": record.City, "line1": record.Line1, "line2": record.Line2, "zip_code": record.ZipCode, "is_default": record.IsDefault, "updated_at": time.Now().UTC(),
+		})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return domain.ErrAddressNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &address, nil
+}
+
+func (r *CustomerProfileRepository) DeleteCustomerAddress(ctx context.Context, userID, addressID uuid.UUID) error {
+	result := r.database(ctx).Where("id = ? AND user_id = ?", addressID, userID).Delete(&customerAddressRecord{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return domain.ErrAddressNotFound
+	}
+	return nil
+}
+
+func (r *CustomerProfileRepository) database(ctx context.Context) *gorm.DB {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return tx.WithContext(ctx)
+	}
+	return r.db.WithContext(ctx)
+}
 
 func (r *ProfileRepository) FindByUserID(ctx context.Context, userID uuid.UUID) (*domain.Profile, error) {
 	var record profileRecord
@@ -186,14 +319,16 @@ func (r *AuthTransaction) WithinTransaction(ctx context.Context, fn func(domain.
 }
 
 type userRecord struct {
-	ID           uuid.UUID `gorm:"column:id;type:uuid;primaryKey"`
-	Email        *string   `gorm:"column:email"`
-	Phone        *string   `gorm:"column:phone"`
-	PasswordHash *string   `gorm:"column:password_hash"`
-	Role         string    `gorm:"column:role"`
-	Status       string    `gorm:"column:status"`
-	CreatedAt    time.Time `gorm:"column:created_at"`
-	UpdatedAt    time.Time `gorm:"column:updated_at"`
+	ID            uuid.UUID `gorm:"column:id;type:uuid;primaryKey"`
+	Email         *string   `gorm:"column:email"`
+	Phone         *string   `gorm:"column:phone"`
+	EmailVerified bool      `gorm:"column:email_verified"`
+	PhoneVerified bool      `gorm:"column:phone_verified"`
+	PasswordHash  *string   `gorm:"column:password_hash"`
+	Role          string    `gorm:"column:role"`
+	Status        string    `gorm:"column:status"`
+	CreatedAt     time.Time `gorm:"column:created_at"`
+	UpdatedAt     time.Time `gorm:"column:updated_at"`
 }
 
 func (userRecord) TableName() string { return "users" }
@@ -203,7 +338,7 @@ func (record userRecord) toDomain() *domain.User {
 	if record.PasswordHash != nil {
 		passwordHash = *record.PasswordHash
 	}
-	return &domain.User{ID: record.ID, Email: record.Email, Phone: record.Phone, PasswordHash: passwordHash, Role: domain.Role(record.Role), Status: domain.UserStatus(record.Status), CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	return &domain.User{ID: record.ID, Email: record.Email, Phone: record.Phone, EmailVerified: record.EmailVerified, PhoneVerified: record.PhoneVerified, PasswordHash: passwordHash, Role: domain.Role(record.Role), Status: domain.UserStatus(record.Status), CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 }
 
 type oauthIdentityRecord struct {
@@ -230,6 +365,57 @@ type profileRecord struct {
 	Revision      int       `gorm:"column:revision"`
 	CreatedAt     time.Time `gorm:"column:created_at"`
 	UpdatedAt     time.Time `gorm:"column:updated_at"`
+}
+
+type customerProfileRecord struct {
+	UserID      uuid.UUID  `gorm:"column:user_id;type:uuid;primaryKey"`
+	DateOfBirth *time.Time `gorm:"column:date_of_birth"`
+	Gender      *string    `gorm:"column:gender"`
+	Metadata    jsonb      `gorm:"column:metadata;type:jsonb"`
+	CreatedAt   time.Time  `gorm:"column:created_at"`
+	UpdatedAt   time.Time  `gorm:"column:updated_at"`
+}
+
+func (customerProfileRecord) TableName() string { return "customer_profiles" }
+
+func (record customerProfileRecord) toDomain() (*domain.CustomerProfile, error) {
+	metadata := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(record.Metadata, &metadata); err != nil {
+		return nil, fmt.Errorf("decode customer profile metadata: %w", err)
+	}
+	gender := ""
+	if record.Gender != nil {
+		gender = *record.Gender
+	}
+	return &domain.CustomerProfile{UserID: record.UserID, DateOfBirth: record.DateOfBirth, Gender: gender, Metadata: metadata, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}, nil
+}
+
+type customerAddressRecord struct {
+	ID        uuid.UUID `gorm:"column:id;type:uuid;primaryKey"`
+	UserID    uuid.UUID `gorm:"column:user_id;type:uuid"`
+	Title     string    `gorm:"column:title"`
+	Country   string    `gorm:"column:country"`
+	City      string    `gorm:"column:city"`
+	Line1     string    `gorm:"column:line1"`
+	Line2     *string   `gorm:"column:line2"`
+	ZipCode   string    `gorm:"column:zip_code"`
+	IsDefault bool      `gorm:"column:is_default"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+}
+
+func (customerAddressRecord) TableName() string { return "customer_addresses" }
+
+func (record customerAddressRecord) toDomain() domain.CustomerAddress {
+	line2 := ""
+	if record.Line2 != nil {
+		line2 = *record.Line2
+	}
+	return domain.CustomerAddress{ID: record.ID, UserID: record.UserID, Title: record.Title, Country: record.Country, City: record.City, Line1: record.Line1, Line2: line2, ZipCode: record.ZipCode, IsDefault: record.IsDefault, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+}
+
+func customerAddressRecordFromDomain(address domain.CustomerAddress) customerAddressRecord {
+	return customerAddressRecord{ID: address.ID, UserID: address.UserID, Title: address.Title, Country: address.Country, City: address.City, Line1: address.Line1, Line2: nullableString(address.Line2), ZipCode: address.ZipCode, IsDefault: address.IsDefault, CreatedAt: address.CreatedAt, UpdatedAt: address.UpdatedAt}
 }
 
 func (profileRecord) TableName() string { return "user_profiles" }

@@ -43,6 +43,7 @@ import (
 	deliveryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
+	identityApplication "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/application"
 	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
 	identityPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/repository/postgres"
 	identityService "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/service"
@@ -110,6 +111,7 @@ type Application struct {
 	OrderService           ordersDomain.Service
 	IdentityAuthService    identityDomain.AuthService
 	IdentityProfileService identityDomain.ProfileService
+	CustomerProfileService identityDomain.CustomerProfileService
 	WishlistService        wishlistDomain.Service
 	ComparisonService      comparisonDomain.Service
 	ReviewsService         reviewsDomain.Service
@@ -358,7 +360,11 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		identityAuthService.WithUserLoginObserver(observer)
 	}
 	var identityProfileService identityDomain.ProfileService
-	if contains(storeConfig.EnabledModules, "user_profiles") {
+	var customerProfileService identityDomain.CustomerProfileService
+	if contains(storeConfig.EnabledModules, "customers") {
+		customerProfileService = identityApplication.NewCustomerProfileService(identityPostgres.NewCustomerProfileRepository(db))
+	}
+	if contains(storeConfig.EnabledModules, "user_profiles") && storeConfig.ProfilePolicy != nil {
 		identityProfileService = identityService.NewProfileService(*storeConfig.ProfilePolicy, identityPostgres.NewProfileRepository(db))
 	}
 	outboxHandlers := make([]eventsApp.Consumer, 0, 1)
@@ -480,10 +486,16 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	checkoutService := checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
 		AllowGuest:                 storeConfig.CheckoutAllowGuest,
 		RequirePhone:               storeConfig.CheckoutRequirePhone,
+		RequireVerifiedEmail:       storeConfig.CheckoutRequireVerifiedEmail,
+		RequireVerifiedPhone:       storeConfig.CheckoutRequireVerifiedPhone,
+		RequiredProfileFields:      storeConfig.CheckoutRequiredProfileFields,
 		OrderNumberPrefix:          storeConfig.Code,
 		SupportedDeliveryProviders: storeConfig.ShippingProviders,
 		DefaultDeliveryProvider:    storeConfig.ShippingDefault,
-	}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers).WithPriceCalculator(priceCalculator)
+	}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers).WithPriceCalculator(priceCalculator).WithCustomerVerificationReader(identityApplication.NewVerificationReader(identityPostgres.NewVerificationStatusReader(db)))
+	if customerProfileService != nil {
+		checkoutService.WithCustomerProfileReader(identityApplication.NewCheckoutProfileReader(customerProfileService))
+	}
 
 	categoryService := catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales).WithCache(cacheService)
 	if adminEnabled {
@@ -541,6 +553,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		OrderService:           ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		IdentityAuthService:    identityAuthService,
 		IdentityProfileService: identityProfileService,
+		CustomerProfileService: customerProfileService,
 		WishlistService:        enabledWishlist,
 		ComparisonService:      enabledComparison,
 		ReviewsService:         enabledReviews,

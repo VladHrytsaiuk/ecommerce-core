@@ -32,14 +32,16 @@ const (
 // Persistence adapters own their DTOs, therefore this domain entity has no
 // GORM tags. PasswordHash must never be mapped directly to an HTTP response.
 type User struct {
-	ID           uuid.UUID
-	Email        *string
-	Phone        *string
-	PasswordHash string
-	Role         Role
-	Status       UserStatus
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID            uuid.UUID
+	Email         *string
+	Phone         *string
+	EmailVerified bool
+	PhoneVerified bool
+	PasswordHash  string
+	Role          Role
+	Status        UserStatus
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // OAuthIdentity is the immutable provider subject linked to a Core user.

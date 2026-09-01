@@ -128,132 +128,6 @@ definitions:
     - quantity
     - variation_id
     type: object
-  http.AdminCustomerDTO:
-    properties:
-      email:
-        type: string
-      first_name:
-        type: string
-      last_name:
-        type: string
-      phone:
-        type: string
-    type: object
-  http.AdminDocumentDetailResponse:
-    properties:
-      created_at:
-        type: string
-      current_version:
-        $ref: '#/definitions/http.DocumentVersionResponse'
-      id:
-        type: string
-      slug:
-        type: string
-      title:
-        additionalProperties:
-          type: string
-        type: object
-      updated_at:
-        type: string
-      versions:
-        items:
-          $ref: '#/definitions/http.DocumentVersionResponse'
-        type: array
-    type: object
-  http.AdminOrderDetailsResponse:
-    properties:
-      admin_comment:
-        type: string
-      carrier_status:
-        type: string
-      created_at:
-        type: string
-      customer:
-        $ref: '#/definitions/http.AdminCustomerDTO'
-      delivery:
-        $ref: '#/definitions/http.DeliveryDTO'
-      discount_amount:
-        type: integer
-      history:
-        items:
-          $ref: '#/definitions/http.AdminOrderStatusHistoryDTO'
-        type: array
-      id:
-        type: string
-      items:
-        items:
-          $ref: '#/definitions/http.AdminOrderItemDTO'
-        type: array
-      manager_token_expires_at:
-        type: string
-      order_number:
-        type: integer
-      payment:
-        $ref: '#/definitions/http.AdminPaymentInfoDTO'
-      promo_code:
-        type: string
-      status:
-        $ref: '#/definitions/http.OrderStatusDTO'
-      ttn_created_at:
-        type: string
-      ttn_number:
-        type: string
-      updated_at:
-        type: string
-    type: object
-  http.AdminOrderItemDTO:
-    properties:
-      discount_amount:
-        type: integer
-      id:
-        type: string
-      image_url:
-        type: string
-      price:
-        type: integer
-      product_name:
-        type: string
-      quantity:
-        type: integer
-      total_price:
-        type: integer
-      variation_id:
-        type: string
-    type: object
-  http.AdminOrderStatusHistoryDTO:
-    properties:
-      admin_user_id:
-        type: string
-      comment:
-        type: string
-      created_at:
-        type: string
-      from_status:
-        $ref: '#/definitions/http.OrderStatusDTO'
-      id:
-        type: string
-      source:
-        type: string
-      to_status:
-        $ref: '#/definitions/http.OrderStatusDTO'
-    type: object
-  http.AdminPaymentInfoDTO:
-    properties:
-      amount:
-        type: integer
-      currency:
-        type: string
-      pay_types:
-        type: string
-      provider:
-        type: string
-      status:
-        type: string
-      total_price:
-        type: integer
-      transaction_id:
-        type: string
-    type: object
   http.ApplyPromoRequest:
     properties:
       code:
@@ -346,17 +220,6 @@ definitions:
       ref:
         type: string
     type: object
-  http.ConfirmOrderResponse:
-    properties:
-      message:
-        type: string
-      order_number:
-        type: integer
-      status:
-        type: string
-      ttn_number:
-        type: string
-    type: object
   http.ConfirmPhoneRequest:
     properties:
       code:
@@ -437,22 +300,6 @@ definitions:
     - password
     - role_id
     type: object
-  http.CreateDocumentRequest:
-    properties:
-      changelog:
-        type: string
-      content:
-        type: object
-      slug:
-        type: string
-      title:
-        additionalProperties:
-          type: string
-        type: object
-    required:
-    - content
-    - title
-    type: object
   http.CreateFeedbackResponse:
     properties:
       content:
@@ -473,37 +320,6 @@ definitions:
       type:
         example: bug
         type: string
-    type: object
-  http.CreateOrderRequest:
-    properties:
-      admin_comment:
-        type: string
-      customer:
-        $ref: '#/definitions/http.CustomerRequest'
-      delivery:
-        $ref: '#/definitions/http.DeliveryRequest'
-      paytypes:
-        type: string
-    required:
-    - customer
-    - delivery
-    type: object
-  http.CreateOrderResponse:
-    properties:
-      is_new_user:
-        type: boolean
-      order_id:
-        type: string
-      order_number:
-        type: integer
-      payment_url:
-        type: string
-      setup_token:
-        type: string
-      status:
-        type: string
-      total_price:
-        type: integer
     type: object
   http.CreatePromoRequest:
     properties:
@@ -548,78 +364,6 @@ definitions:
     - discount_type
     - discount_value
     type: object
-  http.CustomerRequest:
-    properties:
-      email:
-        type: string
-      first_name:
-        minLength: 1
-        type: string
-      last_name:
-        minLength: 1
-        type: string
-      phone:
-        type: string
-    required:
-    - email
-    - first_name
-    - last_name
-    - phone
-    type: object
-  http.DeliveryDTO:
-    properties:
-      city_name:
-        type: string
-      delivery_type:
-        type: string
-      provider:
-        type: string
-      status:
-        type: string
-      tracking_number:
-        type: string
-      warehouse_name:
-        type: string
-    type: object
-  http.DeliveryRequest:
-    properties:
-      city_name:
-        type: string
-      city_ref:
-        type: string
-      delivery_type:
-        type: string
-      provider:
-        type: string
-      warehouse_name:
-        type: string
-      warehouse_ref:
-        type: string
-    required:
-    - city_name
-    - city_ref
-    - delivery_type
-    - provider
-    - warehouse_name
-    - warehouse_ref
-    type: object
-  http.DocumentVersionResponse:
-    properties:
-      changelog:
-        type: string
-      content:
-        type: object
-      created_at:
-        type: string
-      created_by:
-        type: string
-      created_by_name:
-        type: string
-      id:
-        type: string
-      version_number:
-        type: integer
-    type: object
   http.ForgotPasswordRequest:
     properties:
       email:
@@ -648,54 +392,6 @@ definitions:
     - email
     - password
     type: object
-  http.ManagerItemDTO:
-    properties:
-      id:
-        type: string
-      image_url:
-        type: string
-      price:
-        type: integer
-      product_name:
-        type: string
-      quantity:
-        type: integer
-      total_price:
-        type: integer
-      variation_id:
-        type: string
-    type: object
-  http.ManagerOrderResponse:
-    properties:
-      created_at:
-        type: string
-      delivery:
-        $ref: '#/definitions/http.DeliveryDTO'
-      email:
-        type: string
-      first_name:
-        type: string
-      id:
-        type: string
-      items:
-        items:
-          $ref: '#/definitions/http.ManagerItemDTO'
-        type: array
-      last_name:
-        type: string
-      order_number:
-        type: integer
-      phone:
-        type: string
-      status:
-        $ref: '#/definitions/http.OrderStatusDTO'
-      total_price:
-        type: integer
-      ttn_created_at:
-        type: string
-      ttn_number:
-        type: string
-    type: object
   http.MessageResponse:
     properties:
       message:
@@ -708,80 +404,6 @@ definitions:
         type: string
     required:
     - order_id
-    type: object
-  http.OrderItemDTO:
-    properties:
-      discount_amount:
-        type: integer
-      final_total_price:
-        type: integer
-      id:
-        type: string
-      image_url:
-        type: string
-      price:
-        type: integer
-      product_name:
-        type: string
-      quantity:
-        type: integer
-      slug:
-        type: string
-      total_price:
-        type: integer
-      variation_id:
-        type: string
-    type: object
-  http.OrderPaymentStatusResponse:
-    properties:
-      status:
-        description: Статус оплати (pending, paid, failed)
-        example: paid
-        type: string
-    type: object
-  http.OrderResponse:
-    properties:
-      admin_comment:
-        type: string
-      created_at:
-        type: string
-      delivery:
-        $ref: '#/definitions/http.DeliveryDTO'
-      discount_amount:
-        type: integer
-      email:
-        type: string
-      first_name:
-        type: string
-      id:
-        type: string
-      items:
-        items:
-          $ref: '#/definitions/http.OrderItemDTO'
-        type: array
-      last_name:
-        type: string
-      order_number:
-        type: integer
-      payment_url:
-        type: string
-      phone:
-        type: string
-      promo_code:
-        type: string
-      status:
-        $ref: '#/definitions/http.OrderStatusDTO'
-      total_price:
-        type: integer
-    type: object
-  http.OrderStatusDTO:
-    properties:
-      code:
-        type: string
-      id:
-        type: integer
-      name:
-        type: string
     type: object
   http.PromoResponse:
     properties:
@@ -824,23 +446,6 @@ definitions:
       usage_limit:
         type: integer
       usage_limit_per_user:
-        type: integer
-    type: object
-  http.PublicDocumentResponse:
-    properties:
-      content:
-        type: object
-      id:
-        type: string
-      is_fallback:
-        type: boolean
-      slug:
-        type: string
-      title:
-        type: string
-      updated_at:
-        type: string
-      version_number:
         type: integer
     type: object
   http.RefreshRequest:
@@ -932,22 +537,6 @@ definitions:
     - warehouse_name
     - warehouse_ref
     type: object
-  http.SaveVersionRequest:
-    properties:
-      changelog:
-        type: string
-      content:
-        type: object
-    required:
-    - content
-    type: object
-  http.SetActiveVersionRequest:
-    properties:
-      version_id:
-        type: string
-    required:
-    - version_id
-    type: object
   http.SetupPasswordRequest:
     properties:
       password:
@@ -1028,13 +617,6 @@ definitions:
       warehouse_ref:
         example: 1ec09d88-e1c2-11e3-8c4a-0050568002cf
         type: string
-    type: object
-  http.UpdateAdminCommentRequest:
-    properties:
-      comment:
-        type: string
-    required:
-    - comment
     type: object
   http.UpdateCartItemRequest:
     properties:
@@ -1395,12 +977,42 @@ definitions:
         example: MIME type is not allowed
         type: string
     type: object
-  internal_order_delivery_http.ErrorResponse:
+  internal_identity_delivery_http.customerAddressRequest:
     properties:
-      error:
+      city:
         type: string
-      message:
+      country:
         type: string
+      is_default:
+        type: boolean
+      line1:
+        type: string
+      line2:
+        type: string
+      title:
+        type: string
+      zip_code:
+        type: string
+    required:
+    - city
+    - country
+    - line1
+    - title
+    - zip_code
+    type: object
+  internal_identity_delivery_http.customerProfilePatchRequest:
+    properties:
+      date_of_birth:
+        type: string
+      gender:
+        type: string
+      metadata:
+        additionalProperties:
+          items:
+            format: int32
+            type: integer
+          type: array
+        type: object
     type: object
   internal_reports_delivery_http.rebuildRequest:
     properties:
@@ -1441,218 +1053,6 @@ info:
   title: AquaWheel Store API
   version: "1.0"
 paths:
-  /admin/orders:
-    get:
-      consumes:
-      - application/json
-      description: Get a paginated and filtered list of orders
-      parameters:
-      - description: Filter by Status ID
-        in: query
-        name: status_id
-        type: integer
-      - description: Search by number, email, phone, name
-        in: query
-        name: search
-        type: string
-      - description: From date (YYYY-MM-DD)
-        in: query
-        name: date_from
-        type: string
-      - description: To date (YYYY-MM-DD)
-        in: query
-        name: date_to
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Items per page
-        in: query
-        name: limit
-        type: integer
-      - description: Sort field (created_at, total_price)
-        in: query
-        name: sort_by
-        type: string
-      - description: Sort direction (asc, desc)
-        in: query
-        name: order
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: List orders (Admin)
-      tags:
-      - Admin Orders
-  /admin/orders/{id}:
-    get:
-      consumes:
-      - application/json
-      description: Get full details of an order including history
-      parameters:
-      - description: Order ID (UUID)
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/http.AdminOrderDetailsResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Get order details (Admin)
-      tags:
-      - Admin Orders
-  /admin/orders/{id}/cancel:
-    post:
-      consumes:
-      - application/json
-      description: Cancel an order
-      parameters:
-      - description: Order ID (UUID)
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Cancel order (Admin)
-      tags:
-      - Admin Orders
-  /admin/orders/{id}/comment:
-    put:
-      consumes:
-      - application/json
-      description: Update the internal admin comment for an order
-      parameters:
-      - description: Order ID (UUID)
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Comment
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/http.UpdateAdminCommentRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Update admin comment
-      tags:
-      - Admin Orders
-  /admin/orders/{id}/confirm:
-    post:
-      consumes:
-      - application/json
-      description: Confirm order and create TTN
-      parameters:
-      - description: Order ID (UUID)
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/http.ConfirmOrderResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Confirm order (Admin)
-      tags:
-      - Admin Orders
-  /admin/orders/statuses:
-    get:
-      consumes:
-      - application/json
-      description: Get list of all available order statuses
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/http.OrderStatusDTO'
-            type: array
-      security:
-      - BearerAuth: []
-      summary: Get order statuses
-      tags:
-      - Admin Orders
   /api/{lang}/cart:
     get:
       consumes:
@@ -1928,241 +1328,6 @@ paths:
       summary: Sync anonymous cart to user
       tags:
       - Cart
-  /api/{lang}/documents/by-slug/{slug}:
-    get:
-      description: Get a document's localized active content by its slug
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Document slug
-        in: path
-        name: slug
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/http.PublicDocumentResponse'
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get document by slug
-      tags:
-      - Documents
-  /api/{lang}/orders:
-    post:
-      consumes:
-      - application/json
-      description: Creates an order from the current cart. Supports both authenticated
-        users and guests.
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Order details
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/http.CreateOrderRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/http.CreateOrderResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Create a new order
-      tags:
-      - Orders
-  /api/{lang}/orders/{id}:
-    get:
-      description: Returns order details by UUID
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Order UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/http.OrderResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Get order by ID
-      tags:
-      - Orders
-  /api/{lang}/orders/{id}/cancel:
-    post:
-      description: Cancels an order. Only allowed for the owner of the order before
-        TTN is created.
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Order UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Cancel my order
-      tags:
-      - Orders
-  /api/{lang}/orders/{id}/payment-status:
-    get:
-      description: Lightweight endpoint to poll payment status by order ID. Returns
-        status as "pending", "paid", or "failed".
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Order UUID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/http.OrderPaymentStatusResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      summary: Get payment status
-      tags:
-      - Orders
-  /api/{lang}/orders/my:
-    get:
-      description: Returns list of orders for the authenticated user
-      parameters:
-      - description: Language code (uk, en)
-        in: path
-        name: lang
-        required: true
-        type: string
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Items per page
-        in: query
-        name: per_page
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      security:
-      - bearerAuth: []
-      summary: Get my orders
-      tags:
-      - Orders
   /api/{lang}/wishlist:
     get:
       consumes:
@@ -2400,232 +1565,6 @@ paths:
       summary: Оновлення токенів для адміністраторів
       tags:
       - Admin Auth
-  /api/admin/documents:
-    get:
-      description: Get a list of documents and their active version info
-      parameters:
-      - description: Page number
-        in: query
-        name: page
-        type: integer
-      - description: Items per page
-        in: query
-        name: limit
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: List all documents (Admin)
-      tags:
-      - Admin Documents
-    post:
-      consumes:
-      - application/json
-      description: Create a new document with an initial version
-      parameters:
-      - description: Document body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/http.CreateDocumentRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Create a document (Admin)
-      tags:
-      - Admin Documents
-  /api/admin/documents/{id}:
-    delete:
-      description: Soft delete a document
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Delete document (Admin)
-      tags:
-      - Admin Documents
-    get:
-      description: Get full document details including version history
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/http.AdminDocumentDetailResponse'
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Get document details (Admin)
-      tags:
-      - Admin Documents
-  /api/admin/documents/{id}/active-version:
-    post:
-      consumes:
-      - application/json
-      description: Rollback/activate a specific document version
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Active version body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/http.SetActiveVersionRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Set active version (Admin)
-      tags:
-      - Admin Documents
-  /api/admin/documents/{id}/versions:
-    post:
-      consumes:
-      - application/json
-      description: Add a new version to an existing document and make it active
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Version body
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/http.SaveVersionRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - bearerAuth: []
-      summary: Save a new document version (Admin)
-      tags:
-      - Admin Documents
   /api/admin/feedbacks:
     get:
       description: Returns a paginated list of feedbacks (Admin only)
@@ -4711,6 +3650,151 @@ paths:
       summary: Start an idempotent checkout payment (v1)
       tags:
       - Checkout v1
+  /api/v1/customers/me/addresses:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: List current customer's addresses (v1)
+      tags:
+      - Customers v1
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Address
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.customerAddressRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create a current customer's address (v1)
+      tags:
+      - Customers v1
+  /api/v1/customers/me/addresses/{addressID}:
+    delete:
+      parameters:
+      - description: Address UUID
+        in: path
+        name: addressID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Delete a current customer's address (v1)
+      tags:
+      - Customers v1
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Address UUID
+        in: path
+        name: addressID
+        required: true
+        type: string
+      - description: Address
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.customerAddressRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Update a current customer's address (v1)
+      tags:
+      - Customers v1
+  /api/v1/customers/me/profile:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Get current customer profile (v1)
+      tags:
+      - Customers v1
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Customer profile patch
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.customerProfilePatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Update current customer profile (v1)
+      tags:
+      - Customers v1
   /api/v1/delivery/{provider}/areas:
     get:
       parameters:
@@ -4926,129 +4010,6 @@ paths:
       summary: Mock payment (Development only)
       tags:
       - Webhooks
-  /manager/orders/{orderNumber}:
-    get:
-      consumes:
-      - application/json
-      description: Get order details for manager using a token
-      parameters:
-      - description: Order Number
-        in: path
-        name: orderNumber
-        required: true
-        type: integer
-      - description: Manager Token
-        in: query
-        name: token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/http.ManagerOrderResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      summary: Get manager order
-      tags:
-      - Manager
-  /manager/orders/{orderNumber}/cancel:
-    post:
-      consumes:
-      - application/json
-      description: Cancel an order using manager token
-      parameters:
-      - description: Order Number
-        in: path
-        name: orderNumber
-        required: true
-        type: integer
-      - description: Manager Token
-        in: query
-        name: token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      summary: Cancel manager order
-      tags:
-      - Manager
-  /manager/orders/{orderNumber}/confirm:
-    post:
-      consumes:
-      - application/json
-      description: Confirm order and create TTN using manager token
-      parameters:
-      - description: Order Number
-        in: path
-        name: orderNumber
-        required: true
-        type: integer
-      - description: Manager Token
-        in: query
-        name: token
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/http.ConfirmOrderResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-        "422":
-          description: Unprocessable Entity
-          schema:
-            $ref: '#/definitions/internal_order_delivery_http.ErrorResponse'
-      summary: Confirm order
-      tags:
-      - Manager
 securityDefinitions:
   bearerAuth:
     description: 'Введіть токен у форматі: Bearer {your_token}'

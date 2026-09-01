@@ -148,7 +148,7 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 
 	var user *domain.User
 	err = s.transaction.WithinTransaction(ctx, func(users domain.UserRepository, identities domain.OAuthIdentityRepository) error {
-		created, createErr := users.Create(ctx, domain.NewUser{Email: normalizeContact(verified.Email), Role: domain.RoleCustomer, Status: domain.UserStatusActive})
+		created, createErr := users.Create(ctx, domain.NewUser{Email: normalizeContact(verified.Email), EmailVerified: verified.EmailVerified, Role: domain.RoleCustomer, Status: domain.UserStatusActive})
 		if createErr != nil {
 			if errors.Is(createErr, domain.ErrEmailAlreadyExists) {
 				return domain.ErrOAuthAccountLinkRequired

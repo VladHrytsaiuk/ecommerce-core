@@ -31,14 +31,16 @@ type carrierFinder interface {
 }
 
 type Service struct {
-	inventory inventoryDomain.Service
-	variants  variantFinder
-	tax       tax.Calculator
-	prices    checkoutDomain.PriceCalculator
-	policy    checkoutDomain.Policy
-	workflow  workflowDomain.Service
-	gateway   paymentsDomain.Gateway
-	carriers  carrierFinder
+	inventory    inventoryDomain.Service
+	variants     variantFinder
+	tax          tax.Calculator
+	prices       checkoutDomain.PriceCalculator
+	policy       checkoutDomain.Policy
+	workflow     workflowDomain.Service
+	gateway      paymentsDomain.Gateway
+	carriers     carrierFinder
+	verification checkoutDomain.CustomerVerificationReader
+	profile      checkoutDomain.CustomerProfileReader
 }
 
 func NewService(inventory inventoryDomain.Service, variants variantFinder, tax tax.Calculator, policy checkoutDomain.Policy, workflow workflowDomain.Service, gateway paymentsDomain.Gateway) *Service {
@@ -56,6 +58,22 @@ func (s *Service) WithPriceCalculator(prices checkoutDomain.PriceCalculator) *Se
 // making the domain depend on an adapter or the delivery application package.
 func (s *Service) WithCarriers(carriers carrierFinder) *Service {
 	s.carriers = carriers
+	return s
+}
+
+// WithCustomerVerificationReader attaches the narrow Identity-owned read port
+// required by verification policy. Keeping it optional preserves deployments
+// that do not require verified contacts; enabling either requirement fails
+// closed when the port is absent.
+func (s *Service) WithCustomerVerificationReader(reader checkoutDomain.CustomerVerificationReader) *Service {
+	s.verification = reader
+	return s
+}
+
+// WithCustomerProfileReader attaches a field-presence-only customer profile
+// port. It is independently optional from email/phone verification.
+func (s *Service) WithCustomerProfileReader(reader checkoutDomain.CustomerProfileReader) *Service {
+	s.profile = reader
 	return s
 }
 
@@ -189,6 +207,12 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 	if err := s.policy.ValidateCustomer(request.CustomerID, request.CustomerPhone); err != nil {
 		return nil, err
 	}
+	if err := s.validateCustomerVerification(ctx, request.CustomerID); err != nil {
+		return nil, err
+	}
+	if err := s.validateCustomerProfile(ctx, request.CustomerID); err != nil {
+		return nil, err
+	}
 	customerEmail, err := normalizeCustomerEmail(request.CustomerEmail)
 	if err != nil {
 		return nil, err
@@ -288,6 +312,57 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 		return nil, fmt.Errorf("record payment checkout (left pending for recovery): %w", err)
 	}
 	return &checkoutDomain.StartedCheckout{Prepared: prepared, Order: order, Session: session}, nil
+}
+
+func (s *Service) validateCustomerVerification(ctx context.Context, customerID *uuid.UUID) error {
+	// Guests are governed solely by AllowGuest. Contact verification is a
+	// customer-account policy and is therefore not looked up for a guest.
+	if customerID == nil || (!s.policy.RequireVerifiedEmail && !s.policy.RequireVerifiedPhone) {
+		return nil
+	}
+	if s.verification == nil {
+		return checkoutDomain.ErrVerificationReaderUnavailable
+	}
+	status, err := s.verification.GetVerificationStatus(ctx, *customerID)
+	if err != nil {
+		return fmt.Errorf("get customer verification status: %w", err)
+	}
+	if s.policy.RequireVerifiedEmail && !status.IsEmailVerified {
+		return checkoutDomain.ErrEmailVerificationRequired
+	}
+	if s.policy.RequireVerifiedPhone && !status.IsPhoneVerified {
+		return checkoutDomain.ErrPhoneVerificationRequired
+	}
+	return nil
+}
+
+func (s *Service) validateCustomerProfile(ctx context.Context, customerID *uuid.UUID) error {
+	if customerID == nil || len(s.policy.RequiredProfileFields) == 0 {
+		return nil
+	}
+	if s.profile == nil {
+		return checkoutDomain.ErrProfileReaderUnavailable
+	}
+	available, err := s.profile.GetAvailableProfileFields(ctx, *customerID)
+	if err != nil {
+		return fmt.Errorf("get customer profile field availability: %w", err)
+	}
+	missingSet := make(map[string]struct{}, len(s.policy.RequiredProfileFields))
+	for _, field := range s.policy.RequiredProfileFields {
+		field = strings.TrimSpace(field)
+		if field != "" && !available[field] {
+			missingSet[field] = struct{}{}
+		}
+	}
+	if len(missingSet) == 0 {
+		return nil
+	}
+	missing := make([]string, 0, len(missingSet))
+	for field := range missingSet {
+		missing = append(missing, field)
+	}
+	sort.Strings(missing)
+	return &checkoutDomain.ProfileIncompleteError{MissingFields: missing}
 }
 
 func normalizeCustomerEmail(value string) (string, error) {

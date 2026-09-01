@@ -110,12 +110,25 @@ type UserRepository interface {
 	FindByID(ctx context.Context, userID uuid.UUID) (*User, error)
 }
 
+// VerificationStatusReader deliberately exposes no user contact values,
+// password hash, session or OAuth material to consuming modules.
+type VerificationStatusReader interface {
+	GetVerificationStatus(ctx context.Context, userID uuid.UUID) (UserVerificationStatus, error)
+}
+
+type UserVerificationStatus struct {
+	EmailVerified bool
+	PhoneVerified bool
+}
+
 type NewUser struct {
-	Email        *string
-	Phone        *string
-	PasswordHash string
-	Role         Role
-	Status       UserStatus
+	Email         *string
+	Phone         *string
+	EmailVerified bool
+	PhoneVerified bool
+	PasswordHash  string
+	Role          Role
+	Status        UserStatus
 }
 
 type OAuthIdentityRepository interface {

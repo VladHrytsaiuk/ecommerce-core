@@ -338,6 +338,25 @@ Orders state-machine bridge with `delivery_webhook` / `delivery_provider`.
 Carrier refusal is modelled as a `delivery_refused` operational exception,
 never as an unsafe automatic financial cancellation of a paid order.
 
+## Phase 18 — Verified checkout and customer-profile policy
+
+**Status: in progress (steps 1–2 complete).** Checkout now has deployment-level
+guest, verified-email and verified-phone policies. It receives only the two
+boolean verification facts it needs through a narrow `CustomerVerificationReader`
+port implemented by Identity and assembled in Bootstrap; it never reads Identity
+tables. Requests that require verification fail before inventory reservation or
+payment-provider I/O. Identity stores the two durable verification flags on the
+universal user aggregate, including a safe OAuth backfill for existing verified
+provider identities.
+
+The optional `customers` module owns typed self-service `customer_profiles`
+and `customer_addresses` records. Its authenticated v1 API never accepts a
+customer ID in a request body, so JWT ownership is enforced before every
+profile or address mutation. A separate field-presence reader allows Checkout
+to require typed fields or configured metadata keys without receiving profile
+values. Orders remain independent: checkout copies its delivery data into the
+existing immutable `order_delivery_details` snapshot, never an address-book ID.
+
 ## Global rules
 
 - Do not fork for a store.

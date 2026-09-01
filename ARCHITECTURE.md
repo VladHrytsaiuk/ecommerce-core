@@ -53,6 +53,7 @@ flowchart TB
     Bootstrap --> Inventory[Inventory module]
     Bootstrap --> Sync[Sync module]
     Bootstrap --> Identity[Identity module]
+    Bootstrap --> Customers[Customer profile and address module\noptional]
     Bootstrap --> Wishlist[Wishlist module\noptional]
     Bootstrap --> Comparison[Comparison module\noptional]
     Bootstrap --> Reviews[Reviews module\noptional]
@@ -76,6 +77,7 @@ flowchart TB
     Sync --> Catalog
     Sync --> Inventory
     Identity -. post-login event .-> Wishlist
+    Customers -. profile field-presence port .-> Checkout
     Identity -. post-login event .-> Comparison
     Reviews -. rating reader port .-> Catalog
     SEO -. SEO reader port .-> Catalog
@@ -451,9 +453,12 @@ or a new field per language.
 - Tax calculation is a `TaxPolicy` selected at bootstrap. The order stores the
   computed tax snapshot, rate and tax mode; changing configuration must not
   rewrite historical orders.
-- Checkout rules (guest checkout, phone verification, address requirements,
+- Checkout rules (guest checkout, contact verification, address requirements,
   minimum order, shipping promotions) are explicit policies, not `if` blocks
-  tied to a country or provider.
+  tied to a country or provider. Checkout obtains only boolean contact
+  verification facts through its `CustomerVerificationReader` port; Identity
+  owns the implementation and Bootstrap wires it without exposing Identity
+  tables or credentials.
 - Order state uses immutable string codes such as `pending_payment`, `paid`,
   `fulfillment_pending`, `shipped`, `delivered`, `cancelled`, and `refunded`.
   Do not depend on numeric database IDs. State transitions are enforced by an

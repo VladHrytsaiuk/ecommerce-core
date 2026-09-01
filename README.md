@@ -32,6 +32,9 @@ not business logic embedded in the order flow.
   migrations for inventory, vertical-specific data, and integrations.
 - **Configurable commerce rules** — money, tax, checkout, shipping, and module
   behaviour are explicit policies rather than store-specific hardcode.
+- **Customer self-service** — optional `customers` supplies a JWT-scoped
+  profile and address book; Checkout consumes only configured field-presence
+  facts and orders preserve immutable delivery snapshots.
 
 ## Architecture and Roadmap
 
