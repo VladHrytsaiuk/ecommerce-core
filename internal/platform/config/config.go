@@ -191,7 +191,10 @@ type Config struct {
 	CheckoutRequireVerifiedPhone  bool
 	CheckoutRequiredProfileFields []string
 	CheckoutReservationTTL        time.Duration
-	DefaultWarehouseID            string
+	// ReturnWindowDays configures the customer-facing RMA eligibility window.
+	// It is consumed only when the optional returns module is enabled.
+	ReturnWindowDays   int
+	DefaultWarehouseID string
 }
 
 // Load читає файл .env (якщо він існує) та повертає готову структуру Config.
@@ -515,6 +518,14 @@ func Load() *Config {
 	checkoutRequireVerifiedEmail := getEnvBool("CHECKOUT_REQUIRE_VERIFIED_EMAIL", false)
 	checkoutRequireVerifiedPhone := getEnvBool("CHECKOUT_REQUIRE_VERIFIED_PHONE", false)
 	checkoutRequiredProfileFields := getEnvList("CHECKOUT_REQUIRED_PROFILE_FIELDS", nil)
+	returnWindowDays := 14
+	if raw := strings.TrimSpace(os.Getenv("RETURN_WINDOW")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil {
+			log.Fatal("Fatal: RETURN_WINDOW must be an integer number of days")
+		}
+		returnWindowDays = parsed
+	}
 	defaultWarehouseID := getEnvString("DEFAULT_WAREHOUSE_ID", "")
 	checkoutReservationTTL := 15 * time.Minute
 	if value := os.Getenv("CHECKOUT_RESERVATION_TTL"); value != "" {
@@ -671,6 +682,7 @@ func Load() *Config {
 		CheckoutRequireVerifiedPhone:  checkoutRequireVerifiedPhone,
 		CheckoutRequiredProfileFields: checkoutRequiredProfileFields,
 		CheckoutReservationTTL:        checkoutReservationTTL,
+		ReturnWindowDays:              returnWindowDays,
 		DefaultWarehouseID:            defaultWarehouseID,
 	}
 }

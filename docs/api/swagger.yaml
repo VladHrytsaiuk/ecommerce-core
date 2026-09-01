@@ -117,6 +117,26 @@ definitions:
     - TransitionTriggerPaymentWebhook
     - TransitionTriggerDeliveryWebhook
     - TransitionTriggerCustomer
+  github_com_VladHrytsaiuk_ecommerce-core_internal_returns_domain.ItemCondition:
+    enum:
+    - unopened
+    - opened
+    - damaged
+    type: string
+    x-enum-varnames:
+    - ItemConditionUnopened
+    - ItemConditionOpened
+    - ItemConditionDamaged
+  github_com_VladHrytsaiuk_ecommerce-core_internal_returns_domain.RefundMode:
+    enum:
+    - full
+    - partial
+    - store_credit
+    type: string
+    x-enum-varnames:
+    - RefundModeFull
+    - RefundModePartial
+    - RefundModeStoreCredit
   http.AddToCartRequest:
     properties:
       quantity:
@@ -1081,6 +1101,46 @@ definitions:
     required:
     - from
     - to
+    type: object
+  internal_returns_delivery_http.createRequest:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_returns_delivery_http.itemRequest'
+        maxItems: 50
+        minItems: 1
+        type: array
+      order_id:
+        type: string
+      refund_mode:
+        $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_returns_domain.RefundMode'
+    required:
+    - items
+    - order_id
+    type: object
+  internal_returns_delivery_http.itemRequest:
+    properties:
+      condition:
+        $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_returns_domain.ItemCondition'
+      quantity:
+        maximum: 10000
+        minimum: 1
+        type: integer
+      reason:
+        maxLength: 2000
+        type: string
+      variant_id:
+        type: string
+    required:
+    - condition
+    - quantity
+    - variant_id
+    type: object
+  internal_returns_delivery_http.reasonRequest:
+    properties:
+      reason:
+        maxLength: 2000
+        type: string
     type: object
   internal_shipment_delivery_http.ErrorResponse:
     properties:
@@ -3504,6 +3564,96 @@ paths:
       summary: Get aggregated revenue (v1 admin)
       tags:
       - Reports v1
+  /api/v1/admin/returns/{id}/approve:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Return request UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Approval reason
+        in: body
+        name: payload
+        schema:
+          $ref: '#/definitions/internal_returns_delivery_http.reasonRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Approve a return request (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/returns/{id}/receive:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Return request UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Receipt reason
+        in: body
+        name: payload
+        schema:
+          $ref: '#/definitions/internal_returns_delivery_http.reasonRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Receive a return and schedule controlled settlement (v1 admin)
+      tags:
+      - Admin v1
   /api/v1/catalog/{lang}/products:
     get:
       parameters:
@@ -3905,6 +4055,39 @@ paths:
       summary: Update current customer profile (v1)
       tags:
       - Customers v1
+  /api/v1/customers/me/returns:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Return request
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_returns_delivery_http.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create a return request for the current customer (v1)
+      tags:
+      - Returns v1
   /api/v1/delivery/{provider}/areas:
     get:
       parameters:

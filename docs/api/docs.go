@@ -2999,6 +2999,144 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/returns/{id}/approve": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin v1"
+                ],
+                "summary": "Approve a return request (v1 admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Return request UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Approval reason",
+                        "name": "payload",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_returns_delivery_http.reasonRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/returns/{id}/receive": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin v1"
+                ],
+                "summary": "Receive a return and schedule controlled settlement (v1 admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Return request UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Receipt reason",
+                        "name": "payload",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_returns_delivery_http.reasonRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/catalog/{lang}/products": {
             "get": {
                 "produces": [
@@ -3585,6 +3723,57 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/customers/me/returns": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Returns v1"
+                ],
+                "summary": "Create a return request for the current customer (v1)",
+                "parameters": [
+                    {
+                        "description": "Return request",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_returns_delivery_http.createRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
                         }
                     },
                     "401": {
@@ -4745,6 +4934,32 @@ const docTemplate = `{
                 "TransitionTriggerPaymentWebhook",
                 "TransitionTriggerDeliveryWebhook",
                 "TransitionTriggerCustomer"
+            ]
+        },
+        "github_com_VladHrytsaiuk_ecommerce-core_internal_returns_domain.ItemCondition": {
+            "type": "string",
+            "enum": [
+                "unopened",
+                "opened",
+                "damaged"
+            ],
+            "x-enum-varnames": [
+                "ItemConditionUnopened",
+                "ItemConditionOpened",
+                "ItemConditionDamaged"
+            ]
+        },
+        "github_com_VladHrytsaiuk_ecommerce-core_internal_returns_domain.RefundMode": {
+            "type": "string",
+            "enum": [
+                "full",
+                "partial",
+                "store_credit"
+            ],
+            "x-enum-varnames": [
+                "RefundModeFull",
+                "RefundModePartial",
+                "RefundModeStoreCredit"
             ]
         },
         "http.AddToCartRequest": {
@@ -6129,6 +6344,63 @@ const docTemplate = `{
                 },
                 "to": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_returns_delivery_http.createRequest": {
+            "type": "object",
+            "required": [
+                "items",
+                "order_id"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/internal_returns_delivery_http.itemRequest"
+                    }
+                },
+                "order_id": {
+                    "type": "string"
+                },
+                "refund_mode": {
+                    "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_returns_domain.RefundMode"
+                }
+            }
+        },
+        "internal_returns_delivery_http.itemRequest": {
+            "type": "object",
+            "required": [
+                "condition",
+                "quantity",
+                "variant_id"
+            ],
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_returns_domain.ItemCondition"
+                },
+                "quantity": {
+                    "type": "integer",
+                    "maximum": 10000,
+                    "minimum": 1
+                },
+                "reason": {
+                    "type": "string",
+                    "maxLength": 2000
+                },
+                "variant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_returns_delivery_http.reasonRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "maxLength": 2000
                 }
             }
         },

@@ -373,6 +373,25 @@ options/variants, initialize internal stock through the configured warehouse,
 and append both audit and Search product-change outbox events in one local
 transaction. Checkout's variant-based contract remains unchanged.
 
+## Phase 20 — Returns / RMA and controlled refunds
+
+**Status: in progress (steps 1–2 complete).** The optional `returns` module owns
+return requests, return items and an immutable status journal. It references
+Orders, Identity and Catalog only through stable UUID integration identities;
+there are no cross-module foreign keys. Its domain aggregate has an explicit
+RMA lifecycle (`new → approved/rejected → received → refunded/closed`) that is
+separate from both the payment workflow and warehouse restocking. A narrow
+Orders snapshot port and configurable `RETURN_WINDOW` eligibility policy allow
+the next step to enforce delivered-order and customer ownership rules before
+any refund or inventory action is attempted. Customer creation and
+permission-gated Admin approval/receipt APIs use the RMA aggregate. Receiving
+atomically appends `returns.status_changed.v1` and a settlement command to the
+Outbox; its worker performs idempotent unopened-item restock and starts a full
+gateway refund only after commit. The request changes to `refunded` only after
+the existing verified `orders.refunded.v1` event is delivered back to Returns.
+Partial refunds and store credit remain explicitly unsupported by automatic
+settlement until their pricing/credit policies are implemented.
+
 ## Global rules
 
 - Do not fork for a store.

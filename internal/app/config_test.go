@@ -122,6 +122,14 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			},
 			want: "COMPARISON_MAX_ITEMS",
 		},
+		{
+			name: "returns module requires a positive return window",
+			mutate: func(cfg *config.Config) {
+				cfg.EnabledModules = []string{"inventory", "returns"}
+				cfg.ReturnWindowDays = 0
+			},
+			want: "RETURN_WINDOW",
+		},
 		{name: "unsupported tax policy", mutate: func(cfg *config.Config) { cfg.TaxMode = "sales_tax" }, want: "TAX_MODE"},
 	}
 
@@ -163,6 +171,19 @@ func TestNewStoreConfigAcceptsComparison(t *testing.T) {
 	got, err := NewStoreConfig(cfg)
 	if err != nil || got.ComparisonMaxItems != 5 {
 		t.Fatalf("NewStoreConfig() = (%+v, %v), want comparison limit 5", got, err)
+	}
+}
+
+func TestNewStoreConfigAcceptsReturnsPolicy(t *testing.T) {
+	cfg := validConfig()
+	cfg.EnabledModules = []string{"inventory", "orders", "admin", "returns"}
+	cfg.ReturnWindowDays = 14
+	cfg.PaymentProviders, cfg.PaymentDefault = []string{"stripe"}, "stripe"
+	cfg.StripeSecretKey, cfg.StripeWebhookSecret = "sk_test", "whsec_test"
+
+	got, err := NewStoreConfig(cfg)
+	if err != nil || got.ReturnWindowDays != 14 {
+		t.Fatalf("NewStoreConfig() = (%+v, %v), want returns window", got, err)
 	}
 }
 
@@ -440,6 +461,7 @@ func validConfig() *config.Config {
 		InventoryMode:          "internal",
 		EnabledModules:         []string{"inventory"},
 		CheckoutReservationTTL: 15 * time.Minute,
+		ReturnWindowDays:       14,
 		OAuthAttemptTTL:        10 * time.Minute,
 		DefaultWarehouseID:     "00000000-0000-4000-8000-000000000001",
 	}

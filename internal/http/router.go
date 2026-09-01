@@ -18,6 +18,7 @@ import (
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	reportsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/delivery/http"
+	returnsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/delivery/http"
 	searchHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/search/delivery/http"
 	wishlistHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/delivery/http"
 )
@@ -56,6 +57,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	v1 := api.Group("/v1")
 	v1.Use(application.HTTP.SecurityHeaders, application.HTTP.ErrorRenderer.Middleware(), application.HTTP.APIRateLimit)
 	identityHTTP.RegisterV1CustomerRoutes(v1, application.CustomerProfileService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
+	returnsHTTP.RegisterV1CustomerRoutes(v1, application.ReturnService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
 	deliveryHTTP.RegisterV1LocationRoutes(v1.Group("/delivery"), application.DeliveryLocations, application.HTTP.ErrorRenderer)
 	v1Catalog := v1.Group("/catalog/:lang")
 	v1Catalog.Use(application.HTTP.RequestBodyLimit, application.HTTP.LocaleMiddleware)
@@ -69,6 +71,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	v1Admin := v1.Group("/admin")
 	v1Admin.Use(application.HTTP.RequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))
 	adminHTTP.RegisterV1Routes(v1Admin, application.AdminAuthorizer, application.PromosAdminFacade, application.CatalogAdminFacade, application.OrdersAdminFacade, application.HTTP.ErrorRenderer)
+	returnsHTTP.RegisterV1AdminRoutes(v1Admin, application.AdminAuthorizer, application.ReturnService, application.HTTP.ErrorRenderer)
 	reportsHTTP.RegisterV1Routes(v1Admin, application.AdminAuthorizer, application.ReportsQueryService, application.ReportsRebuilder, application.HTTP.ErrorRenderer)
 	if application.MediaUploadService != nil {
 		v1AdminMedia := v1.Group("/admin/media")

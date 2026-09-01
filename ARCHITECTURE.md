@@ -65,6 +65,7 @@ flowchart TB
     Bootstrap --> Search[Search projection module\noptional]
     Bootstrap --> Media[Media asset module\noptional]
     Bootstrap --> Reports[Business reports module\noptional]
+    Bootstrap --> Returns[Returns / RMA module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders

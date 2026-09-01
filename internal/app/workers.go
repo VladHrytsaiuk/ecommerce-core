@@ -67,6 +67,10 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.ReportsOutboxWorker.Run(workerCtx, 5*time.Second) }()
 	}
+	if a.ReturnsOutboxWorker != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.ReturnsOutboxWorker.Run(workerCtx, 5*time.Second) }()
+	}
 	if a.OutboxRetention != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.OutboxRetention.Run(workerCtx, a.Config.OutboxRetentionInterval) }()

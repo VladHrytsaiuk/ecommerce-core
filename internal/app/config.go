@@ -47,6 +47,7 @@ type StoreConfig struct {
 	CheckoutRequireVerifiedPhone  bool
 	CheckoutRequiredProfileFields []string
 	CheckoutReservationTTL        time.Duration
+	ReturnWindowDays              int
 	DefaultWarehouseID            uuid.UUID
 	GoogleOAuth                   *GoogleOAuthConfig
 	OAuthAttemptTTL               time.Duration
@@ -90,6 +91,7 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		CheckoutRequireVerifiedPhone:  cfg.CheckoutRequireVerifiedPhone,
 		CheckoutRequiredProfileFields: normalizeAll(cfg.CheckoutRequiredProfileFields),
 		CheckoutReservationTTL:        cfg.CheckoutReservationTTL,
+		ReturnWindowDays:              cfg.ReturnWindowDays,
 		DefaultWarehouseID:            defaultWarehouseID,
 		OAuthAttemptTTL:               cfg.OAuthAttemptTTL,
 		ProfilePolicy:                 profilePolicy,
@@ -300,6 +302,17 @@ func (c StoreConfig) Validate() error {
 	}
 	if contains(c.EnabledModules, "comparison") && (c.ComparisonMaxItems < 1 || c.ComparisonMaxItems > 100) {
 		return fmt.Errorf("COMPARISON_MAX_ITEMS must be between 1 and 100 when comparison is enabled")
+	}
+	if contains(c.EnabledModules, "returns") && (c.ReturnWindowDays < 1 || c.ReturnWindowDays > 3650) {
+		return fmt.Errorf("RETURN_WINDOW must be between 1 and 3650 days when returns is enabled")
+	}
+	if contains(c.EnabledModules, "returns") {
+		if !contains(c.EnabledModules, "orders") || !contains(c.EnabledModules, "admin") {
+			return fmt.Errorf("returns requires ENABLED_MODULES to include orders and admin")
+		}
+		if len(c.PaymentProviders) == 0 {
+			return fmt.Errorf("returns requires an enabled payment provider for controlled refunds")
+		}
 	}
 	return nil
 }

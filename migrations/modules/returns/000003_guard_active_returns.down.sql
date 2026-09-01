@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS return_requests_one_active_order_idx;

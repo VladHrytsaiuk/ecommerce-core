@@ -172,6 +172,17 @@ Use `POST /api/v1/admin/reports/rebuild` only with the separate
 date range asynchronously. `GET /api/v1/admin/reports/health` reports active
 rebuild state and projection freshness.
 
+### Optional returns / RMA foundation
+
+Add `returns,orders,admin` to `ENABLED_MODULES`, enable a payment provider,
+and set `RETURN_WINDOW` (calendar days; default `14`). Customers create a
+request at `POST /api/v1/customers/me/returns`; `returns:write` administrators
+approve and receive it. Receiving atomically records RMA history plus durable
+Outbox commands. A separate consumer restocks only unopened items and invokes
+the provider-neutral refund port with the return UUID as idempotency key—never
+inside the RMA SQL transaction. The RMA becomes `refunded` only after the
+verified `orders.refunded.v1` event, not merely after an outbound gateway call.
+
 ### Optional order workflow
 
 Add `orders,admin` to `ENABLED_MODULES` before running migrations to enable

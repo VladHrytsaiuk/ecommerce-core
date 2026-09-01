@@ -76,6 +76,12 @@ import (
 	reportsProjectors "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/application/projectors"
 	reportsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/domain"
 	reportsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/repository/postgres"
+	returnsFinance "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/adapter/finance"
+	returnsInventory "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/adapter/inventory"
+	returnsOrderSnapshot "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/adapter/ordersnapshot"
+	returnsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/application"
+	returnsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/domain"
+	returnsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/repository/postgres"
 	reviewsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/domain"
 	reviewsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/repository/postgres"
 	reviewsService "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/service"
@@ -135,6 +141,8 @@ type Application struct {
 	MediaUploadService     *mediaApp.UploadService
 	ReportsQueryService    reportsDomain.QueryService
 	ReportsRebuilder       *reportsApp.ReportsRebuilder
+	ReturnService          *returnsApp.ReturnService
+	ReturnsOutboxWorker    *eventsApp.OutboxWorker
 	AdminAuthorizer        adminDomain.Authorizer
 	PromosAdminFacade      *adminApp.PromosAdminFacade
 	CatalogAdminFacade     *adminApp.CatalogAdminFacade
@@ -268,12 +276,16 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
 	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
 	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
+	returnsEnabled := contains(storeConfig.EnabledModules, "returns")
 	eventConsumers := make([]string, 0, 1)
 	if notificationsEnabled {
 		eventConsumers = append(eventConsumers, eventsDomain.ConsumerNotifications)
 	}
 	if reportsEnabled {
 		eventConsumers = append(eventConsumers, eventsDomain.ConsumerReportsProjection)
+	}
+	if returnsEnabled {
+		eventConsumers = append(eventConsumers, returnsDomain.ConsumerSettlement)
 	}
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
@@ -401,6 +413,8 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var mediaCatalogReader *mediaApp.CatalogReader
 	var reportsQueryService reportsDomain.QueryService
 	var reportsRebuilder *reportsApp.ReportsRebuilder
+	var returnService *returnsApp.ReturnService
+	var returnsOutboxWorker *eventsApp.OutboxWorker
 	if reportsEnabled {
 		repository := reportsPostgres.NewRepository(db)
 		reportsQueryService, err = reportsApp.NewQueryService(repository, cfg.ReportsTimezone)
@@ -483,6 +497,35 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if err != nil {
 			return nil, fmt.Errorf("configure media orphan cleanup: %w", err)
 		}
+	}
+	if returnsEnabled {
+		policy, policyErr := returnsDomain.NewWindowEligibilityPolicy(storeConfig.ReturnWindowDays)
+		if policyErr != nil {
+			return nil, fmt.Errorf("configure returns policy: %w", policyErr)
+		}
+		returnsRepository := returnsPostgres.NewRepository(db)
+		orderSnapshots := returnsOrderSnapshot.NewProvider(db)
+		restockPort, restockErr := returnsInventory.NewRestockPort(db, inventoryService, storeConfig.DefaultWarehouseID)
+		if restockErr != nil {
+			return nil, fmt.Errorf("configure returns restock: %w", restockErr)
+		}
+		refundPort, refundErr := returnsFinance.NewRefundPort(db, paymentGateways)
+		if refundErr != nil {
+			return nil, fmt.Errorf("configure returns refund: %w", refundErr)
+		}
+		returnService, err = returnsApp.NewReturnService(returnsRepository, orderSnapshots, policy, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(), eventsPostgres.NewPublisher(returnsDomain.ConsumerSettlement))
+		if err != nil {
+			return nil, fmt.Errorf("configure returns service: %w", err)
+		}
+		settlementHandler, settlementErr := returnsApp.NewSettlementHandler(returnsRepository, orderSnapshots, restockPort, refundPort)
+		if settlementErr != nil {
+			return nil, fmt.Errorf("configure returns settlement handler: %w", settlementErr)
+		}
+		refundConfirmedHandler, confirmationErr := returnsApp.NewRefundConfirmedHandler(returnService)
+		if confirmationErr != nil {
+			return nil, fmt.Errorf("configure returns refund confirmation handler: %w", confirmationErr)
+		}
+		returnsOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), returnsDomain.ConsumerSettlement, time.Minute, logger.Log, settlementHandler, refundConfirmedHandler)
 	}
 
 	checkoutService := checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
@@ -580,6 +623,8 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		MediaUploadService:     mediaUploadService,
 		ReportsQueryService:    reportsQueryService,
 		ReportsRebuilder:       reportsRebuilder,
+		ReturnService:          returnService,
+		ReturnsOutboxWorker:    returnsOutboxWorker,
 		AdminAuthorizer:        adminAuthorizer,
 		PromosAdminFacade:      promosAdminFacade,
 		CatalogAdminFacade:     catalogAdminFacade,
