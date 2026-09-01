@@ -36,6 +36,9 @@ import (
 	comparisonDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/domain"
 	comparisonPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/repository/postgres"
 	comparisonService "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/service"
+	consentOrders "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/adapter/orders"
+	consentApp "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/application"
+	consentPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/repository/postgres"
 	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	eventsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events/application"
 	localeApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/locale/application"
@@ -154,6 +157,7 @@ type Application struct {
 	AvailabilityService      *availabilityApp.Service
 	AvailabilityOutboxWorker *eventsApp.OutboxWorker
 	SupportService           *supportApp.Service
+	ConsentService           *consentApp.Service
 	AdminAuthorizer          adminDomain.Authorizer
 	PromosAdminFacade        *adminApp.PromosAdminFacade
 	CatalogAdminFacade       *adminApp.CatalogAdminFacade
@@ -294,6 +298,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
 	availabilityEnabled := contains(storeConfig.EnabledModules, "availability_notifications")
 	supportEnabled := contains(storeConfig.EnabledModules, "support")
+	consentEnabled := contains(storeConfig.EnabledModules, "consent")
 	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
 	returnsEnabled := contains(storeConfig.EnabledModules, "returns")
 	eventConsumers := make([]string, 0, 1)
@@ -328,6 +333,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		}
 		notificationRepository := notificationsPostgres.NewRepository(db)
 		supportService = supportApp.NewService(supportPostgres.NewRepository(db), supportApp.NewSpamProtector(loginLimiter), supportIdentity.NewEmailReader(db)).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), notificationRepository)
+	}
+	var consentService *consentApp.Service
+	if consentEnabled {
+		consentService = consentApp.NewService(consentPostgres.NewRepository(db), consentOrders.NewActivityReader(db)).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher())
 	}
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
@@ -673,6 +682,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		AvailabilityService:      availabilityService,
 		AvailabilityOutboxWorker: availabilityOutboxWorker,
 		SupportService:           supportService,
+		ConsentService:           consentService,
 		AdminAuthorizer:          adminAuthorizer,
 		PromosAdminFacade:        promosAdminFacade,
 		CatalogAdminFacade:       catalogAdminFacade,

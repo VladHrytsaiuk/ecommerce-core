@@ -404,6 +404,15 @@ Customer follow-up messages are scoped to
 the JWT subject in SQL; anonymous follow-ups remain deliberately unavailable
 until a signed, single-purpose ticket capability is introduced.
 
+## Phase 23 — Consent, legal content and GDPR operations
+
+**Status: in progress (step 1 complete).** The optional `consent` module owns
+active legal-document versions, immutable grant history with withdrawals, and
+JWT-scoped export/erasure request intake. Granting is accepted only for an
+active document version; Terms withdrawal consults a narrow Orders activity
+port before changing consent state. Legal and consent records are module-owned
+and do not add cross-module foreign keys.
+
 ## Global rules
 
 - Do not fork for a store.

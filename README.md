@@ -37,6 +37,8 @@ not business logic embedded in the order flow.
   facts and orders preserve immutable delivery snapshots.
 - **Customer support** — optional `support` provides bounded public ticket
   intake with IP/email anti-spam controls and JWT-scoped customer follow-ups.
+- **Consent and GDPR** — optional `consent` owns versioned legal-document
+  references, customer-consent history, and privacy-request intake.
 
 ## Architecture and Roadmap
 

@@ -67,6 +67,7 @@ flowchart TB
     Bootstrap --> Reports[Business reports module\noptional]
     Bootstrap --> Returns[Returns / RMA module\noptional]
     Bootstrap --> Support[Customer support module\noptional]
+    Bootstrap --> Consent[Consent and GDPR module\noptional]
 
     Checkout --> Inventory
     Checkout --> Orders

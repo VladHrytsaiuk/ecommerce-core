@@ -11,6 +11,7 @@ import (
 	catalogHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/delivery/http"
 	checkoutHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/delivery/http"
 	comparisonHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/delivery/http"
+	consentHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/delivery/http"
 	deliveryHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/delivery/http"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	identityHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/delivery/http"
@@ -66,6 +67,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer, application.InventoryAvailability)
 	availabilityHTTP.RegisterV1Routes(v1, application.AvailabilityService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth)
 	supportHTTP.RegisterV1Routes(v1, application.SupportService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth, middleware.AuthMiddleware(application.TokenMaker))
+	consentHTTP.RegisterV1Routes(v1, application.ConsentService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
 	if application.SearchService != nil {
 		searchHTTP.RegisterV1Routes(v1Catalog, application.SearchService, application.HTTP.ErrorRenderer)
 	}
@@ -78,6 +80,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	returnsHTTP.RegisterV1AdminRoutes(v1Admin, application.AdminAuthorizer, application.ReturnService, application.HTTP.ErrorRenderer)
 	reportsHTTP.RegisterV1Routes(v1Admin, application.AdminAuthorizer, application.ReportsQueryService, application.ReportsRebuilder, application.HTTP.ErrorRenderer)
 	supportHTTP.RegisterV1AdminRoutes(v1Admin, application.AdminAuthorizer, application.SupportService, application.HTTP.ErrorRenderer)
+	consentHTTP.RegisterV1AdminRoutes(v1Admin, application.AdminAuthorizer, application.ConsentService, application.HTTP.ErrorRenderer)
 	if application.MediaUploadService != nil {
 		v1AdminMedia := v1.Group("/admin/media")
 		v1AdminMedia.Use(application.HTTP.MediaRequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))

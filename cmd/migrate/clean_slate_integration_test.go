@@ -58,7 +58,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("get PostgreSQL connection string: %v", err)
 	}
 	root := repositoryRoot(t)
-	if err := runMigrations(root, databaseURL, []string{"admin", "availability_notifications", "catalog", "comparison", "customers", "inventory", "reports", "returns", "reviews", "support", "sync", "user_profiles", "wishlist"}, "up"); err != nil {
+	if err := runMigrations(root, databaseURL, []string{"admin", "availability_notifications", "catalog", "comparison", "consent", "customers", "inventory", "reports", "returns", "reviews", "support", "sync", "user_profiles", "wishlist"}, "up"); err != nil {
 		t.Fatalf("migrate clean-slate schema: %v", err)
 	}
 
@@ -81,6 +81,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		"return_requests", "return_items", "return_status_history", "return_restock_operations", "schema_migrations_module_returns",
 		"stock_subscriptions", "schema_migrations_module_availability_notifications",
 		"support_tickets", "support_messages", "schema_migrations_module_support",
+		"legal_documents", "customer_consents", "privacy_requests", "schema_migrations_module_consent",
 	)
 
 	localeService := localeApp.NewService(localePostgres.NewRepository(db))
@@ -116,7 +117,7 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("read product translations = (%+v, %v), want three translations", storedProduct, err)
 	}
 	assertConcurrentReviewProjection(t, db, product.ID)
-	if err := runMigrations(root, databaseURL, []string{"admin", "availability_notifications", "catalog", "comparison", "customers", "inventory", "reports", "returns", "reviews", "support", "sync", "user_profiles", "wishlist"}, "down"); err != nil {
+	if err := runMigrations(root, databaseURL, []string{"admin", "availability_notifications", "catalog", "comparison", "consent", "customers", "inventory", "reports", "returns", "reviews", "support", "sync", "user_profiles", "wishlist"}, "down"); err != nil {
 		t.Fatalf("rollback clean-slate schema: %v", err)
 	}
 	assertTablesAbsent(t, db, "locales", "products", "product_variants", "user_oauth_identities", "oauth_authorization_attempts", "user_profiles", "customer_profiles", "customer_addresses", "product_media", "wishlist_items", "comparison_lists", "comparison_items", "reviews", "product_review_ratings", "roles", "permissions", "report_processed_events", "report_daily_sales", "report_daily_product_sales", "report_daily_funnel", "return_requests", "return_items", "return_status_history", "return_restock_operations", "stock_subscriptions", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors")
