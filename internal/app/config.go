@@ -153,6 +153,20 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 			return StoreConfig{}, fmt.Errorf("MEDIA_PROVIDER must be s3, minio, r2, or cloudinary when media is enabled")
 		}
 	}
+	if contains(storeConfig.EnabledModules, "video") {
+		if !contains(storeConfig.EnabledModules, "admin") {
+			return StoreConfig{}, fmt.Errorf("video requires ENABLED_MODULES to include admin for permission-gated uploads")
+		}
+		if strings.ToLower(strings.TrimSpace(cfg.VideoProvider)) != "cloudflare" {
+			return StoreConfig{}, fmt.Errorf("VIDEO_PROVIDER must be cloudflare when video is enabled")
+		}
+		if strings.TrimSpace(cfg.CloudflareStreamAccountID) == "" || strings.TrimSpace(cfg.CloudflareStreamAPIToken) == "" || strings.TrimSpace(cfg.CloudflareStreamWebhookSecret) == "" {
+			return StoreConfig{}, fmt.Errorf("CLOUDFLARE_STREAM_ACCOUNT_ID, CLOUDFLARE_STREAM_API_TOKEN and CLOUDFLARE_STREAM_WEBHOOK_SECRET are required when video is enabled")
+		}
+		if len(cfg.CloudflareStreamAllowedOrigins) == 0 {
+			return StoreConfig{}, fmt.Errorf("CLOUDFLARE_STREAM_ALLOWED_ORIGINS is required when video is enabled")
+		}
+	}
 	return storeConfig, nil
 }
 

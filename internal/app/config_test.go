@@ -251,6 +251,27 @@ func TestNewStoreConfigValidatesOptionalMedia(t *testing.T) {
 	}
 }
 
+func TestNewStoreConfigValidatesOptionalVideo(t *testing.T) {
+	cfg := validConfig()
+	cfg.EnabledModules = []string{"inventory", "video"}
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "admin") {
+		t.Fatalf("NewStoreConfig() error = %v, want admin dependency", err)
+	}
+	cfg.EnabledModules = []string{"inventory", "admin", "video"}
+	cfg.VideoProvider = "cloudflare"
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "CLOUDFLARE_STREAM") {
+		t.Fatalf("NewStoreConfig() error = %v, want Cloudflare Stream configuration", err)
+	}
+	cfg.VideoProvider = "cloudflare"
+	cfg.CloudflareStreamAccountID = "account"
+	cfg.CloudflareStreamAPIToken = "token"
+	cfg.CloudflareStreamWebhookSecret = "secret"
+	cfg.CloudflareStreamAllowedOrigins = []string{"https://store.example.test"}
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig() error = %v, want valid video configuration", err)
+	}
+}
+
 func TestNewMediaObjectStoreRejectsUnknownProviderEvenWithoutPriorValidation(t *testing.T) {
 	_, _, err := newMediaObjectStore(&config.Config{MediaProvider: "ftp"})
 	if err == nil || !strings.Contains(err.Error(), "unsupported media provider") {

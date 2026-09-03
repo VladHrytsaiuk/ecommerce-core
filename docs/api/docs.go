@@ -3137,6 +3137,109 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/videos/upload-url": {
+            "post": {
+                "description": "Creates a server-tracked video asset and returns a short-lived TUS upload URL.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin v1"
+                ],
+                "summary": "Create a Cloudflare Stream direct-upload URL",
+                "parameters": [
+                    {
+                        "description": "Direct-upload constraints",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_video_delivery_http.createDirectUploadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/catalog/products/{id}/videos": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog v1"
+                ],
+                "summary": "List ready public videos for a product",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/catalog/{lang}/products": {
             "get": {
                 "produces": [
@@ -4026,6 +4129,47 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/webhooks/cloudflare/stream": {
+            "post": {
+                "description": "Verifies Cloudflare's raw-body HMAC signature before changing a video asset.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Video webhooks"
+                ],
+                "summary": "Receive a Cloudflare Stream encoding webhook",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
                         }
@@ -6478,6 +6622,14 @@ const docTemplate = `{
                 "message": {
                     "type": "string",
                     "example": "Детальний опис помилки"
+                }
+            }
+        },
+        "internal_video_delivery_http.createDirectUploadRequest": {
+            "type": "object",
+            "properties": {
+                "max_duration_seconds": {
+                    "type": "integer"
                 }
             }
         },

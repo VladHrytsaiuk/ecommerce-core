@@ -1167,6 +1167,11 @@ definitions:
         example: Детальний опис помилки
         type: string
     type: object
+  internal_video_delivery_http.createDirectUploadRequest:
+    properties:
+      max_duration_seconds:
+        type: integer
+    type: object
   internal_wishlist_delivery_http.ErrorResponse:
     properties:
       error:
@@ -3663,6 +3668,48 @@ paths:
       summary: Receive a return and schedule controlled settlement (v1 admin)
       tags:
       - Admin v1
+  /api/v1/admin/videos/upload-url:
+    post:
+      consumes:
+      - application/json
+      description: Creates a server-tracked video asset and returns a short-lived
+        TUS upload URL.
+      parameters:
+      - description: Direct-upload constraints
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_video_delivery_http.createDirectUploadRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create a Cloudflare Stream direct-upload URL
+      tags:
+      - Admin v1
   /api/v1/catalog/{lang}/products:
     get:
       parameters:
@@ -3846,6 +3893,32 @@ paths:
       summary: Autocomplete product names (v1)
       tags:
       - Search v1
+  /api/v1/catalog/products/{id}/videos:
+    get:
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: List ready public videos for a product
+      tags:
+      - Catalog v1
   /api/v1/checkout/{lang}/delivery-options:
     post:
       consumes:
@@ -4259,6 +4332,34 @@ paths:
       summary: List current customer's orders (v1)
       tags:
       - Orders v1
+  /api/v1/webhooks/cloudflare/stream:
+    post:
+      consumes:
+      - application/json
+      description: Verifies Cloudflare's raw-body HMAC signature before changing a
+        video asset.
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Receive a Cloudflare Stream encoding webhook
+      tags:
+      - Video webhooks
   /api/webhooks/liqpay:
     post:
       consumes:

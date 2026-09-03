@@ -109,6 +109,10 @@ import (
 	supportIdentity "github.com/VladHrytsaiuk/ecommerce-core/internal/support/adapter/identity"
 	supportApp "github.com/VladHrytsaiuk/ecommerce-core/internal/support/application"
 	supportPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/support/repository/postgres"
+	videoCloudflare "github.com/VladHrytsaiuk/ecommerce-core/internal/video/adapter/cloudflare"
+	videoApp "github.com/VladHrytsaiuk/ecommerce-core/internal/video/application"
+	videoDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/video/domain"
+	videoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/video/repository/postgres"
 	wishlistDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
 	wishlistPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/repository/postgres"
 	wishlistService "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/service"
@@ -155,6 +159,10 @@ type Application struct {
 	MediaOrphanCleanup        *mediaApp.OrphanCleanupWorker
 	SearchService             searchDomain.SearchService
 	MediaUploadService        *mediaApp.UploadService
+	VideoUploadService        *videoApp.DirectUploadService
+	VideoWebhookService       *videoApp.WebhookService
+	VideoOrphanCleanup        *videoApp.OrphanCleanupWorker
+	VideoStorefrontReader     videoDomain.StorefrontReader
 	ReportsQueryService       reportsDomain.QueryService
 	ReportsRebuilder          *reportsApp.ReportsRebuilder
 	ReturnService             *returnsApp.ReturnService
@@ -310,6 +318,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	consentEnabled := contains(storeConfig.EnabledModules, "consent")
 	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
 	returnsEnabled := contains(storeConfig.EnabledModules, "returns")
+	videoEnabled := contains(storeConfig.EnabledModules, "video")
 	eventConsumers := make([]string, 0, 1)
 	if notificationsEnabled {
 		eventConsumers = append(eventConsumers, eventsDomain.ConsumerNotifications)
@@ -565,6 +574,34 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			return nil, fmt.Errorf("configure media orphan cleanup: %w", err)
 		}
 	}
+	var videoUploadService *videoApp.DirectUploadService
+	var videoWebhookService *videoApp.WebhookService
+	var videoOrphanCleanup *videoApp.OrphanCleanupWorker
+	var videoStorefrontReader videoDomain.StorefrontReader
+	if videoEnabled {
+		provider, providerErr := videoCloudflare.New(videoCloudflare.Config{
+			AccountID: cfg.CloudflareStreamAccountID, APIToken: cfg.CloudflareStreamAPIToken,
+			WebhookSecret:  cfg.CloudflareStreamWebhookSecret,
+			AllowedOrigins: cfg.CloudflareStreamAllowedOrigins,
+		})
+		if providerErr != nil {
+			return nil, fmt.Errorf("configure Cloudflare Stream video provider: %w", providerErr)
+		}
+		videoRepository := videoPostgres.NewRepository(db)
+		videoStorefrontReader = videoRepository
+		videoUploadService, providerErr = videoApp.NewDirectUploadService(videoRepository, provider, cfg.VideoProvider)
+		if providerErr != nil {
+			return nil, fmt.Errorf("configure video direct uploads: %w", providerErr)
+		}
+		videoWebhookService, providerErr = videoApp.NewWebhookService(videoRepository, provider, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher())
+		if providerErr != nil {
+			return nil, fmt.Errorf("configure video webhooks: %w", providerErr)
+		}
+		videoOrphanCleanup, providerErr = videoApp.NewOrphanCleanupWorker(videoRepository, provider, logger.Log)
+		if providerErr != nil {
+			return nil, fmt.Errorf("configure video orphan cleanup: %w", providerErr)
+		}
+	}
 	if returnsEnabled {
 		policy, policyErr := returnsDomain.NewWindowEligibilityPolicy(storeConfig.ReturnWindowDays)
 		if policyErr != nil {
@@ -708,6 +745,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		MediaOrphanCleanup:        mediaOrphanCleanup,
 		SearchService:             searchService,
 		MediaUploadService:        mediaUploadService,
+		VideoUploadService:        videoUploadService,
+		VideoWebhookService:       videoWebhookService,
+		VideoOrphanCleanup:        videoOrphanCleanup,
+		VideoStorefrontReader:     videoStorefrontReader,
 		ReportsQueryService:       reportsQueryService,
 		ReportsRebuilder:          reportsRebuilder,
 		ReturnService:             returnService,

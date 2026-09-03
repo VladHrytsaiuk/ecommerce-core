@@ -95,6 +95,10 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.MediaOrphanCleanup.Run(workerCtx, 24*time.Hour) }()
 	}
+	if a.VideoOrphanCleanup != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.VideoOrphanCleanup.Run(workerCtx, time.Hour) }()
+	}
 }
 
 func (a *Application) Stop() { _ = a.StopContext(context.Background()) }

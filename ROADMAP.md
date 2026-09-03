@@ -427,6 +427,23 @@ configurable delays and quiet hours, and transactionally schedules durable
 notification jobs. Campaigns require the `checkout`, `consent`, and
 `notifications` modules and stop cleanly with the application lifecycle.
 
+## Phase 25 — Product video delivery
+
+**Status: in progress (steps 1–2 complete).** The opt-in `video` module owns
+provider-neutral video-asset state and product-video links, with no foreign
+key from Video to Catalog. Its first delivery path uses Cloudflare Stream
+Direct Uploads: a permission-gated Admin API creates a local draft, invokes
+Cloudflare outside every SQL transaction, and only returns a TUS URL after the
+provider identifier is persisted. Cloudflare credentials and allowed upload
+origins are validated at startup when the module is enabled. Webhook
+Cloudflare's signed status callbacks are bounded, verified against the raw
+body with a replay window, and processed through a short `FOR UPDATE`
+transaction; success adds a `media.video.ready.v1` Outbox event in that same
+transaction. The public product-video route reads only visible, ready records
+through a Video-owned join, so draft and failed assets cannot leak into the
+storefront. Product-video administration and custom-player playback URLs are
+intentionally deferred to the next step.
+
 ## Global rules
 
 - Do not fork for a store.

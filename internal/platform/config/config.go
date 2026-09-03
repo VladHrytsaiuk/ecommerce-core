@@ -83,6 +83,15 @@ type Config struct {
 	MediaS3UsePathStyle    bool
 	MediaCloudinaryURL     string
 
+	// Video is intentionally separate from Media: image object stores do not
+	// provide adaptive streaming. Cloudflare Stream credentials are consumed
+	// only when the opt-in video module is enabled.
+	VideoProvider                  string
+	CloudflareStreamAccountID      string
+	CloudflareStreamAPIToken       string
+	CloudflareStreamWebhookSecret  string
+	CloudflareStreamAllowedOrigins []string
+
 	// SendGrid (Email)
 	SendGridAPIKey string
 	EmailFrom      string
@@ -323,6 +332,11 @@ func Load() *Config {
 	mediaR2PublicBaseURL := strings.TrimSpace(os.Getenv("MEDIA_R2_PUBLIC_BASE_URL"))
 	mediaS3UsePathStyle := getEnvBool("MEDIA_S3_USE_PATH_STYLE", false)
 	mediaCloudinaryURL := strings.TrimSpace(os.Getenv("MEDIA_CLOUDINARY_URL"))
+	videoProvider := strings.ToLower(getEnvString("VIDEO_PROVIDER", "cloudflare"))
+	cloudflareStreamAccountID := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_ACCOUNT_ID"))
+	cloudflareStreamAPIToken := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_API_TOKEN"))
+	cloudflareStreamWebhookSecret := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_WEBHOOK_SECRET"))
+	cloudflareStreamAllowedOrigins := getEnvList("CLOUDFLARE_STREAM_ALLOWED_ORIGINS", nil)
 	if redisEnabled && redisURL == "" {
 		log.Fatal("Fatal: REDIS_URL is required when REDIS_ENABLED=true")
 	}
@@ -622,6 +636,11 @@ func Load() *Config {
 		MediaR2PublicBaseURL:                 mediaR2PublicBaseURL,
 		MediaS3UsePathStyle:                  mediaS3UsePathStyle,
 		MediaCloudinaryURL:                   mediaCloudinaryURL,
+		VideoProvider:                        videoProvider,
+		CloudflareStreamAccountID:            cloudflareStreamAccountID,
+		CloudflareStreamAPIToken:             cloudflareStreamAPIToken,
+		CloudflareStreamWebhookSecret:        cloudflareStreamWebhookSecret,
+		CloudflareStreamAllowedOrigins:       cloudflareStreamAllowedOrigins,
 		SendGridAPIKey:                       sendGridAPIKey,
 		EmailFrom:                            emailFrom,
 		NovaPoshtaAPIKey:                     novaPoshtaAPIKey,

@@ -23,6 +23,7 @@ import (
 	returnsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/delivery/http"
 	searchHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/search/delivery/http"
 	supportHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/support/delivery/http"
+	videoHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/video/delivery/http"
 	wishlistHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/delivery/http"
 )
 
@@ -59,12 +60,18 @@ func InitRouter(application *app.Application) *gin.Engine {
 	}
 	v1 := api.Group("/v1")
 	v1.Use(application.HTTP.SecurityHeaders, application.HTTP.ErrorRenderer.Middleware(), application.HTTP.APIRateLimit)
+	if application.VideoWebhookService != nil {
+		videoHTTP.RegisterWebhookRoutes(v1, application.VideoWebhookService, application.HTTP.ErrorRenderer)
+	}
 	identityHTTP.RegisterV1CustomerRoutes(v1, application.CustomerProfileService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
 	returnsHTTP.RegisterV1CustomerRoutes(v1, application.ReturnService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
 	deliveryHTTP.RegisterV1LocationRoutes(v1.Group("/delivery"), application.DeliveryLocations, application.HTTP.ErrorRenderer)
 	v1Catalog := v1.Group("/catalog/:lang")
 	v1Catalog.Use(application.HTTP.RequestBodyLimit, application.HTTP.LocaleMiddleware)
 	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer, application.InventoryAvailability)
+	if application.VideoStorefrontReader != nil {
+		videoHTTP.RegisterStorefrontRoutes(v1.Group("/catalog/products"), application.VideoStorefrontReader, application.HTTP.ErrorRenderer)
+	}
 	availabilityHTTP.RegisterV1Routes(v1, application.AvailabilityService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth)
 	supportHTTP.RegisterV1Routes(v1, application.SupportService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth, middleware.AuthMiddleware(application.TokenMaker))
 	consentHTTP.RegisterV1Routes(v1, application.ConsentService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
@@ -88,6 +95,9 @@ func InitRouter(application *app.Application) *gin.Engine {
 		v1AdminMedia := v1.Group("/admin/media")
 		v1AdminMedia.Use(application.HTTP.MediaRequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))
 		mediaHTTP.RegisterV1Routes(v1AdminMedia, application.AdminAuthorizer, application.MediaUploadService, application.HTTP.ErrorRenderer)
+	}
+	if application.VideoUploadService != nil {
+		videoHTTP.RegisterV1Routes(v1Admin, application.AdminAuthorizer, application.VideoUploadService, application.HTTP.ErrorRenderer)
 	}
 	v1Orders := v1.Group("/orders")
 	v1Orders.Use(application.HTTP.RequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))

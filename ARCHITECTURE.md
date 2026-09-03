@@ -64,6 +64,7 @@ flowchart TB
     Bootstrap --> Admin[Admin RBAC module\noptional]
     Bootstrap --> Search[Search projection module\noptional]
     Bootstrap --> Media[Media asset module\noptional]
+    Bootstrap --> Video[Video delivery module\noptional]
     Bootstrap --> Reports[Business reports module\noptional]
     Bootstrap --> Returns[Returns / RMA module\noptional]
     Bootstrap --> Support[Customer support module\noptional]
@@ -96,6 +97,7 @@ flowchart TB
     Admin -. permission ports .-> Orders
     Catalog -. durable catalog.product.changed.v1 outbox .-> Search
     Media -. durable media.asset.uploaded.v1 outbox .-> Media
+    Video -. durable media.video.ready.v1 outbox .-> Video
     Core -. durable orders.paid.v1 outbox .-> Reports
 
     PaymentsPort --> LiqPay[LiqPay adapter]
