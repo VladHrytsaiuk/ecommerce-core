@@ -28,6 +28,12 @@ import (
 
 // InitRouter only attaches handlers assembled by app.Bootstrap.
 func InitRouter(application *app.Application) *gin.Engine {
+	if application.Config.Env == "production" {
+		// Gin defaults to debug mode, which dumps every registered route at
+		// startup and keeps its diagnostic output on. Neither belongs in a
+		// production log stream.
+		gin.SetMode(gin.ReleaseMode)
+	}
 	r := gin.New()
 	if err := r.SetTrustedProxies(application.Config.TrustedProxies); err != nil {
 		// Config validates this input before composition. Do not continue with

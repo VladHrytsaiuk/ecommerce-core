@@ -273,10 +273,11 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	adminEnabled := contains(storeConfig.EnabledModules, "admin")
 	var adminAuthorizer adminDomain.Authorizer
 	if adminEnabled {
-		adminAuthorizer, err = adminApp.NewAuthorizer(adminPostgres.NewRepository(db), cacheService, 0)
-		if err != nil {
-			return nil, fmt.Errorf("configure admin RBAC: %w", err)
+		authorizer, authorizerErr := adminApp.NewAuthorizer(adminPostgres.NewRepository(db), cacheService, 0)
+		if authorizerErr != nil {
+			return nil, fmt.Errorf("configure admin RBAC: %w", authorizerErr)
 		}
+		adminAuthorizer = authorizer.WithLogger(logger.Log)
 	}
 
 	corsMiddleware, err := middleware.NewCORS(cfg.CORSAllowOrigins)
@@ -499,6 +500,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if err != nil {
 			return nil, fmt.Errorf("configure reports rebuilder: %w", err)
 		}
+		reportsRebuilder = reportsRebuilder.WithLogger(logger.Log)
 		handler, err := reportsProjectors.NewDailySalesProjector(repository, repository, snapshotProvider, cfg.ReportsTimezone)
 		if err != nil {
 			return nil, fmt.Errorf("configure reports daily sales projector: %w", err)

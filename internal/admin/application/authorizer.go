@@ -13,14 +13,29 @@ import (
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/cache"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/sanitize"
 )
 
 const defaultPermissionsTTL = 5 * time.Minute
+
+// CacheLogger reports a degraded permission cache. It is a narrow port so
+// authorization stays free of a concrete logging dependency.
+type CacheLogger interface {
+	Warnw(string, ...any)
+}
 
 type Authorizer struct {
 	repository domain.AccessRepository
 	cache      cache.Service
 	ttl        time.Duration
+	logger     CacheLogger
+}
+
+// WithLogger attaches the composition root's logger so a cache outage is
+// visible. Authorization decisions are unaffected either way.
+func (a *Authorizer) WithLogger(logger CacheLogger) *Authorizer {
+	a.logger = logger
+	return a
 }
 
 func NewAuthorizer(repository domain.AccessRepository, service cache.Service, ttl time.Duration) (*Authorizer, error) {
@@ -73,7 +88,13 @@ func (a *Authorizer) permissions(ctx context.Context, state domain.Authorization
 		_ = a.cache.Delete(ctx, key)
 	} else if !errors.Is(err, cache.ErrMiss) {
 		// Cache availability must never decide whether an authenticated admin has
-		// a permission; PostgreSQL remains authoritative.
+		// a permission; PostgreSQL remains authoritative. Record the fault all
+		// the same: silently falling back hides a Redis outage behind nothing
+		// but extra database load on every authorization check.
+		if a.logger != nil {
+			a.logger.Warnw("rbac permission cache unavailable",
+				"user_id", state.UserID, "error_code", sanitize.ErrorCode(err))
+		}
 	}
 
 	values, err := a.repository.ListPermissions(ctx, state.UserID)

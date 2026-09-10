@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,12 @@ const (
 	maxRebuildDuration = 30 * time.Minute
 )
 
+// RebuildLogger reports failures of the detached rebuild goroutine. It is a
+// narrow port so this package stays free of a concrete logging dependency.
+type RebuildLogger interface {
+	Errorw(string, ...any)
+}
+
 // ReportsRebuilder replaces a bounded reporting window from immutable facts.
 // It deliberately has no HTTP dependency; the handler only requests StartAsync.
 type ReportsRebuilder struct {
@@ -26,11 +33,19 @@ type ReportsRebuilder struct {
 	snapshots  reports.OrderAnalyticsSnapshotProvider
 	timezone   string
 	location   *time.Location
+	logger     RebuildLogger
 
 	mu        sync.Mutex
 	active    bool
 	lifecycle context.Context
 	wg        sync.WaitGroup
+}
+
+// WithLogger attaches the composition root's logger. Without it a rebuild
+// still runs, but its failures stay invisible.
+func (r *ReportsRebuilder) WithLogger(logger RebuildLogger) *ReportsRebuilder {
+	r.logger = logger
+	return r
 }
 
 func NewReportsRebuilder(repository reports.ReportsRepository, tx reports.TransactionManager, snapshots reports.OrderAnalyticsSnapshotProvider, timezone string) (*ReportsRebuilder, error) {
@@ -85,8 +100,21 @@ func (r *ReportsRebuilder) StartAsync(period reports.DateRange) (bool, error) {
 		// transaction; application shutdown and this hard ceiling can.
 		rebuildCtx, cancel := context.WithTimeout(ctx, maxRebuildDuration)
 		defer cancel()
-		defer func() { _ = recover() }()
-		_ = r.Rebuild(rebuildCtx, period)
+		// This goroutine is detached from the request that started it, so an
+		// unreported failure is indistinguishable from a completed rebuild:
+		// the caller already got its 202 and `active` resets either way.
+		defer func() {
+			if recovered := recover(); recovered != nil && r.logger != nil {
+				r.logger.Errorw("reports rebuild panicked",
+					"panic", fmt.Sprint(recovered),
+					"stack", string(debug.Stack()),
+					"from", period.From, "to", period.To)
+			}
+		}()
+		if err := r.Rebuild(rebuildCtx, period); err != nil && r.logger != nil {
+			r.logger.Errorw("reports rebuild failed",
+				"error", err.Error(), "from", period.From, "to", period.To)
+		}
 	}()
 	return true, nil
 }
