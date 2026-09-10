@@ -989,6 +989,11 @@ func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
 	return tx.Create(&items).Error
 }
 
+// lockReservations takes every reservation row for one checkout under a write
+// lock. PostgreSQL locks rows in scan order, not by id, so an IN list is only
+// deadlock-free because reservation ids are derived deterministically from the
+// checkout id (uuid.NewSHA1 in checkout's PreparePayment) and therefore never
+// overlap between concurrent checkouts. Preserve that derivation if it moves.
 func lockReservations(tx *gorm.DB, reservationIDs []uuid.UUID) ([]reservationRecord, error) {
 	var reservations []reservationRecord
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id IN ?", reservationIDs).Find(&reservations).Error; err != nil {

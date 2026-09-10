@@ -152,6 +152,11 @@ func (s *Service) PreparePayment(ctx context.Context, request checkoutDomain.Pre
 	for k := range aggregated {
 		keys = append(keys, k)
 	}
+	// A global lock order, not cosmetic normalization. ReserveBatch updates
+	// stock_items row by row inside one transaction, so two concurrent
+	// purchases containing the same variants in different orders would deadlock
+	// in PostgreSQL. Sorting makes every caller take those rows in the same
+	// sequence. Do not replace this with iteration over the map.
 	sort.Slice(keys, func(i, j int) bool {
 		return keys[i].variant.String()+keys[i].warehouse.String() < keys[j].variant.String()+keys[j].warehouse.String()
 	})

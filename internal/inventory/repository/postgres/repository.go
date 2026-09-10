@@ -151,20 +151,6 @@ func (r *Repository) AdjustAndReportAvailability(ctx context.Context, variantID,
 	return becameAvailable, err
 }
 
-func (r *Repository) legacyAdjust(ctx context.Context, variantID, warehouseID uuid.UUID, delta int) error {
-	if delta > 0 {
-		return r.database(ctx).Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand) VALUES (?, ?, ?, ?) ON CONFLICT (variant_id, warehouse_id) DO UPDATE SET quantity_on_hand = stock_items.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = CURRENT_TIMESTAMP`, uuid.New(), variantID, warehouseID, delta).Error
-	}
-	result := r.database(ctx).Exec(`UPDATE stock_items SET quantity_on_hand = quantity_on_hand + ?, updated_at = CURRENT_TIMESTAMP WHERE variant_id = ? AND warehouse_id = ? AND quantity_on_hand + ? >= quantity_reserved`, delta, variantID, warehouseID, delta)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return domain.ErrInsufficientStock
-	}
-	return nil
-}
-
 // AvailabilityForVariants is a narrow read projection consumed structurally
 // by Catalog. No stock quantity crosses the public Catalog boundary.
 func (r *Repository) AvailabilityForVariants(ctx context.Context, variantIDs []uuid.UUID) (map[uuid.UUID]bool, error) {

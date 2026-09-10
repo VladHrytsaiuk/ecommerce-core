@@ -35,17 +35,35 @@ func (repository *Repository) List(ctx context.Context, owner domain.Owner) ([]d
 	if err := query.Find(&lists).Error; err != nil {
 		return nil, err
 	}
-	result := make([]domain.List, 0, len(lists))
+	// One query for every list's items rather than one per list. Grouping in
+	// memory is safe here because the total is bounded by ComparisonMaxItems
+	// per list, so the result set stays small by construction.
+	listIDs := make([]uuid.UUID, 0, len(lists))
 	for _, list := range lists {
+		listIDs = append(listIDs, list.ID)
+	}
+	byList := make(map[uuid.UUID][]domain.Item, len(listIDs))
+	if len(listIDs) > 0 {
 		var items []itemRecord
-		if err := repository.db.WithContext(ctx).Where("comparison_list_id = ?", list.ID).Order("created_at DESC").Find(&items).Error; err != nil {
+		if err := repository.db.WithContext(ctx).
+			Where("comparison_list_id IN ?", listIDs).
+			Order("comparison_list_id, created_at DESC").
+			Find(&items).Error; err != nil {
 			return nil, err
 		}
-		mapped := make([]domain.Item, 0, len(items))
 		for _, item := range items {
-			mapped = append(mapped, domain.Item{ID: item.ID, ProductVariantID: item.ProductVariantID, CreatedAt: item.CreatedAt})
+			byList[item.ComparisonListID] = append(byList[item.ComparisonListID],
+				domain.Item{ID: item.ID, ProductVariantID: item.ProductVariantID, CreatedAt: item.CreatedAt})
 		}
-		result = append(result, domain.List{ID: list.ID, CategoryID: list.CategoryID, Items: mapped})
+	}
+
+	result := make([]domain.List, 0, len(lists))
+	for _, list := range lists {
+		items := byList[list.ID]
+		if items == nil {
+			items = make([]domain.Item, 0)
+		}
+		result = append(result, domain.List{ID: list.ID, CategoryID: list.CategoryID, Items: items})
 	}
 	return result, nil
 }
