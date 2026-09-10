@@ -27,10 +27,29 @@ jobs:
         run: |
           go run github.com/swaggo/swag/cmd/swag@v1.16.6 init \
             -g cmd/api/main.go --parseDependency --parseInternal \
-            --exclude internal/document,internal/order --output docs/api
+            --output docs/api
           git diff --exit-code -- docs/api
       - name: Verify active clean architecture
         run: bash scripts/check-clean-architecture.sh
+      - name: Verify formatting
+        run: |
+          unformatted=$(gofmt -l ./cmd ./internal)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+      # Integration-tagged files are excluded from a normal build, so nothing
+      # else notices when one stops compiling. Vet stops at the first broken
+      # package, so a single stale test can mask every other one.
+      - name: Vet integration-tagged tests
+        run: go vet -tags=integration ./...
+      # Unreachable code accumulated to roughly twenty thousand lines before it
+      # was noticed, because nothing failed while it still compiled.
+      - name: Report unused exported-free code
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+          staticcheck -checks U1000 ./...
 
   test:
     name: race tests
@@ -46,8 +65,10 @@ jobs:
         run: docker info
       - name: Run tests with the race detector
         run: go test -race ./...
-      - name: Verify fresh PostgreSQL schema
-        run: go test -tags=integration ./cmd/migrate ./internal/platform/postgres/orderworkflow
+      # Previously only two packages ran here, so integration coverage added
+      # elsewhere never executed in CI.
+      - name: Run the integration suite against real PostgreSQL
+        run: go test -tags=integration -count=1 ./...
 
   build:
     name: Docker image
