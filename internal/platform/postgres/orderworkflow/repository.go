@@ -28,6 +28,7 @@ type Repository struct {
 	syncEnabled  bool
 	hooks        []workflowDomain.TransactionHook
 	events       eventsDomain.TransactionalEventPublisher
+	statusEvents eventsDomain.TransactionalEventPublisher
 	statusPolicy workflowDomain.OperationalTransitionPolicy
 }
 
@@ -51,6 +52,16 @@ func (r *Repository) WithTransactionHook(hook workflowDomain.TransactionHook) *R
 // existing database transaction. The publisher must never perform network I/O.
 func (r *Repository) WithEventPublisher(publisher eventsDomain.TransactionalEventPublisher) *Repository {
 	r.events = publisher
+	return r
+}
+
+// WithStatusEventPublisher configures the subscribers for the broad order
+// lifecycle contract independently from payment and refund events. Those
+// topics have different consumers; sharing one publisher would enqueue an
+// unrelated status event ahead of a payment event for, for example, the
+// Notifications worker.
+func (r *Repository) WithStatusEventPublisher(publisher eventsDomain.TransactionalEventPublisher) *Repository {
+	r.statusEvents = publisher
 	return r
 }
 
@@ -544,17 +555,20 @@ func (r *Repository) MarkRefunded(ctx context.Context, confirmation workflowDoma
 		if payment.Status != "paid" {
 			return workflowDomain.ErrInvalidOrderTransition
 		}
+		fromStatus := order.Status
 		if err := tx.Model(&order).Update("status", ordersDomain.StatusRefunded).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&payment).Update("status", "refunded").Error; err != nil {
 			return err
 		}
-		audit := defaultStatusHistoryAudit(order, ordersDomain.StatusRefunded, &confirmation)
-		if err := r.appendStatusHistory(ctx, tx, order, ordersDomain.StatusRefunded, audit); err != nil {
+		historyOrder := order
+		historyOrder.Status = fromStatus
+		audit := defaultStatusHistoryAudit(historyOrder, ordersDomain.StatusRefunded, &confirmation)
+		if err := r.appendStatusHistory(ctx, tx, historyOrder, ordersDomain.StatusRefunded, audit); err != nil {
 			return err
 		}
-		if err := r.publishStatusChanged(transaction.WithContext(ctx, tx), tx, order.ID, order.Status, ordersDomain.StatusRefunded, audit.ActorType, audit.EventID, audit.OccurredAt); err != nil {
+		if err := r.publishStatusChanged(transaction.WithContext(ctx, tx), tx, order.ID, fromStatus, ordersDomain.StatusRefunded, audit.ActorType, audit.EventID, audit.OccurredAt); err != nil {
 			return err
 		}
 		for _, hook := range r.hooks {
@@ -725,6 +739,7 @@ func (r *Repository) withTransaction(ctx context.Context, fn func(*gorm.DB) erro
 }
 
 func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order orderStateRecord, orderID uuid.UUID, targetStatus string, payment *paymentRecord, confirmation *workflowDomain.PaymentConfirmation, audit *statusHistoryAudit) error {
+	fromStatus := order.Status
 	var reservations []reservationRecord
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_id = ?", orderID).Find(&reservations).Error; err != nil {
 		return err
@@ -768,14 +783,16 @@ func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order ord
 			return err
 		}
 	}
+	historyOrder := order
+	historyOrder.Status = fromStatus
 	if audit == nil {
-		defaultAudit := defaultStatusHistoryAudit(order, targetStatus, confirmation)
+		defaultAudit := defaultStatusHistoryAudit(historyOrder, targetStatus, confirmation)
 		audit = &defaultAudit
 	}
-	if err := r.appendStatusHistory(ctx, tx, order, targetStatus, *audit); err != nil {
+	if err := r.appendStatusHistory(ctx, tx, historyOrder, targetStatus, *audit); err != nil {
 		return err
 	}
-	if err := r.publishStatusChanged(transaction.WithContext(ctx, tx), tx, order.ID, order.Status, targetStatus, audit.ActorType, audit.EventID, audit.OccurredAt); err != nil {
+	if err := r.publishStatusChanged(transaction.WithContext(ctx, tx), tx, order.ID, fromStatus, targetStatus, audit.ActorType, audit.EventID, audit.OccurredAt); err != nil {
 		return err
 	}
 	if targetStatus == ordersDomain.StatusPaid && order.DeliveryProvider != "" {
@@ -886,14 +903,14 @@ func validOrderStatusActorType(actorType ordersDomain.StatusActorType) bool {
 }
 
 func (r *Repository) publishStatusChanged(ctx context.Context, tx *gorm.DB, orderID uuid.UUID, fromStatus, toStatus string, actorType ordersDomain.StatusActorType, transitionID uuid.UUID, occurredAt time.Time) error {
-	if r.events == nil {
+	if r.statusEvents == nil {
 		return nil
 	}
 	event, err := ordersDomain.NewOrderStatusChangedEvent(orderID, fromStatus, toStatus, actorType, occurredAt, transitionID)
 	if err != nil {
 		return err
 	}
-	return r.events.Publish(transaction.WithContext(ctx, tx), event)
+	return r.statusEvents.Publish(transaction.WithContext(ctx, tx), event)
 }
 
 func (r *Repository) appendInitialStatusHistory(ctx context.Context, tx *gorm.DB, order *ordersDomain.Order) error {

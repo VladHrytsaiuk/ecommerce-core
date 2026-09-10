@@ -85,7 +85,9 @@ func TestWorkflowPersistsOrderAndCommitsReservationExactlyOnce(t *testing.T) {
 	seedOrderPaidTemplate(t, db)
 	variantID, _, reservationID := seedReservation(t, db)
 	price := mustMoney(1000, "EUR")
-	service := workflowApp.NewService(NewRepository(db, true).WithEventPublisher(eventsPostgres.NewPublisher(eventsDomain.ConsumerNotifications)))
+	service := workflowApp.NewService(NewRepository(db, true).WithEventPublisher(eventsPostgres.NewTopicPublisher(map[string][]string{
+		eventsDomain.TopicOrderPaid: {eventsDomain.ConsumerNotifications},
+	})))
 	order, err := service.CreatePendingCheckout(ctx, ordersDomain.Draft{
 		Number: "ES-300", Subtotal: price, Tax: mustMoney(0, "EUR"), Total: price, PaymentProvider: "fake", DeliveryProvider: "novaposhta",
 		Delivery: &ordersDomain.DeliveryDetails{RecipientName: "Iryna Customer", RecipientPhone: "+34123456789", CountryCode: "ES", City: "Madrid", LocalityID: "madrid", ServicePointID: "branch-1"},

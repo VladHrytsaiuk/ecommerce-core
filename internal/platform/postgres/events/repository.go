@@ -35,6 +35,41 @@ func NewPublisher(consumers ...string) *Publisher {
 	return &Publisher{consumers: active}
 }
 
+// TopicPublisher routes each domain-event topic only to the consumers that
+// explicitly subscribed to it. A broad consumer list is unsafe: it lets an
+// unrelated worker claim and acknowledge an event before its intended handler
+// sees it. Topics without subscribers are still retained in domain_events as
+// an auditable integration contract, but deliberately get no delivery rows.
+type TopicPublisher struct {
+	routes map[string]*Publisher
+	empty  *Publisher
+}
+
+func NewTopicPublisher(routes map[string][]string) *TopicPublisher {
+	publishers := make(map[string]*Publisher, len(routes))
+	for topic, consumers := range routes {
+		topic = strings.TrimSpace(topic)
+		if topic == "" {
+			continue
+		}
+		publishers[topic] = NewPublisher(consumers...)
+	}
+	return &TopicPublisher{routes: publishers, empty: NewPublisher()}
+}
+
+func (p *TopicPublisher) Publish(ctx context.Context, event eventsDomain.DomainEvent) error {
+	if p == nil {
+		return fmt.Errorf("topic event publisher is required")
+	}
+	publisher := p.empty
+	if event != nil {
+		if routed, ok := p.routes[event.Topic()]; ok {
+			publisher = routed
+		}
+	}
+	return publisher.Publish(ctx, event)
+}
+
 type eventRecord struct {
 	ID             uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Topic          string

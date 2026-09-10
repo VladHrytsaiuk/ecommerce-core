@@ -319,16 +319,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
 	returnsEnabled := contains(storeConfig.EnabledModules, "returns")
 	videoEnabled := contains(storeConfig.EnabledModules, "video")
-	eventConsumers := make([]string, 0, 1)
-	if notificationsEnabled {
-		eventConsumers = append(eventConsumers, eventsDomain.ConsumerNotifications)
-	}
-	if reportsEnabled {
-		eventConsumers = append(eventConsumers, eventsDomain.ConsumerReportsProjection)
-	}
-	if returnsEnabled {
-		eventConsumers = append(eventConsumers, returnsDomain.ConsumerSettlement)
-	}
+	workflowEventRoutes := orderWorkflowEventRoutes(notificationsEnabled, reportsEnabled, returnsEnabled)
 	var availabilityService *availabilityApp.Service
 	var availabilityOutboxWorker *eventsApp.OutboxWorker
 	if availabilityEnabled {
@@ -341,7 +332,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		handler := availabilityApp.NewHandler(repository, notificationRepository, func(ctx context.Context, fn func(context.Context) error) error {
 			return adminPostgres.NewTransactionManager(db).WithinTransaction(ctx, fn)
 		})
-		availabilityOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), availabilityDomain.ConsumerAvailabilityNotifications, time.Minute, logger.Log, handler)
+		availabilityOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), availabilityDomain.ConsumerAvailabilityNotifications, time.Minute, logger.Log, handler).WithTracer(observability.NewOutboxTracer())
 		inventoryService.WithAvailabilityPublisher(eventsPostgres.NewPublisher(availabilityDomain.ConsumerAvailabilityNotifications))
 	}
 	if abandonedCartEnabled && (!contains(storeConfig.EnabledModules, "checkout") || !notificationsEnabled || !consentEnabled) {
@@ -362,8 +353,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or
 	// Inventory repository implementation.
+	workflowEventPublisher := eventsPostgres.NewTopicPublisher(workflowEventRoutes)
 	workflowRepository := workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync")).
-		WithEventPublisher(eventsPostgres.NewPublisher(eventConsumers...))
+		WithEventPublisher(workflowEventPublisher).
+		// The status lifecycle is already durably recorded in
+		// order_status_history. Persist its public event separately until a
+		// module explicitly subscribes, so payment/report workers never claim
+		// unrelated status deliveries.
+		WithStatusEventPublisher(workflowEventPublisher)
 	var operationalWorkflowPolicy *ordersApp.WorkflowService
 	if contains(storeConfig.EnabledModules, "orders") {
 		operationalWorkflowPolicy, err = ordersApp.NewWorkflowService(ordersPostgres.NewWorkflowRepository(db))
@@ -518,7 +515,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if err != nil {
 			return nil, fmt.Errorf("configure reports checkout funnel projector: %w", err)
 		}
-		reportsOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerReportsProjection, time.Minute, logger.Log, handler, refundHandler, cartFunnel, checkoutFunnel)
+		reportsOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerReportsProjection, time.Minute, logger.Log, handler, refundHandler, cartFunnel, checkoutFunnel).WithTracer(observability.NewOutboxTracer())
 	}
 	if searchEnabled {
 		searchStartupCtx, cancelSearchStartup := context.WithTimeout(context.Background(), searchMeili.DefaultTaskTimeout)
@@ -539,12 +536,12 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if err != nil {
 			return nil, fmt.Errorf("configure search service: %w", err)
 		}
-		searchOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerSearchIndexer, time.Minute, logger.Log, handler)
+		searchOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerSearchIndexer, time.Minute, logger.Log, handler).WithTracer(observability.NewOutboxTracer())
 		productEventPublisher = eventsPostgres.NewPublisher(eventsDomain.ConsumerSearchIndexer)
 	}
 	if adminEnabled {
 		auditHandler := adminApp.NewAdminAuditEventHandler(adminPostgres.NewAuditRepository(db))
-		adminAuditOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerAdminAudit, time.Minute, logger.Log, auditHandler)
+		adminAuditOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerAdminAudit, time.Minute, logger.Log, auditHandler).WithTracer(observability.NewOutboxTracer())
 		if promosRepository != nil {
 			promosAdminFacade, err = adminApp.NewPromosAdminFacade(adminAuthorizer, promosApp.NewAdminService(promosRepository), adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
 			if err != nil {
@@ -568,7 +565,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if err != nil {
 			return nil, fmt.Errorf("configure media processor: %w", err)
 		}
-		mediaOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerMediaProcessor, time.Minute, logger.Log, mediaHandler)
+		mediaOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerMediaProcessor, time.Minute, logger.Log, mediaHandler).WithTracer(observability.NewOutboxTracer())
 		mediaOrphanCleanup, err = mediaApp.NewOrphanCleanupWorker(mediaRepository, store, logger.Log)
 		if err != nil {
 			return nil, fmt.Errorf("configure media orphan cleanup: %w", err)
@@ -629,7 +626,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if confirmationErr != nil {
 			return nil, fmt.Errorf("configure returns refund confirmation handler: %w", confirmationErr)
 		}
-		returnsOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), returnsDomain.ConsumerSettlement, time.Minute, logger.Log, settlementHandler, refundConfirmedHandler)
+		returnsOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), returnsDomain.ConsumerSettlement, time.Minute, logger.Log, settlementHandler, refundConfirmedHandler).WithTracer(observability.NewOutboxTracer())
 	}
 
 	checkoutService := checkoutApp.NewService(inventoryService, variantService, taxPolicy, checkoutDomain.Policy{
@@ -662,7 +659,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		}
 		policy := abandonedApp.Policy{Delays: append([]time.Duration(nil), cfg.AbandonedCartDelays[:cfg.AbandonedCartMaxReminders]...), RequireMarketingConsent: cfg.AbandonedCartRequireMarketingConsent, QuietHours: quietHours}
 		abandonedCartWorker = abandonedApp.NewWorker(campaignRepository, cartReader, abandonedReaders.NewConsentReader(db), notificationsPostgres.NewRepository(db), adminPostgres.NewTransactionManager(db), policy)
-		abandonedCartOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), abandonedApp.ConsumerCampaignProducer, time.Minute, logger.Log, producer, abandonedApp.NewTopicConsumer(eventsDomain.TopicCheckoutEmailCaptured, producer))
+		abandonedCartOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), abandonedApp.ConsumerCampaignProducer, time.Minute, logger.Log, producer, abandonedApp.NewTopicConsumer(eventsDomain.TopicCheckoutEmailCaptured, producer)).WithTracer(observability.NewOutboxTracer())
 	}
 
 	categoryService := catalogApp.NewCategoryService(catalogPostgres.NewCategoryRepository(db), storeConfig.SupportedLocales).WithCache(cacheService)
@@ -736,7 +733,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		DeliveryLocations:         deliveryApp.NewLocationService(deliveryCarriers, cacheService),
 		DeliveryDispatcher:        deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
 		DeliveryTracker:           deliveryTracker,
-		OutboxWorker:              eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...),
+		OutboxWorker:              eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...).WithTracer(observability.NewOutboxTracer()),
 		AdminAuditOutboxWorker:    adminAuditOutboxWorker,
 		SearchOutboxWorker:        searchOutboxWorker,
 		MediaOutboxWorker:         mediaOutboxWorker,
@@ -793,6 +790,27 @@ func inventoryMode(value string) inventoryDomain.Mode {
 		return inventoryDomain.ModeInternal
 	}
 	return inventoryDomain.ModeExternal
+}
+
+// orderWorkflowEventRoutes is the explicit subscription policy for events
+// emitted by the cross-context Order Workflow. Keep it topic-specific: workers
+// must never claim topics for which they have no handler.
+func orderWorkflowEventRoutes(notificationsEnabled, reportsEnabled, returnsEnabled bool) map[string][]string {
+	routes := make(map[string][]string, 3)
+	if notificationsEnabled {
+		routes[eventsDomain.TopicOrderPaid] = append(routes[eventsDomain.TopicOrderPaid], eventsDomain.ConsumerNotifications)
+	}
+	if reportsEnabled {
+		routes[eventsDomain.TopicCheckoutStarted] = append(routes[eventsDomain.TopicCheckoutStarted], eventsDomain.ConsumerReportsProjection)
+		routes[eventsDomain.TopicOrderPaid] = append(routes[eventsDomain.TopicOrderPaid], eventsDomain.ConsumerReportsProjection)
+		routes[eventsDomain.TopicOrderRefunded] = append(routes[eventsDomain.TopicOrderRefunded], eventsDomain.ConsumerReportsProjection)
+	}
+	if returnsEnabled {
+		// This closes an RMA only after the trusted payment workflow has
+		// durably confirmed the gateway refund.
+		routes[eventsDomain.TopicOrderRefunded] = append(routes[eventsDomain.TopicOrderRefunded], returnsDomain.ConsumerSettlement)
+	}
+	return routes
 }
 
 func newCartRepository(db *gorm.DB, reportsEnabled, abandonedCartEnabled bool) *cartPostgres.Repository {

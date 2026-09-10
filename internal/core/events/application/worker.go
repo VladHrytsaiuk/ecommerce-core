@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/observability"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/sanitize"
 )
 
@@ -21,6 +20,20 @@ const (
 type Logger interface {
 	Infow(string, ...interface{})
 	Errorw(string, ...interface{})
+}
+
+// Span is the minimal lifecycle contract the worker needs from tracing. It
+// keeps OpenTelemetry and all other platform concerns outside the application
+// layer while allowing an adapter to preserve trace continuity per delivery.
+type Span interface {
+	End()
+}
+
+// Tracer resumes the trace context stored with a durable delivery and starts
+// its consumer span. Platform implementations can use OpenTelemetry; tests
+// and deployments without tracing use the no-op default.
+type Tracer interface {
+	ContinueDelivery(context.Context, events.Delivery) (context.Context, Span)
 }
 
 // Consumer handles one event topic after its delivery lease is claimed. It is
@@ -39,6 +52,7 @@ type OutboxWorker struct {
 	lease       time.Duration
 	maxAttempts int
 	logger      Logger
+	tracer      Tracer
 	handlers    map[string][]Consumer
 }
 
@@ -52,7 +66,17 @@ func NewOutboxWorker(store events.DeliveryStore, consumer string, lease time.Dur
 			registered[handler.Topic()] = append(registered[handler.Topic()], handler)
 		}
 	}
-	return &OutboxWorker{store: store, consumer: consumer, lease: lease, maxAttempts: DefaultMaxAttempts, logger: logger, handlers: registered}
+	return &OutboxWorker{store: store, consumer: consumer, lease: lease, maxAttempts: DefaultMaxAttempts, logger: logger, tracer: noopTracer{}, handlers: registered}
+}
+
+// WithTracer injects the platform tracing adapter at the composition root.
+// Nil intentionally retains no-op behaviour for unit tests and minimal
+// deployments.
+func (w *OutboxWorker) WithTracer(tracer Tracer) *OutboxWorker {
+	if tracer != nil {
+		w.tracer = tracer
+	}
+	return w
 }
 
 func (w *OutboxWorker) WithMaxAttempts(maxAttempts int) *OutboxWorker {
@@ -70,8 +94,7 @@ func (w *OutboxWorker) DispatchOnce(ctx context.Context) error {
 	if err != nil || event == nil {
 		return err
 	}
-	ctx = observability.ExtractOutboxTraceContext(ctx, observability.OutboxTraceContext{TraceParent: event.TraceParent, TraceState: event.TraceState, RequestID: event.RequestID})
-	ctx, span := observability.StartOutboxProcess(ctx, event.Topic, event.Consumer, event.EventID.String(), event.Attempts)
+	ctx, span := w.tracer.ContinueDelivery(ctx, *event)
 	defer span.End()
 	if w.logger != nil {
 		w.logger.Infow("event outbox delivery claimed", "event_id", event.EventID, "topic", event.Topic, "consumer", event.Consumer, "attempt", event.Attempts)
@@ -94,6 +117,15 @@ func (w *OutboxWorker) DispatchOnce(ctx context.Context) error {
 	}
 	return nil
 }
+
+type noopTracer struct{}
+type noopSpan struct{}
+
+func (noopTracer) ContinueDelivery(ctx context.Context, _ events.Delivery) (context.Context, Span) {
+	return ctx, noopSpan{}
+}
+
+func (noopSpan) End() {}
 
 func (w *OutboxWorker) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {

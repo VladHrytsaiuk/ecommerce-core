@@ -32,9 +32,26 @@ type OrderStatusChangedEvent struct {
 func NewOrderStatusChangedEvent(orderID uuid.UUID, fromStatus, toStatus string, actorType StatusActorType, occurredAt time.Time, transitionID uuid.UUID) (OrderStatusChangedEvent, error) {
 	fromStatus = strings.TrimSpace(fromStatus)
 	toStatus = strings.TrimSpace(toStatus)
-	if orderID == uuid.Nil || toStatus == "" || fromStatus == toStatus ||
-		!validStatusActorType(actorType) || transitionID == uuid.Nil {
-		return OrderStatusChangedEvent{}, fmt.Errorf("invalid order status changed event")
+	// A transition always has both ends. Allowing an empty source state would
+	// make malformed records indistinguishable from an initial status history
+	// entry and would produce an ambiguous cross-module event.
+	if orderID == uuid.Nil {
+		return OrderStatusChangedEvent{}, fmt.Errorf("order status changed event requires an order ID")
+	}
+	if fromStatus == "" {
+		return OrderStatusChangedEvent{}, fmt.Errorf("order status changed event requires a source status")
+	}
+	if toStatus == "" {
+		return OrderStatusChangedEvent{}, fmt.Errorf("order status changed event requires a target status")
+	}
+	if fromStatus == toStatus {
+		return OrderStatusChangedEvent{}, fmt.Errorf("order status changed event requires distinct statuses")
+	}
+	if !validStatusActorType(actorType) {
+		return OrderStatusChangedEvent{}, fmt.Errorf("order status changed event has an invalid actor type")
+	}
+	if transitionID == uuid.Nil {
+		return OrderStatusChangedEvent{}, fmt.Errorf("order status changed event requires a transition ID")
 	}
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()

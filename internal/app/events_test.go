@@ -8,8 +8,37 @@ import (
 	"github.com/google/uuid"
 
 	comparisonDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/domain"
+	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
+	returnsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/domain"
 	wishlistDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
 )
+
+func TestOrderWorkflowEventRoutesSubscribeReturnsToRefundsOnly(t *testing.T) {
+	routes := orderWorkflowEventRoutes(true, true, true)
+
+	if !hasConsumer(routes[eventsDomain.TopicOrderRefunded], returnsDomain.ConsumerSettlement) {
+		t.Fatalf("refund routes = %v, missing %q", routes[eventsDomain.TopicOrderRefunded], returnsDomain.ConsumerSettlement)
+	}
+	if hasConsumer(routes[eventsDomain.TopicOrderPaid], returnsDomain.ConsumerSettlement) {
+		t.Fatalf("paid routes = %v, must not include %q", routes[eventsDomain.TopicOrderPaid], returnsDomain.ConsumerSettlement)
+	}
+}
+
+func TestOrderWorkflowEventRoutesExcludeDisabledModules(t *testing.T) {
+	routes := orderWorkflowEventRoutes(false, false, false)
+	if len(routes) != 0 {
+		t.Fatalf("routes = %v, want none for disabled subscribers", routes)
+	}
+}
+
+func hasConsumer(consumers []string, expected string) bool {
+	for _, consumer := range consumers {
+		if consumer == expected {
+			return true
+		}
+	}
+	return false
+}
 
 func TestWishlistLoginObserverMergesOnlyExistingGuestSession(t *testing.T) {
 	service := &observerWishlistService{}

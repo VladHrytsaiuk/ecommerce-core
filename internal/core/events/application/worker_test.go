@@ -82,6 +82,23 @@ func TestOutboxWorkerDispatchesEveryHandlerForATopic(t *testing.T) {
 	}
 }
 
+func TestOutboxWorkerUsesInjectedTracerForDelivery(t *testing.T) {
+	eventID := uuid.New()
+	store := &fakeDeliveryStore{delivery: &events.Delivery{
+		EventID: eventID, Topic: events.TopicOrderPaid, Consumer: events.ConsumerNotifications,
+		TraceParent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+	}}
+	tracer := &recordingTracer{}
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil).WithTracer(tracer)
+
+	if err := worker.DispatchOnce(context.Background()); err != nil {
+		t.Fatalf("DispatchOnce() error = %v", err)
+	}
+	if tracer.delivery.EventID != eventID || !tracer.span.ended {
+		t.Fatalf("tracer delivery/end = %s/%t, want %s/true", tracer.delivery.EventID, tracer.span.ended, eventID)
+	}
+}
+
 type fakeDeliveryStore struct {
 	delivery            *events.Delivery
 	claimErr            error
@@ -135,5 +152,19 @@ func (c *countingConsumer) Handle(context.Context, events.Delivery) error {
 	c.calls++
 	return nil
 }
+
+type recordingTracer struct {
+	delivery events.Delivery
+	span     recordingSpan
+}
+
+func (t *recordingTracer) ContinueDelivery(ctx context.Context, delivery events.Delivery) (context.Context, Span) {
+	t.delivery = delivery
+	return ctx, &t.span
+}
+
+type recordingSpan struct{ ended bool }
+
+func (s *recordingSpan) End() { s.ended = true }
 
 var _ events.DeliveryStore = (*fakeDeliveryStore)(nil)
