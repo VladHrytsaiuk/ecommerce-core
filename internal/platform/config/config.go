@@ -16,6 +16,10 @@ import (
 
 const insecureDefaultJWTSecret = "very_secret_key_change_me_in_prod"
 
+// maxAccessTokenDuration caps how long a revoked role stays effective. One hour
+// is generous for an access token whose refresh lifetime is measured in days.
+const maxAccessTokenDuration = time.Hour
+
 // Config містить основні налаштування для запуску сервера та підключення до БД.
 type Config struct {
 	Port                 string
@@ -237,6 +241,13 @@ func Load() *Config {
 	accessTokenDuration, err := time.ParseDuration(accessTokenDurationStr)
 	if err != nil {
 		log.Fatalf("Fatal: Invalid ACCESS_TOKEN_DURATION format: %v", err)
+	}
+	// Access tokens carry the role and cannot be revoked, so expiry is the only
+	// thing that ends an administrator's privileges after a demotion. A long
+	// lifetime therefore silently converts a permission change into a delay of
+	// that length. Bound it rather than trusting the deployment to be sensible.
+	if accessTokenDuration <= 0 || accessTokenDuration > maxAccessTokenDuration {
+		log.Fatalf("Fatal: ACCESS_TOKEN_DURATION must be between 1ns and %s; it is the only bound on a revoked role", maxAccessTokenDuration)
 	}
 
 	refreshTokenDurationStr := os.Getenv("REFRESH_TOKEN_DURATION")
