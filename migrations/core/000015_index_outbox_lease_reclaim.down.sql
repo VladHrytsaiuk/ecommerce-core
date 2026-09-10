@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS event_deliveries_lease_reclaim_idx;
