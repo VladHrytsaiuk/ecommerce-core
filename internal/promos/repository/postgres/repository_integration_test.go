@@ -139,7 +139,7 @@ func TestExpirePendingCheckoutReleasesInventoryAndPromo(t *testing.T) {
 	price := mustMoney(1000, "EUR")
 	discounted := mustMoney(900, "EUR")
 	discount := mustMoney(100, "EUR")
-	order, err := workflow.CreatePendingCheckout(ctx, ordersDomain.Draft{Number: "TTL-1", ExpiresAt: time.Now().Add(time.Minute), Subtotal: discounted, Tax: mustMoney(0, "EUR"), Shipping: mustMoney(0, "EUR"), Total: discounted, PaymentProvider: "fake", Items: []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "TTL-CREAM", Quantity: 1, UnitPrice: price, Total: price}}, Promotion: &ordersDomain.Promotion{Code: "TTL10", Type: "percent", Value: 1000, Discount: discount}}, []uuid.UUID{reservationID}, workflowDomain.CheckoutAttemptRequest{Provider: "fake", IdempotencyKey: "ttl-checkout", Amount: discounted, ExpiresAt: time.Now().Add(time.Minute)})
+	order, err := workflow.CreatePendingCheckout(ctx, ordersDomain.Draft{Number: "TTL-1", ExpiresAt: time.Now().Add(time.Minute), Subtotal: discounted, Tax: mustMoney(0, "EUR"), Shipping: mustMoney(0, "EUR"), Total: discounted, PaymentProvider: "fake", Items: []ordersDomain.Item{{VariantID: &variantID, ProductName: "Cream", SKU: "TTL-CREAM", Quantity: 1, UnitPrice: price, Total: price, Discount: discount}}, Promotion: &ordersDomain.Promotion{Code: "TTL10", Type: "percent", Value: 1000, Discount: discount}, Contact: &ordersDomain.ContactDetails{Email: "buyer@example.com", Locale: "en"}}, []uuid.UUID{reservationID}, workflowDomain.CheckoutAttemptRequest{Provider: "fake", IdempotencyKey: "ttl-checkout", Amount: discounted, ExpiresAt: time.Now().Add(time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
