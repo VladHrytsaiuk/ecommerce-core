@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -65,15 +66,38 @@ func (s *AuthService) RegisterPassword(ctx context.Context, command domain.Regis
 	return s.finishLogin(ctx, user, command.GuestSessionID)
 }
 
+// passwordCostEqualizer is a bcrypt hash of a random value, computed once on
+// first use. Returning early for an unknown or disabled login skipped bcrypt
+// entirely and answered orders of magnitude faster than a real password check,
+// which is a reliable oracle for whether an address is registered. Comparing
+// against this hash instead keeps every attempt's cost the same.
+var passwordCostEqualizer = sync.OnceValue(func() string {
+	hash, err := password.HashPassword(uuid.NewString())
+	if err != nil {
+		// GenerateFromPassword only rejects an out-of-range cost or an input
+		// over 72 bytes, and a UUID is neither. Reaching this means bcrypt
+		// itself is unusable, so no login could succeed in any case.
+		panic("identity: bcrypt unavailable for password cost equalizer: " + err.Error())
+	}
+	return hash
+})
+
 func (s *AuthService) LoginPassword(ctx context.Context, command domain.PasswordLoginCommand) (domain.Session, error) {
 	if s.users == nil || s.tokens == nil || s.accessTTL <= 0 {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}
 	user, err := s.users.FindByLogin(ctx, strings.TrimSpace(command.Login))
-	if err != nil || user == nil || user.Status != domain.UserStatusActive || !validRole(user.Role) || user.PasswordHash == "" {
-		return domain.Session{}, domain.ErrInvalidCredentials
+	usable := err == nil && user != nil && user.Status == domain.UserStatusActive &&
+		validRole(user.Role) && user.PasswordHash != ""
+
+	// Always run the comparison, including when no account can match, so the
+	// response time never distinguishes a registered address from an unknown
+	// one. Both outcomes still collapse into the same opaque error.
+	hash := passwordCostEqualizer()
+	if usable {
+		hash = user.PasswordHash
 	}
-	if err := password.CheckPassword(command.Password, user.PasswordHash); err != nil {
+	if passwordErr := password.CheckPassword(command.Password, hash); !usable || passwordErr != nil {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}
 	return s.finishLogin(ctx, user, command.GuestSessionID)

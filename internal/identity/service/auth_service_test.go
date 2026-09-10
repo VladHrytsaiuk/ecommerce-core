@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/password"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 )
 
@@ -205,3 +206,80 @@ func (p *oauthProviderFake) ExchangeCode(_ context.Context, request domain.OAuth
 }
 
 func stringPointer(value string) *string { return &value }
+
+// bcryptFloor is far below any real DefaultCost comparison (tens of
+// milliseconds) yet far above the microseconds an early return would take, so
+// the assertion separates the two paths without depending on machine speed.
+const bcryptFloor = 5 * time.Millisecond
+
+func TestLoginPasswordSpendsBcryptCostOnUnknownLogin(t *testing.T) {
+	users := &userRepositoryFake{byLogin: map[string]*domain.User{}, byID: map[uuid.UUID]*domain.User{}}
+	maker, _ := token.NewJWTMaker("a-secure-secret-with-at-least-thirty-two-characters")
+	service := NewAuthService(users, nil, nil, nil, nil, maker, time.Hour, time.Minute)
+	passwordCostEqualizer() // Exclude one-time hash generation from the measurement.
+
+	start := time.Now()
+	_, err := service.LoginPassword(context.Background(), domain.PasswordLoginCommand{
+		Login: "nobody@example.com", Password: "whatever-they-typed",
+	})
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("LoginPassword() error = %v, want invalid credentials", err)
+	}
+	// Returning before bcrypt would answer an unknown address orders of
+	// magnitude faster than a registered one, revealing which accounts exist.
+	if elapsed < bcryptFloor {
+		t.Fatalf("unknown login answered in %s, want at least %s of password-check cost", elapsed, bcryptFloor)
+	}
+}
+
+func TestLoginPasswordSpendsBcryptCostOnDisabledAccount(t *testing.T) {
+	email := "disabled@example.com"
+	hash, err := password.HashPassword("correct-horse-battery")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	users := &userRepositoryFake{
+		byLogin: map[string]*domain.User{email: {
+			ID: uuid.New(), Email: &email, PasswordHash: hash,
+			Role: domain.RoleCustomer, Status: domain.UserStatusDisabled,
+		}},
+		byID: map[uuid.UUID]*domain.User{},
+	}
+	maker, _ := token.NewJWTMaker("a-secure-secret-with-at-least-thirty-two-characters")
+	service := NewAuthService(users, nil, nil, nil, nil, maker, time.Hour, time.Minute)
+	passwordCostEqualizer()
+
+	start := time.Now()
+	_, err = service.LoginPassword(context.Background(), domain.PasswordLoginCommand{Login: email, Password: "correct-horse-battery"})
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("LoginPassword() error = %v, want invalid credentials", err)
+	}
+	if elapsed < bcryptFloor {
+		t.Fatalf("disabled account answered in %s, want at least %s of password-check cost", elapsed, bcryptFloor)
+	}
+}
+
+func TestLoginPasswordStillAuthenticatesValidCredentials(t *testing.T) {
+	email := "buyer@example.com"
+	hash, err := password.HashPassword("correct-horse-battery")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	user := &domain.User{ID: uuid.New(), Email: &email, PasswordHash: hash, Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	users := &userRepositoryFake{byLogin: map[string]*domain.User{email: user}, byID: map[uuid.UUID]*domain.User{user.ID: user}}
+	maker, _ := token.NewJWTMaker("a-secure-secret-with-at-least-thirty-two-characters")
+	service := NewAuthService(users, nil, nil, nil, nil, maker, time.Hour, time.Minute)
+
+	session, err := service.LoginPassword(context.Background(), domain.PasswordLoginCommand{Login: email, Password: "correct-horse-battery"})
+	if err != nil || session.UserID != user.ID || session.AccessToken == "" {
+		t.Fatalf("LoginPassword() = (%+v, %v), want a session for %s", session, err, user.ID)
+	}
+
+	if _, err := service.LoginPassword(context.Background(), domain.PasswordLoginCommand{Login: email, Password: "wrong"}); !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("LoginPassword(wrong password) error = %v, want invalid credentials", err)
+	}
+}
