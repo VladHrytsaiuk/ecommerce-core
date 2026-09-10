@@ -82,7 +82,9 @@ func TestVariantServiceRejectsDuplicateOrForeignOptionValues(t *testing.T) {
 }
 
 type fakeVariantRepository struct {
-	created bool
+	created       bool
+	askedLocale   string
+	askedFallback string
 }
 
 func (r *fakeVariantRepository) CreateVariant(_ context.Context, _ *domain.ProductVariant) error {
@@ -90,6 +92,47 @@ func (r *fakeVariantRepository) CreateVariant(_ context.Context, _ *domain.Produ
 	return nil
 }
 
-func (r *fakeVariantRepository) FindActiveForCheckout(_ context.Context, variantID uuid.UUID, _ string) (*domain.CheckoutVariant, error) {
+func (r *fakeVariantRepository) FindActiveForCheckout(_ context.Context, variantID uuid.UUID, locale, fallbackLocale string) (*domain.CheckoutVariant, error) {
+	r.askedLocale, r.askedFallback = locale, fallbackLocale
 	return &domain.CheckoutVariant{VariantID: variantID}, nil
+}
+
+func TestFindActiveForCheckoutPassesConfiguredFallbackLocale(t *testing.T) {
+	repository := &fakeVariantRepository{}
+	service := NewVariantService(repository, []string{"uk", "en"}, "UAH").WithFallbackLocale("UK")
+
+	if _, err := service.FindActiveForCheckout(context.Background(), uuid.New(), "en"); err != nil {
+		t.Fatalf("FindActiveForCheckout() error = %v", err)
+	}
+	// Without the fallback a product awaiting its English translation was
+	// reported as not found, which failed the whole checkout.
+	if repository.askedLocale != "en" || repository.askedFallback != "uk" {
+		t.Fatalf("lookup locales = %q/%q, want en/uk", repository.askedLocale, repository.askedFallback)
+	}
+}
+
+func TestFindActiveForCheckoutStaysStrictWithoutConfiguredFallback(t *testing.T) {
+	repository := &fakeVariantRepository{}
+	service := NewVariantService(repository, []string{"uk", "en"}, "UAH")
+
+	if _, err := service.FindActiveForCheckout(context.Background(), uuid.New(), "en"); err != nil {
+		t.Fatalf("FindActiveForCheckout() error = %v", err)
+	}
+	if repository.askedLocale != "en" || repository.askedFallback != "en" {
+		t.Fatalf("lookup locales = %q/%q, want the requested locale for both", repository.askedLocale, repository.askedFallback)
+	}
+}
+
+func TestWithFallbackLocaleRejectsUnsupportedLocale(t *testing.T) {
+	repository := &fakeVariantRepository{}
+	// A fallback outside SUPPORTED_LOCALES would silently surface text from a
+	// locale the store never enabled.
+	service := NewVariantService(repository, []string{"uk", "en"}, "UAH").WithFallbackLocale("de")
+
+	if _, err := service.FindActiveForCheckout(context.Background(), uuid.New(), "en"); err != nil {
+		t.Fatalf("FindActiveForCheckout() error = %v", err)
+	}
+	if repository.askedFallback != "en" {
+		t.Fatalf("fallback = %q, want the unsupported locale ignored", repository.askedFallback)
+	}
 }

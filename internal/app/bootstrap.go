@@ -308,7 +308,8 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		MediaRequestBodyLimit: middleware.MaxRequestBodyBytes(16<<20, errorRenderer),
 	}
 
-	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency)
+	variantService := catalogApp.NewVariantService(catalogPostgres.NewVariantRepository(db), storeConfig.SupportedLocales, storeConfig.Currency).
+		WithFallbackLocale(storeConfig.FallbackLocale)
 	productOptionsService := catalogApp.NewProductOptionsService(catalogPostgres.NewOptionsRepository(db), storeConfig.Currency)
 	inventoryRepository := inventoryPostgres.NewRepository(db)
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
