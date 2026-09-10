@@ -16,16 +16,16 @@ import (
 type Code string
 
 const (
-	CodeInvalidPayload   Code = "INVALID_PAYLOAD"
-	CodeValidationFailed Code = "VALIDATION_FAILED"
-	CodeUnauthenticated  Code = "UNAUTHENTICATED"
-	CodeForbidden        Code = "FORBIDDEN"
-	CodeNotFound         Code = "RESOURCE_NOT_FOUND"
-	CodeConflict         Code = "CONFLICT"
-	CodeRateLimited      Code = "RATE_LIMITED"
-	CodePayloadTooLarge  Code = "PAYLOAD_TOO_LARGE"
+	CodeInvalidPayload    Code = "INVALID_PAYLOAD"
+	CodeValidationFailed  Code = "VALIDATION_FAILED"
+	CodeUnauthenticated   Code = "UNAUTHENTICATED"
+	CodeForbidden         Code = "FORBIDDEN"
+	CodeNotFound          Code = "RESOURCE_NOT_FOUND"
+	CodeConflict          Code = "CONFLICT"
+	CodeRateLimited       Code = "RATE_LIMITED"
+	CodePayloadTooLarge   Code = "PAYLOAD_TOO_LARGE"
 	CodeSearchUnavailable Code = "SEARCH_UNAVAILABLE"
-	CodeInternal         Code = "INTERNAL_ERROR"
+	CodeInternal          Code = "INTERNAL_ERROR"
 )
 
 // InvalidParam describes one safe, client-actionable validation failure.
