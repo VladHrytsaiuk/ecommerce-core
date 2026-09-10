@@ -115,9 +115,6 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		}
 	}
 	if contains(storeConfig.EnabledModules, "reports") {
-		if !contains(storeConfig.EnabledModules, "admin") {
-			return StoreConfig{}, fmt.Errorf("reports requires ENABLED_MODULES to include admin for permission-gated dashboard routes")
-		}
 		reportsTimezone := strings.TrimSpace(cfg.ReportsTimezone)
 		if reportsTimezone == "" {
 			reportsTimezone = "UTC"
@@ -127,9 +124,6 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		}
 	}
 	if contains(storeConfig.EnabledModules, "media") {
-		if !contains(storeConfig.EnabledModules, "admin") {
-			return StoreConfig{}, fmt.Errorf("media requires ENABLED_MODULES to include admin for permission-gated uploads")
-		}
 		switch cfg.MediaProvider {
 		case "cloudinary":
 			if strings.TrimSpace(cfg.MediaCloudinaryURL) == "" {
@@ -154,9 +148,6 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		}
 	}
 	if contains(storeConfig.EnabledModules, "video") {
-		if !contains(storeConfig.EnabledModules, "admin") {
-			return StoreConfig{}, fmt.Errorf("video requires ENABLED_MODULES to include admin for permission-gated uploads")
-		}
 		if strings.ToLower(strings.TrimSpace(cfg.VideoProvider)) != "cloudflare" {
 			return StoreConfig{}, fmt.Errorf("VIDEO_PROVIDER must be cloudflare when video is enabled")
 		}
@@ -288,6 +279,11 @@ func (c StoreConfig) Validate() error {
 	if !contains(c.EnabledModules, "inventory") {
 		return fmt.Errorf("ENABLED_MODULES must include inventory because checkout reservations require it")
 	}
+	// Every module-to-module dependency is checked here, in one pass, so a
+	// misconfigured deployment learns all of its problems at once.
+	if err := c.Modules().Validate(); err != nil {
+		return err
+	}
 	if c.CheckoutReservationTTL <= 0 || c.CheckoutReservationTTL > 24*time.Hour {
 		return fmt.Errorf("CHECKOUT_RESERVATION_TTL must be between 1ns and 24h")
 	}
@@ -415,3 +411,7 @@ func hasDuplicates(values []string) bool {
 func isValidLocale(locale string) bool {
 	return len(locale) <= 10 && localeCodePattern.MatchString(locale)
 }
+
+// Modules exposes ENABLED_MODULES as a typed set. Callers compare against the
+// Module constants instead of repeating string literals.
+func (c StoreConfig) Modules() ModuleSet { return NewModuleSet(c.EnabledModules) }

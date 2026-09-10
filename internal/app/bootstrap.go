@@ -211,11 +211,20 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	if err := storeConfig.Validate(); err != nil {
 		return nil, err
 	}
+	modules := storeConfig.Modules()
 	// Support ticket creation is an abuse-sensitive public endpoint. Its limiter
 	// must be shared and durable across replicas; a per-process fallback would
 	// silently multiply the quota during a rollout or restart.
-	if contains(storeConfig.EnabledModules, "support") && !cfg.RedisEnabled {
+	if modules.Has(ModuleSupport) && !cfg.RedisEnabled {
 		return nil, fmt.Errorf("support requires REDIS_ENABLED=true for distributed anti-spam enforcement")
+	}
+	// Enabling sync makes the order workflow append to sync_outbox, but this
+	// Composition Root constructs no dispatcher to drain it. Booting anyway
+	// would accumulate export rows that nothing ever consumes and give the
+	// operator every appearance of a working ERP integration. Refuse instead,
+	// until the dispatcher is assembled here.
+	if modules.Has(ModuleSync) {
+		return nil, fmt.Errorf("sync is enabled but its outbox dispatcher is not wired into Bootstrap; remove sync from ENABLED_MODULES")
 	}
 	taxPolicy, err := tax.NewPolicy(tax.Mode(storeConfig.TaxMode), storeConfig.VATRate)
 	if err != nil {
@@ -325,9 +334,6 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var availabilityService *availabilityApp.Service
 	var availabilityOutboxWorker *eventsApp.OutboxWorker
 	if availabilityEnabled {
-		if !notificationsEnabled {
-			return nil, fmt.Errorf("availability_notifications requires notifications")
-		}
 		notificationRepository := notificationsPostgres.NewRepository(db)
 		repository := availabilityPostgres.NewRepository(db)
 		availabilityService = availabilityApp.NewService(repository, availabilityIdentity.NewEmailReader(db))
@@ -337,14 +343,8 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		availabilityOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), availabilityDomain.ConsumerAvailabilityNotifications, time.Minute, logger.Log, handler).WithTracer(observability.NewOutboxTracer())
 		inventoryService.WithAvailabilityPublisher(eventsPostgres.NewPublisher(availabilityDomain.ConsumerAvailabilityNotifications))
 	}
-	if abandonedCartEnabled && (!contains(storeConfig.EnabledModules, "checkout") || !notificationsEnabled || !consentEnabled) {
-		return nil, fmt.Errorf("abandoned_cart requires checkout, notifications and consent")
-	}
 	var supportService *supportApp.Service
 	if supportEnabled {
-		if !notificationsEnabled || !adminEnabled {
-			return nil, fmt.Errorf("support requires notifications and admin")
-		}
 		notificationRepository := notificationsPostgres.NewRepository(db)
 		supportService = supportApp.NewService(supportPostgres.NewRepository(db), supportApp.NewSpamProtector(loginLimiter), supportIdentity.NewEmailReader(db)).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), notificationRepository)
 	}
