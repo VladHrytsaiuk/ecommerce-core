@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 )
 
 const SessionCookie = "cart_session"
@@ -19,11 +20,13 @@ const SessionCookie = "cart_session"
 // it reads the opaque cart session cookie or creates one that the caller must
 // persist with SetSessionCookie.
 func FromContext(c *gin.Context) (domain.Owner, bool, error) {
-	if raw, ok := c.Get("user_id"); ok {
-		if id, ok := raw.(uuid.UUID); ok && id != uuid.Nil {
-			return domain.Owner{CustomerID: &id}, false, nil
-		}
-		return domain.Owner{}, false, fmt.Errorf("authenticated user id is invalid")
+	// Resolve the subject through the middleware's own accessor. Reading the
+	// Gin key directly meant renaming it there would not fail the build here:
+	// this lookup would simply stop matching and every authenticated buyer
+	// would silently fall through to the anonymous cookie branch below, taking
+	// a guest cart instead of their own.
+	if id, ok := middleware.AuthenticatedUserID(c); ok {
+		return domain.Owner{CustomerID: &id}, false, nil
 	}
 	if raw, err := c.Cookie(SessionCookie); err == nil {
 		id, parseErr := uuid.Parse(raw)
