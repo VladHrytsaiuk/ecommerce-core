@@ -385,3 +385,101 @@ func TestCreateAndVerify_MultipleUsers(t *testing.T) {
 			"Токен %d має містити правильний UserID", i)
 	}
 }
+
+func TestVerifyTokenRejectsTokenMintedForAnotherPurpose(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+
+	// Same key, same issuer and audience, but not an API access token. Without
+	// the typ claim a refresh or single-use token would authenticate requests.
+	claims := &CustomClaims{
+		UserID: uuid.New(), Role: RoleCustomer, TokenType: "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID: uuid.NewString(), Issuer: DefaultIssuer,
+			Audience:  jwt.ClaimStrings{DefaultAudience},
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSecretKey))
+	require.NoError(t, err)
+
+	verified, err := maker.VerifyToken(signed)
+	assert.Nil(t, verified)
+	assert.ErrorContains(t, err, "invalid token type")
+}
+
+func TestVerifyTokenRejectsTokenFromAnotherDeployment(t *testing.T) {
+	// Two stores may legitimately share JWT_SECRET; the configuration permits
+	// it. Distinct issuer and audience keep their sessions separate.
+	storeA, err := NewJWTMakerFor(testSecretKey, "store-a", "store-a-api")
+	require.NoError(t, err)
+	storeB, err := NewJWTMakerFor(testSecretKey, "store-b", "store-b-api")
+	require.NoError(t, err)
+
+	signed, _, err := storeA.CreateTokenForRole(uuid.New(), RoleAdmin, time.Hour)
+	require.NoError(t, err)
+
+	accepted, err := storeA.VerifyToken(signed)
+	require.NoError(t, err)
+	assert.Equal(t, RoleAdmin, accepted.Role)
+
+	rejected, err := storeB.VerifyToken(signed)
+	assert.Nil(t, rejected)
+	assert.Error(t, err)
+}
+
+func TestVerifyTokenRejectsUnexpectedSigningAlgorithm(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+
+	// "none" carries no signature at all; it must be refused by the algorithm
+	// allow-list rather than reaching signature verification.
+	claims := &CustomClaims{
+		UserID: uuid.New(), Role: RoleAdmin, TokenType: TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer: DefaultIssuer, Audience: jwt.ClaimStrings{DefaultAudience},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	unsigned, err := jwt.NewWithClaims(jwt.SigningMethodNone, claims).SignedString(jwt.UnsafeAllowNoneSignatureType)
+	require.NoError(t, err)
+
+	verified, err := maker.VerifyToken(unsigned)
+	assert.Nil(t, verified)
+	assert.Error(t, err)
+}
+
+func TestVerifyTokenRejectsUnknownRole(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+
+	claims := &CustomClaims{
+		UserID: uuid.New(), Role: "superuser", TokenType: TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer: DefaultIssuer, Audience: jwt.ClaimStrings{DefaultAudience},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSecretKey))
+	require.NoError(t, err)
+
+	verified, err := maker.VerifyToken(signed)
+	assert.Nil(t, verified)
+	assert.ErrorContains(t, err, "invalid token role")
+}
+
+func TestCreateTokenStampsPurposeIssuerAndAudience(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+
+	signed, claims, err := maker.CreateTokenForRole(uuid.New(), RoleManager, time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, TokenTypeAccess, claims.TokenType)
+	assert.Equal(t, DefaultIssuer, claims.Issuer)
+	assert.Equal(t, jwt.ClaimStrings{DefaultAudience}, claims.Audience)
+
+	verified, err := maker.VerifyToken(signed)
+	require.NoError(t, err)
+	assert.Equal(t, TokenTypeAccess, verified.TokenType)
+}
