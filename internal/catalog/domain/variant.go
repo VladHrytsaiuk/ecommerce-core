@@ -69,14 +69,19 @@ type CheckoutVariant struct {
 
 type VariantRepository interface {
 	CreateVariant(context.Context, *ProductVariant) error
-	// FindActiveForCheckout resolves the presentation name in the requested
-	// locale, falling back to the store's configured locale when that variant
-	// has no translation yet. A missing translation must never make an active,
-	// priced, in-stock product unsellable.
-	FindActiveForCheckout(ctx context.Context, variantID uuid.UUID, locale, fallbackLocale string) (*CheckoutVariant, error)
+	// FindActiveForCheckoutBatch resolves every requested variant in one
+	// round trip. Checkout snapshots a whole cart at once, so a per-variant
+	// lookup made database traffic scale with basket size on the most
+	// latency-sensitive request in the store.
+	//
+	// Names resolve in the requested locale, falling back to the store's
+	// configured locale when a variant has no translation yet: a missing
+	// translation must never make an active, priced, in-stock product
+	// unsellable. Variants that are absent or inactive are simply omitted.
+	FindActiveForCheckoutBatch(ctx context.Context, variantIDs []uuid.UUID, locale, fallbackLocale string) (map[uuid.UUID]CheckoutVariant, error)
 }
 
 type VariantService interface {
 	Create(context.Context, *ProductVariant) error
-	FindActiveForCheckout(context.Context, uuid.UUID, string) (*CheckoutVariant, error)
+	FindActiveForCheckoutBatch(ctx context.Context, variantIDs []uuid.UUID, locale string) (map[uuid.UUID]CheckoutVariant, error)
 }

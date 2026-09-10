@@ -43,18 +43,30 @@ func (s *VariantService) Create(ctx context.Context, variant *domain.ProductVari
 	return s.repo.CreateVariant(ctx, variant)
 }
 
-func (s *VariantService) FindActiveForCheckout(ctx context.Context, variantID uuid.UUID, locale string) (*domain.CheckoutVariant, error) {
-	if variantID == uuid.Nil || !s.locales.allows(normalize(locale)) {
-		return nil, fmt.Errorf("%w: variant id and enabled locale are required", domain.ErrInvalidProduct)
+func (s *VariantService) FindActiveForCheckoutBatch(ctx context.Context, variantIDs []uuid.UUID, locale string) (map[uuid.UUID]domain.CheckoutVariant, error) {
+	requested := normalize(locale)
+	if len(variantIDs) == 0 || !s.locales.allows(requested) {
+		return nil, fmt.Errorf("%w: variant ids and enabled locale are required", domain.ErrInvalidProduct)
+	}
+	unique := make([]uuid.UUID, 0, len(variantIDs))
+	seen := make(map[uuid.UUID]struct{}, len(variantIDs))
+	for _, variantID := range variantIDs {
+		if variantID == uuid.Nil {
+			return nil, fmt.Errorf("%w: variant id is required", domain.ErrInvalidProduct)
+		}
+		if _, exists := seen[variantID]; exists {
+			continue
+		}
+		seen[variantID] = struct{}{}
+		unique = append(unique, variantID)
 	}
 	// The fallback defaults to the requested locale, which keeps the lookup
 	// strict for deployments that have not configured one.
-	requested := normalize(locale)
 	fallback := s.fallback
 	if fallback == "" {
 		fallback = requested
 	}
-	return s.repo.FindActiveForCheckout(ctx, variantID, requested, fallback)
+	return s.repo.FindActiveForCheckoutBatch(ctx, unique, requested, fallback)
 }
 
 func (s *VariantService) validate(variant *domain.ProductVariant) error {

@@ -35,9 +35,9 @@ func TestVariantServiceRejectsDifferentCurrency(t *testing.T) {
 
 func TestVariantServiceCheckoutLookupRequiresEnabledLocale(t *testing.T) {
 	service := NewVariantService(&fakeVariantRepository{}, []string{"es"}, "EUR")
-	_, err := service.FindActiveForCheckout(context.Background(), uuid.New(), "en")
+	_, err := service.FindActiveForCheckoutBatch(context.Background(), []uuid.UUID{uuid.New()}, "en")
 	if !errors.Is(err, domain.ErrInvalidProduct) {
-		t.Fatalf("FindActiveForCheckout() error = %v, want ErrInvalidProduct", err)
+		t.Fatalf("FindActiveForCheckoutBatch() error = %v, want ErrInvalidProduct", err)
 	}
 }
 
@@ -85,6 +85,7 @@ type fakeVariantRepository struct {
 	created       bool
 	askedLocale   string
 	askedFallback string
+	askedIDs      []uuid.UUID
 }
 
 func (r *fakeVariantRepository) CreateVariant(_ context.Context, _ *domain.ProductVariant) error {
@@ -92,17 +93,21 @@ func (r *fakeVariantRepository) CreateVariant(_ context.Context, _ *domain.Produ
 	return nil
 }
 
-func (r *fakeVariantRepository) FindActiveForCheckout(_ context.Context, variantID uuid.UUID, locale, fallbackLocale string) (*domain.CheckoutVariant, error) {
-	r.askedLocale, r.askedFallback = locale, fallbackLocale
-	return &domain.CheckoutVariant{VariantID: variantID}, nil
+func (r *fakeVariantRepository) FindActiveForCheckoutBatch(_ context.Context, variantIDs []uuid.UUID, locale, fallbackLocale string) (map[uuid.UUID]domain.CheckoutVariant, error) {
+	r.askedLocale, r.askedFallback, r.askedIDs = locale, fallbackLocale, variantIDs
+	found := make(map[uuid.UUID]domain.CheckoutVariant, len(variantIDs))
+	for _, variantID := range variantIDs {
+		found[variantID] = domain.CheckoutVariant{VariantID: variantID}
+	}
+	return found, nil
 }
 
-func TestFindActiveForCheckoutPassesConfiguredFallbackLocale(t *testing.T) {
+func TestFindActiveForCheckoutBatchPassesConfiguredFallbackLocale(t *testing.T) {
 	repository := &fakeVariantRepository{}
 	service := NewVariantService(repository, []string{"uk", "en"}, "UAH").WithFallbackLocale("UK")
 
-	if _, err := service.FindActiveForCheckout(context.Background(), uuid.New(), "en"); err != nil {
-		t.Fatalf("FindActiveForCheckout() error = %v", err)
+	if _, err := service.FindActiveForCheckoutBatch(context.Background(), []uuid.UUID{uuid.New()}, "en"); err != nil {
+		t.Fatalf("FindActiveForCheckoutBatch() error = %v", err)
 	}
 	// Without the fallback a product awaiting its English translation was
 	// reported as not found, which failed the whole checkout.
@@ -111,12 +116,12 @@ func TestFindActiveForCheckoutPassesConfiguredFallbackLocale(t *testing.T) {
 	}
 }
 
-func TestFindActiveForCheckoutStaysStrictWithoutConfiguredFallback(t *testing.T) {
+func TestFindActiveForCheckoutBatchStaysStrictWithoutConfiguredFallback(t *testing.T) {
 	repository := &fakeVariantRepository{}
 	service := NewVariantService(repository, []string{"uk", "en"}, "UAH")
 
-	if _, err := service.FindActiveForCheckout(context.Background(), uuid.New(), "en"); err != nil {
-		t.Fatalf("FindActiveForCheckout() error = %v", err)
+	if _, err := service.FindActiveForCheckoutBatch(context.Background(), []uuid.UUID{uuid.New()}, "en"); err != nil {
+		t.Fatalf("FindActiveForCheckoutBatch() error = %v", err)
 	}
 	if repository.askedLocale != "en" || repository.askedFallback != "en" {
 		t.Fatalf("lookup locales = %q/%q, want the requested locale for both", repository.askedLocale, repository.askedFallback)
@@ -129,10 +134,37 @@ func TestWithFallbackLocaleRejectsUnsupportedLocale(t *testing.T) {
 	// locale the store never enabled.
 	service := NewVariantService(repository, []string{"uk", "en"}, "UAH").WithFallbackLocale("de")
 
-	if _, err := service.FindActiveForCheckout(context.Background(), uuid.New(), "en"); err != nil {
-		t.Fatalf("FindActiveForCheckout() error = %v", err)
+	if _, err := service.FindActiveForCheckoutBatch(context.Background(), []uuid.UUID{uuid.New()}, "en"); err != nil {
+		t.Fatalf("FindActiveForCheckoutBatch() error = %v", err)
 	}
 	if repository.askedFallback != "en" {
 		t.Fatalf("fallback = %q, want the unsupported locale ignored", repository.askedFallback)
+	}
+}
+
+func TestFindActiveForCheckoutBatchDeduplicatesVariantIDs(t *testing.T) {
+	repository := &fakeVariantRepository{}
+	service := NewVariantService(repository, []string{"uk", "en"}, "UAH")
+	shared := uuid.New()
+	other := uuid.New()
+
+	// A cart can list the same variant on several lines. Passing duplicates
+	// through would widen the IN list for no benefit.
+	if _, err := service.FindActiveForCheckoutBatch(context.Background(), []uuid.UUID{shared, other, shared}, "en"); err != nil {
+		t.Fatalf("FindActiveForCheckoutBatch() error = %v", err)
+	}
+	if len(repository.askedIDs) != 2 {
+		t.Fatalf("queried ids = %d, want 2 distinct variants", len(repository.askedIDs))
+	}
+}
+
+func TestFindActiveForCheckoutBatchRejectsEmptyAndNilInput(t *testing.T) {
+	service := NewVariantService(&fakeVariantRepository{}, []string{"uk", "en"}, "UAH")
+
+	if _, err := service.FindActiveForCheckoutBatch(context.Background(), nil, "en"); !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("empty batch error = %v, want ErrInvalidProduct", err)
+	}
+	if _, err := service.FindActiveForCheckoutBatch(context.Background(), []uuid.UUID{uuid.Nil}, "en"); !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("nil variant id error = %v, want ErrInvalidProduct", err)
 	}
 }

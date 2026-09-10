@@ -277,15 +277,25 @@ func TestQuoteDeliveryUsesCatalogWeightAndEnabledCarrier(t *testing.T) {
 }
 
 type fakeVariantFinder struct {
-	price money.Money
-	err   error
+	price      money.Money
+	err        error
+	batchCalls int
+	omitAll    bool
 }
 
-func (f *fakeVariantFinder) FindActiveForCheckout(_ context.Context, variantID uuid.UUID, _ string) (*catalogDomain.CheckoutVariant, error) {
+func (f *fakeVariantFinder) FindActiveForCheckoutBatch(_ context.Context, variantIDs []uuid.UUID, _ string) (map[uuid.UUID]catalogDomain.CheckoutVariant, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &catalogDomain.CheckoutVariant{VariantID: variantID, ProductID: uuid.New(), ProductName: "Cream", SKU: "CREAM-50", UnitPrice: f.price, WeightGrams: 250}, nil
+	f.batchCalls++
+	found := make(map[uuid.UUID]catalogDomain.CheckoutVariant, len(variantIDs))
+	if f.omitAll {
+		return found, nil
+	}
+	for _, variantID := range variantIDs {
+		found[variantID] = catalogDomain.CheckoutVariant{VariantID: variantID, ProductID: uuid.New(), ProductName: "Cream", SKU: "CREAM-50", UnitPrice: f.price, WeightGrams: 250}
+	}
+	return found, nil
 }
 
 func mustTaxPolicy(t *testing.T, mode tax.Mode, rate int) tax.Calculator {
@@ -454,3 +464,50 @@ func (zeroPriceCalculator) Calculate(_ context.Context, request checkoutDomain.P
 }
 
 var _ paymentsDomain.Gateway = (*fakeGateway)(nil)
+
+func TestPreparePaymentSnapshotsBasketInOneQuery(t *testing.T) {
+	inventory := &fakeInventory{}
+	variants := &fakeVariantFinder{price: mustMoney(1000, "EUR")}
+	service := NewService(inventory, variants, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, nil, nil)
+
+	warehouse := uuid.New()
+	lines := make([]checkoutDomain.Line, 0, 8)
+	for range 8 {
+		lines = append(lines, checkoutDomain.Line{VariantID: uuid.New(), WarehouseID: warehouse, Quantity: 1})
+	}
+
+	prepared, err := service.PreparePayment(context.Background(), checkoutDomain.PrepareRequest{
+		CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: lines,
+	})
+	if err != nil {
+		t.Fatalf("PreparePayment() error = %v", err)
+	}
+	if len(prepared.Items) != len(lines) {
+		t.Fatalf("snapshot items = %d, want %d", len(prepared.Items), len(lines))
+	}
+	// One lookup regardless of basket size. The previous per-variant call made
+	// database round trips scale with the number of cart lines, on the most
+	// latency-sensitive request in the store.
+	if variants.batchCalls != 1 {
+		t.Fatalf("catalog lookups = %d for %d lines, want exactly 1", variants.batchCalls, len(lines))
+	}
+}
+
+func TestPreparePaymentRejectsVariantMissingFromCatalog(t *testing.T) {
+	inventory := &fakeInventory{}
+	// An empty result stands for a variant that was archived between the cart
+	// being filled and checkout starting.
+	variants := &fakeVariantFinder{price: mustMoney(1000, "EUR"), omitAll: true}
+	service := NewService(inventory, variants, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, nil, nil)
+
+	_, err := service.PreparePayment(context.Background(), checkoutDomain.PrepareRequest{
+		CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute),
+		Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}},
+	})
+	if !errors.Is(err, catalogDomain.ErrProductNotFound) {
+		t.Fatalf("PreparePayment() error = %v, want ErrProductNotFound", err)
+	}
+	if len(inventory.batch) != 0 {
+		t.Fatal("stock must not be reserved for a variant the catalog did not return")
+	}
+}

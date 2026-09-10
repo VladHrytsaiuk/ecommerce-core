@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -55,15 +56,22 @@ func nullableString(value string) *string {
 	return &value
 }
 
-// FindActiveForCheckout resolves a sellable variant and its display name.
+// FindActiveForCheckoutBatch resolves every sellable variant in one query.
 //
-// The name is a presentation snapshot, not a catalog invariant. Joining
-// strictly on the requested locale meant a product with no translation for it
-// yet returned "not found" and failed the entire checkout, even though the
-// product was active, priced and in stock. The lookup now accepts the store
+// The display name is a presentation snapshot, not a catalog invariant.
+// Joining strictly on the requested locale meant a product with no translation
+// for it yet returned "not found" and failed the entire checkout, even though
+// the product was active, priced and in stock. The lookup accepts the store
 // fallback too and prefers the exact match when both exist.
-func (r *VariantRepository) FindActiveForCheckout(ctx context.Context, variantID uuid.UUID, locale, fallbackLocale string) (*domain.CheckoutVariant, error) {
-	var record struct {
+func (r *VariantRepository) FindActiveForCheckoutBatch(ctx context.Context, variantIDs []uuid.UUID, locale, fallbackLocale string) (map[uuid.UUID]domain.CheckoutVariant, error) {
+	found := make(map[uuid.UUID]domain.CheckoutVariant, len(variantIDs))
+	if len(variantIDs) == 0 {
+		return found, nil
+	}
+	if strings.TrimSpace(fallbackLocale) == "" {
+		fallbackLocale = locale
+	}
+	var records []struct {
 		VariantID   uuid.UUID `gorm:"column:variant_id"`
 		ProductID   uuid.UUID `gorm:"column:product_id"`
 		SKU         string
@@ -71,9 +79,6 @@ func (r *VariantRepository) FindActiveForCheckout(ctx context.Context, variantID
 		PriceAmount int64  `gorm:"column:price_amount"`
 		Currency    string
 		WeightGrams int `gorm:"column:weight_grams"`
-	}
-	if strings.TrimSpace(fallbackLocale) == "" {
-		fallbackLocale = locale
 	}
 	// DISTINCT ON keeps one row per variant; ordering by the exact-locale
 	// match first makes the fallback apply only when the translation is absent.
@@ -89,23 +94,23 @@ func (r *VariantRepository) FindActiveForCheckout(ctx context.Context, variantID
 		  FROM product_variants AS variants
 		  JOIN products ON products.id = variants.product_id
 		  JOIN product_translations AS translations ON translations.product_id = products.id
-		 WHERE variants.id = ?
+		 WHERE variants.id IN ?
 		   AND variants.status = 'active'
 		   AND products.status = 'active'
 		   AND translations.locale IN (?, ?)
 		 ORDER BY variants.id, (translations.locale = ?) DESC`,
-		variantID, locale, fallbackLocale, locale).Scan(&record).Error
+		variantIDs, locale, fallbackLocale, locale).Scan(&records).Error
 	if err != nil {
 		return nil, err
 	}
-	if record.VariantID == uuid.Nil {
-		return nil, domain.ErrProductNotFound
+	for _, record := range records {
+		price, err := money.NewMoney(record.PriceAmount, record.Currency)
+		if err != nil {
+			return nil, fmt.Errorf("map variant %s price: %w", record.VariantID, err)
+		}
+		found[record.VariantID] = domain.CheckoutVariant{VariantID: record.VariantID, ProductID: record.ProductID, SKU: record.SKU, ProductName: record.ProductName, UnitPrice: price, WeightGrams: record.WeightGrams}
 	}
-	price, err := money.NewMoney(record.PriceAmount, record.Currency)
-	if err != nil {
-		return nil, err
-	}
-	return &domain.CheckoutVariant{VariantID: record.VariantID, ProductID: record.ProductID, SKU: record.SKU, ProductName: record.ProductName, UnitPrice: price, WeightGrams: record.WeightGrams}, nil
+	return found, nil
 }
 
 var _ domain.VariantRepository = (*VariantRepository)(nil)

@@ -23,7 +23,7 @@ import (
 )
 
 type variantFinder interface {
-	FindActiveForCheckout(context.Context, uuid.UUID, string) (*catalogDomain.CheckoutVariant, error)
+	FindActiveForCheckoutBatch(ctx context.Context, variantIDs []uuid.UUID, locale string) (map[uuid.UUID]catalogDomain.CheckoutVariant, error)
 }
 
 type carrierFinder interface {
@@ -486,14 +486,27 @@ func (s *Service) snapshotItems(ctx context.Context, quantities map[uuid.UUID]in
 	}
 	sort.Slice(variantIDs, func(i, j int) bool { return variantIDs[i].String() < variantIDs[j].String() })
 
+	// One round trip for the whole basket. Looking each variant up separately
+	// made database traffic scale with basket size, twice per purchase, on the
+	// most latency-sensitive request in the store.
+	found, err := s.variants.FindActiveForCheckoutBatch(ctx, variantIDs, locale)
+	if err != nil {
+		return nil, money.Money{}, err
+	}
+
 	items := make([]ordersDomain.Item, 0, len(variantIDs))
 	var subtotal money.Money
 	for index, variantID := range variantIDs {
-		variant, err := s.variants.FindActiveForCheckout(ctx, variantID, locale)
-		if err != nil {
-			return nil, money.Money{}, err
+		variant, ok := found[variantID]
+		if !ok {
+			return nil, money.Money{}, catalogDomain.ErrProductNotFound
 		}
 		quantity := quantities[variantID]
+		// Callers validate quantities, but an unguarded zero here would divide
+		// by zero rather than fail, so the invariant is enforced where it is used.
+		if quantity <= 0 {
+			return nil, money.Money{}, fmt.Errorf("checkout line quantity must be positive")
+		}
 		if variant.UnitPrice.Amount() > math.MaxInt64/int64(quantity) {
 			return nil, money.Money{}, fmt.Errorf("checkout line total overflows")
 		}
@@ -506,7 +519,7 @@ func (s *Service) snapshotItems(ctx context.Context, quantities map[uuid.UUID]in
 		} else if subtotal, err = subtotal.Add(lineTotal); err != nil {
 			return nil, money.Money{}, err
 		}
-		items = append(items, ordersDomain.Item{VariantID: &variant.VariantID, ProductName: variant.ProductName, SKU: variant.SKU, Quantity: quantity, UnitPrice: variant.UnitPrice, Total: lineTotal, UnitWeightGrams: variant.WeightGrams})
+		items = append(items, ordersDomain.Item{VariantID: &variantID, ProductName: variant.ProductName, SKU: variant.SKU, Quantity: quantity, UnitPrice: variant.UnitPrice, Total: lineTotal, UnitWeightGrams: variant.WeightGrams})
 	}
 	return items, subtotal, nil
 }
