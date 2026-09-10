@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -406,17 +407,12 @@ func Load() *Config {
 		}
 	}
 
-	trustedProxiesStr := os.Getenv("TRUSTED_PROXIES")
-	var trustedProxies []string
-	if strings.EqualFold(strings.TrimSpace(trustedProxiesStr), "all") {
-		// Trusting arbitrary proxy hops lets an internet client forge
-		// X-Forwarded-For and evade IP-scoped abuse controls. Deployments must
-		// explicitly enumerate their ingress CIDRs instead.
-		log.Fatal("Fatal: TRUSTED_PROXIES=all is forbidden; configure explicit ingress proxy CIDRs")
-	} else if trustedProxiesStr != "" {
-		trustedProxies = strings.Split(trustedProxiesStr, ",")
-	} else {
-		trustedProxies = []string{"127.0.0.1"} // Default to localhost
+	trustedProxies, err := parseTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
+	if err != nil {
+		// Trusting arbitrary or malformed proxy hops lets an internet client
+		// forge X-Forwarded-For and evade IP-scoped abuse controls. Refuse to
+		// boot rather than silently falling back to an unsafe interpretation.
+		log.Fatalf("Fatal: invalid TRUSTED_PROXIES: %v", err)
 	}
 	// Badge Config
 	badgeNewDays := getEnvInt("BADGE_NEW_DAYS", 7)
@@ -729,6 +725,38 @@ func Load() *Config {
 		AbandonedCartQuietHours:              abandonedCartQuietHours,
 		DefaultWarehouseID:                   defaultWarehouseID,
 	}
+}
+
+// parseTrustedProxies accepts only explicit IPs or CIDR prefixes supported by
+// Gin. Keeping parsing separate from LoadConfig makes the security policy
+// testable without mutating process environment or invoking log.Fatal.
+func parseTrustedProxies(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{"127.0.0.1"}, nil
+	}
+	if strings.EqualFold(raw, "all") {
+		return nil, fmt.Errorf("value %q is forbidden; configure explicit ingress proxy CIDRs", raw)
+	}
+
+	parts := strings.Split(raw, ",")
+	proxies := make([]string, 0, len(parts))
+	for _, part := range parts {
+		proxy := strings.TrimSpace(part)
+		if proxy == "" {
+			return nil, fmt.Errorf("contains an empty proxy entry")
+		}
+		if _, err := netip.ParseAddr(proxy); err == nil {
+			proxies = append(proxies, proxy)
+			continue
+		}
+		if _, err := netip.ParsePrefix(proxy); err == nil {
+			proxies = append(proxies, proxy)
+			continue
+		}
+		return nil, fmt.Errorf("%q is neither an IP address nor a CIDR prefix", proxy)
+	}
+	return proxies, nil
 }
 
 // validateStartupSecurity rejects insecure deployment defaults before a

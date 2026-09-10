@@ -18,7 +18,6 @@ import (
 	mediaHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/media/delivery/http"
 	ordersHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/delivery/http"
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
 	reportsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/delivery/http"
 	returnsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/delivery/http"
 	searchHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/search/delivery/http"
@@ -31,7 +30,10 @@ import (
 func InitRouter(application *app.Application) *gin.Engine {
 	r := gin.New()
 	if err := r.SetTrustedProxies(application.Config.TrustedProxies); err != nil {
-		logger.Log.Warnw("failed to set trusted proxies", "error", err)
+		// Config validates this input before composition. Do not continue with
+		// Gin's proxy defaults if that invariant is ever violated: doing so
+		// would make IP-scoped protection depend on forged forwarded headers.
+		panic("validated trusted proxy configuration rejected by Gin: " + err.Error())
 	}
 	r.Use(application.HTTP.Recovery, application.HTTP.Observability, application.HTTP.Timeout, application.HTTP.RequestLogging, application.HTTP.CORS)
 	r.GET("/swagger/*any", application.HTTP.Swagger)
