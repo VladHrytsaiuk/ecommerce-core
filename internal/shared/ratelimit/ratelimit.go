@@ -21,12 +21,17 @@ type localWindow struct {
 	expiresAt time.Time
 }
 
+// cleanupInterval bounds how often expired windows are swept. Sweeping on
+// every call would make each request pay for the whole key space.
+const cleanupInterval = time.Minute
+
 // LocalService is the explicitly degraded, per-process fallback when Redis is
 // disabled. It is safe for concurrent HTTP requests but not distributed.
 type LocalService struct {
-	mu      sync.Mutex
-	windows map[string]localWindow
-	now     func() time.Time
+	mu          sync.Mutex
+	windows     map[string]localWindow
+	now         func() time.Time
+	lastCleanup time.Time
 }
 
 func NewLocalService() *LocalService {
@@ -37,6 +42,20 @@ func (s *LocalService) Allow(_ context.Context, key string, limit int, window ti
 	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Keys are per-client (an HMAC of the address), so without this sweep the
+	// map grew for the process lifetime: every address that never returned
+	// left an entry behind. Callers rotating addresses could exhaust memory.
+	// An expired window carries no state, so dropping it never changes a
+	// decision and bounds the map by the arrival rate within one window.
+	if s.lastCleanup.IsZero() || now.Sub(s.lastCleanup) >= cleanupInterval {
+		for existing, entry := range s.windows {
+			if !now.Before(entry.expiresAt) {
+				delete(s.windows, existing)
+			}
+		}
+		s.lastCleanup = now
+	}
 
 	entry, ok := s.windows[key]
 	if !ok || !now.Before(entry.expiresAt) {
