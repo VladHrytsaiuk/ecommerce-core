@@ -2,10 +2,11 @@ package postgres
 
 import (
 	"context"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
 )
@@ -28,24 +29,40 @@ type webhookEventRecord struct {
 
 func (webhookEventRecord) TableName() string { return "payment_webhook_events" }
 
+// webhookLease bounds how long one replica may hold an unfinished callback.
+// A provider retry arriving inside this window is refused; after it, a crashed
+// replica's work is safely taken over.
+const webhookLease = 30 * time.Second
+
+// Claim takes exclusive ownership of a provider callback.
+//
+// The previous implementation fell back to reading processing_status without a
+// lock, so two replicas handed the same provider retry could both observe
+// 'processing' and run the callback concurrently. The order workflow is
+// idempotent under row locks, so no money was ever at risk, but the losing
+// replica reported ErrInvalidOrderTransition and that surfaced as a payment
+// processing failure that had not actually occurred.
+//
+// A single statement now inserts a new claim or takes over one whose lease has
+// expired, which keeps crash recovery working without permitting two live
+// holders. A fully processed event never matches and remains a no-op.
 func (s *WebhookEventStore) Claim(ctx context.Context, provider string, event paymentsDomain.PaymentEvent) (bool, error) {
-	record := webhookEventRecord{ID: uuid.New(), Provider: provider, EventID: event.EventID, OrderID: event.OrderID, ProviderReference: event.ProviderReference, EventStatus: event.Status, Amount: event.Amount.Amount(), Currency: event.Amount.Currency(), ProcessingStatus: "processing"}
-	result := s.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "provider"}, {Name: "event_id"}}, DoNothing: true}).Create(&record)
+	result := s.db.WithContext(ctx).Exec(`
+		INSERT INTO payment_webhook_events
+		       (id, provider, event_id, order_id, provider_reference,
+		        event_status, amount, currency, processing_status, locked_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'processing', CURRENT_TIMESTAMP)
+		ON CONFLICT (provider, event_id) DO UPDATE
+		   SET locked_at = CURRENT_TIMESTAMP
+		 WHERE payment_webhook_events.processing_status = 'processing'
+		   AND payment_webhook_events.locked_at < CURRENT_TIMESTAMP - CAST(? AS INTERVAL)`,
+		uuid.New(), provider, event.EventID, event.OrderID, event.ProviderReference,
+		event.Status, event.Amount.Amount(), event.Amount.Currency(),
+		strconv.Itoa(int(webhookLease.Seconds()))+" seconds")
 	if result.Error != nil {
 		return false, result.Error
 	}
-	if result.RowsAffected == 1 {
-		return true, nil
-	}
-	// A previous process may have committed the order workflow and crashed
-	// before MarkProcessed. Replaying a durable "processing" event is safe:
-	// the workflow validates the payment snapshot and makes its transitions
-	// idempotent. A fully processed event remains a no-op.
-	var existing webhookEventRecord
-	if err := s.db.WithContext(ctx).Select("processing_status").First(&existing, "provider = ? AND event_id = ?", provider, event.EventID).Error; err != nil {
-		return false, err
-	}
-	return existing.ProcessingStatus == "processing", nil
+	return result.RowsAffected == 1, nil
 }
 
 func (s *WebhookEventStore) MarkProcessed(ctx context.Context, provider, eventID string) error {
