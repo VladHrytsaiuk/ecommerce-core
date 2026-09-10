@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
@@ -18,6 +19,10 @@ const (
 	// maxDrainPerTick bounds one drain pass so a consumer with a large backlog
 	// cannot hold its database connection or delay shutdown indefinitely.
 	maxDrainPerTick = 256
+	// baseRetryDelay and maxRetryBackoffShift cap the retry schedule at about
+	// an hour, so ten attempts span long enough to outlast a provider outage.
+	baseRetryDelay       = time.Minute
+	maxRetryBackoffShift = 6
 )
 
 // errDeliveryRescheduled reports a handler failure that was durably recorded
@@ -123,7 +128,17 @@ func (w *OutboxWorker) dispatchOnce(ctx context.Context) (bool, error) {
 	}
 	finalizationCtx, cancel := finalizationContext(ctx)
 	defer cancel()
-	if err := w.store.Complete(finalizationCtx, event.EventID, w.consumer, time.Now().UTC()); err != nil {
+	if err := w.store.Complete(finalizationCtx, event.EventID, w.consumer, event.LockedAt, time.Now().UTC()); err != nil {
+		// Losing the lease means another worker took the delivery over after
+		// this one overran. That worker owns the outcome, so this is a normal
+		// race, not a fault: reporting it as an error would fill the log with
+		// alerts naming the worker that was still doing legitimate work.
+		if errors.Is(err, events.ErrLeaseLost) {
+			if w.logger != nil {
+				w.logger.Infow("event outbox delivery lease lost before completion", "event_id", event.EventID, "topic", event.Topic, "consumer", w.consumer, "attempt", event.Attempts)
+			}
+			return true, nil
+		}
 		if w.logger != nil {
 			w.logger.Errorw("event outbox delivery completion failed", "event_id", event.EventID, "consumer", w.consumer, "error_code", sanitize.ErrorCode(err))
 		}
@@ -196,12 +211,21 @@ func (w *OutboxWorker) failDelivery(ctx context.Context, event *events.Delivery,
 	defer cancel()
 	var err error
 	dead := event.Attempts >= w.maxAttempts
+	now := time.Now().UTC()
 	if dead {
-		err = w.store.Dead(finalizationCtx, event.EventID, w.consumer, sanitizedCause, time.Now().UTC())
+		err = w.store.Dead(finalizationCtx, event.EventID, w.consumer, sanitizedCause, event.LockedAt, now)
 	} else {
-		err = w.store.Fail(finalizationCtx, event.EventID, w.consumer, sanitizedCause, time.Now().UTC().Add(time.Minute))
+		err = w.store.Fail(finalizationCtx, event.EventID, w.consumer, sanitizedCause, event.LockedAt, now.Add(retryDelay(event.Attempts)))
 	}
 	if err != nil {
+		// Another worker already owns this delivery, so it will record the
+		// outcome. Nothing is lost and the drain can continue.
+		if errors.Is(err, events.ErrLeaseLost) {
+			if w.logger != nil {
+				w.logger.Infow("event outbox delivery lease lost before failure was recorded", "event_id", event.EventID, "topic", event.Topic, "consumer", w.consumer, "attempt", event.Attempts)
+			}
+			return fmt.Errorf("%w: lease lost", errDeliveryRescheduled)
+		}
 		// The failure could not be recorded, so the delivery keeps its claim
 		// until the lease expires. This is a store problem, not a handler one.
 		return fmt.Errorf("record event delivery failure")
@@ -221,6 +245,20 @@ func (w *OutboxWorker) failDelivery(ctx context.Context, event *events.Delivery,
 // never wait indefinitely for an unavailable PostgreSQL connection.
 func finalizationContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), finalizationTimeout)
+}
+
+// retryDelay backs off exponentially with jitter. A flat one-minute delay
+// exhausted all ten attempts inside ten minutes, so a provider outage lasting
+// longer than that buried every affected event in the dead-letter queue even
+// though a later retry would have succeeded. The jitter keeps a batch of
+// events that failed together from returning as a synchronized thundering herd.
+func retryDelay(attempts int) time.Duration {
+	if attempts < 1 {
+		attempts = 1
+	}
+	shift := min(attempts-1, maxRetryBackoffShift)
+	backoff := baseRetryDelay << shift
+	return backoff + time.Duration(rand.Int64N(int64(backoff/2)))
 }
 
 func invokeSafely(ctx context.Context, handler Consumer, event events.Delivery) (err error) {

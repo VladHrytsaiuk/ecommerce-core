@@ -154,6 +154,7 @@ type claimedDelivery struct {
 	TraceParent   string `gorm:"column:traceparent"`
 	TraceState    string `gorm:"column:tracestate"`
 	RequestID     string `gorm:"column:request_id"`
+	LockedAt      time.Time
 }
 
 // Claim obtains one due row without blocking another worker that is processing
@@ -180,7 +181,7 @@ FROM candidate, domain_events AS event
 WHERE delivery.event_id = candidate.event_id
   AND delivery.consumer = candidate.consumer
   AND event.id = delivery.event_id
-RETURNING delivery.event_id, event.topic, event.aggregate_type, event.aggregate_id, event.payload, delivery.consumer, delivery.attempts, event.occurred_at, event.traceparent, event.tracestate, event.request_id`
+RETURNING delivery.event_id, event.topic, event.aggregate_type, event.aggregate_id, event.payload, delivery.consumer, delivery.attempts, event.occurred_at, event.traceparent, event.tracestate, event.request_id, delivery.locked_at`
 	result := s.db.WithContext(ctx).Raw(query, consumer, now, now.Add(-lease), now).Scan(&record)
 	if result.Error != nil {
 		return nil, result.Error
@@ -188,46 +189,44 @@ RETURNING delivery.event_id, event.topic, event.aggregate_type, event.aggregate_
 	if result.RowsAffected == 0 {
 		return nil, nil
 	}
-	return &eventsDomain.Delivery{EventID: record.EventID, Topic: record.Topic, AggregateType: record.AggregateType, AggregateID: record.AggregateID, Payload: []byte(record.Payload), Consumer: record.Consumer, Attempts: record.Attempts, OccurredAt: record.OccurredAt, TraceParent: record.TraceParent, TraceState: record.TraceState, RequestID: record.RequestID}, nil
+	return &eventsDomain.Delivery{EventID: record.EventID, Topic: record.Topic, AggregateType: record.AggregateType, AggregateID: record.AggregateID, Payload: []byte(record.Payload), Consumer: record.Consumer, Attempts: record.Attempts, OccurredAt: record.OccurredAt, TraceParent: record.TraceParent, TraceState: record.TraceState, RequestID: record.RequestID, LockedAt: record.LockedAt}, nil
 }
 
-func (s *DeliveryStore) Complete(ctx context.Context, eventID uuid.UUID, consumer string, completedAt time.Time) error {
-	result := s.db.WithContext(ctx).Exec(`UPDATE event_deliveries SET status = 'done', completed_at = ?, locked_at = NULL, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE event_id = ? AND consumer = ? AND status = 'processing'`, completedAt, eventID, consumer)
+// finalize applies a terminal state only while the delivery still holds the
+// lease this worker was granted. Matching on status alone was unsafe: a
+// re-claim leaves the status at 'processing', so an overrunning worker could
+// finalize a delivery that another worker had already taken over.
+func (s *DeliveryStore) finalize(ctx context.Context, query string, eventID uuid.UUID, consumer string, lockedAt time.Time, args ...any) error {
+	arguments := append(args, eventID, consumer, lockedAt)
+	result := s.db.WithContext(ctx).Exec(query, arguments...)
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected != 1 {
-		return fmt.Errorf("event delivery %s/%s is not claimed", eventID, consumer)
+		return fmt.Errorf("%w: %s/%s", eventsDomain.ErrLeaseLost, eventID, consumer)
 	}
 	return nil
 }
 
-func (s *DeliveryStore) Fail(ctx context.Context, eventID uuid.UUID, consumer string, cause error, availableAt time.Time) error {
+func (s *DeliveryStore) Complete(ctx context.Context, eventID uuid.UUID, consumer string, lockedAt, completedAt time.Time) error {
+	return s.finalize(ctx, `UPDATE event_deliveries SET status = 'done', completed_at = ?, locked_at = NULL, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE event_id = ? AND consumer = ? AND status = 'processing' AND locked_at = ?`,
+		eventID, consumer, lockedAt, completedAt)
+}
+
+func (s *DeliveryStore) Fail(ctx context.Context, eventID uuid.UUID, consumer string, cause error, lockedAt, availableAt time.Time) error {
 	if cause == nil {
 		return fmt.Errorf("event delivery failure requires a cause")
 	}
-	result := s.db.WithContext(ctx).Exec(`UPDATE event_deliveries SET status = 'failed', available_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE event_id = ? AND consumer = ? AND status = 'processing'`, availableAt, cause.Error(), eventID, consumer)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return fmt.Errorf("event delivery %s/%s is not claimed", eventID, consumer)
-	}
-	return nil
+	return s.finalize(ctx, `UPDATE event_deliveries SET status = 'failed', available_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE event_id = ? AND consumer = ? AND status = 'processing' AND locked_at = ?`,
+		eventID, consumer, lockedAt, availableAt, cause.Error())
 }
 
-func (s *DeliveryStore) Dead(ctx context.Context, eventID uuid.UUID, consumer string, cause error, completedAt time.Time) error {
+func (s *DeliveryStore) Dead(ctx context.Context, eventID uuid.UUID, consumer string, cause error, lockedAt, completedAt time.Time) error {
 	if cause == nil {
 		return fmt.Errorf("event delivery failure requires a cause")
 	}
-	result := s.db.WithContext(ctx).Exec(`UPDATE event_deliveries SET status = 'dead', completed_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE event_id = ? AND consumer = ? AND status = 'processing'`, completedAt, cause.Error(), eventID, consumer)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return fmt.Errorf("event delivery %s/%s is not claimed", eventID, consumer)
-	}
-	return nil
+	return s.finalize(ctx, `UPDATE event_deliveries SET status = 'dead', completed_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE event_id = ? AND consumer = ? AND status = 'processing' AND locked_at = ?`,
+		eventID, consumer, lockedAt, completedAt, cause.Error())
 }
 
 var _ eventsDomain.TransactionalEventPublisher = (*Publisher)(nil)

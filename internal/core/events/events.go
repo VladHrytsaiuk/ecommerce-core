@@ -5,6 +5,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -128,14 +129,26 @@ type Delivery struct {
 	TraceParent   string
 	TraceState    string
 	RequestID     string
+	// LockedAt fences this claim. A worker that overruns its lease has its
+	// row re-claimed by another worker, which leaves the status unchanged at
+	// 'processing'; without this token the slow worker's acknowledgement would
+	// still match and would finalize work the new holder is still doing.
+	LockedAt time.Time
 }
 
+// ErrLeaseLost reports that a delivery was re-claimed by another worker before
+// this one finished. The event is not lost — its new holder owns it — so
+// callers must treat this as an expected outcome, not an infrastructure fault.
+var ErrLeaseLost = errors.New("event delivery lease was lost")
+
 // DeliveryStore owns the lease lifecycle for a consumer-specific delivery.
+// Every finalizing call takes the lockedAt token returned by Claim and must
+// apply only while the delivery still holds that exact lease.
 type DeliveryStore interface {
 	Claim(context.Context, string, time.Time, time.Duration) (*Delivery, error)
-	Complete(context.Context, uuid.UUID, string, time.Time) error
-	Fail(context.Context, uuid.UUID, string, error, time.Time) error
-	Dead(context.Context, uuid.UUID, string, error, time.Time) error
+	Complete(ctx context.Context, eventID uuid.UUID, consumer string, lockedAt, completedAt time.Time) error
+	Fail(ctx context.Context, eventID uuid.UUID, consumer string, cause error, lockedAt, availableAt time.Time) error
+	Dead(ctx context.Context, eventID uuid.UUID, consumer string, cause error, lockedAt, completedAt time.Time) error
 }
 
 // OrderPaidEvent is emitted exactly once per paid order by its stable order ID.

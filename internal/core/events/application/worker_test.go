@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -110,6 +111,10 @@ type fakeDeliveryStore struct {
 	failedEventID       uuid.UUID
 	deadEventID         uuid.UUID
 	failCause           error
+	completeLockedAt    time.Time
+	completeErr         error
+	failErr             error
+	failAvailableAt     time.Time
 }
 
 func (s *fakeDeliveryStore) Claim(_ context.Context, consumer string, _ time.Time, _ time.Duration) (*events.Delivery, error) {
@@ -117,18 +122,21 @@ func (s *fakeDeliveryStore) Claim(_ context.Context, consumer string, _ time.Tim
 	return s.delivery, s.claimErr
 }
 
-func (s *fakeDeliveryStore) Complete(ctx context.Context, eventID uuid.UUID, consumer string, _ time.Time) error {
-	s.completeEventID, s.completeConsumer = eventID, consumer
+func (s *fakeDeliveryStore) Complete(ctx context.Context, eventID uuid.UUID, consumer string, lockedAt, _ time.Time) error {
+	if s.completeErr != nil {
+		return s.completeErr
+	}
+	s.completeEventID, s.completeConsumer, s.completeLockedAt = eventID, consumer, lockedAt
 	_, s.completeHasDeadline = ctx.Deadline()
 	s.completeContextErr = ctx.Err()
 	return nil
 }
 
-func (s *fakeDeliveryStore) Fail(_ context.Context, eventID uuid.UUID, _ string, cause error, _ time.Time) error {
-	s.failedEventID, s.failCause = eventID, cause
-	return nil
+func (s *fakeDeliveryStore) Fail(_ context.Context, eventID uuid.UUID, _ string, cause error, _, availableAt time.Time) error {
+	s.failedEventID, s.failCause, s.failAvailableAt = eventID, cause, availableAt
+	return s.failErr
 }
-func (s *fakeDeliveryStore) Dead(_ context.Context, eventID uuid.UUID, _ string, cause error, _ time.Time) error {
+func (s *fakeDeliveryStore) Dead(_ context.Context, eventID uuid.UUID, _ string, cause error, _, _ time.Time) error {
 	s.deadEventID, s.failCause = eventID, cause
 	return nil
 }
@@ -266,17 +274,17 @@ func (s *queuedDeliveryStore) Claim(context.Context, string, time.Time, time.Dur
 	return &delivery, nil
 }
 
-func (s *queuedDeliveryStore) Complete(_ context.Context, eventID uuid.UUID, _ string, _ time.Time) error {
+func (s *queuedDeliveryStore) Complete(_ context.Context, eventID uuid.UUID, _ string, _, _ time.Time) error {
 	s.completed = append(s.completed, eventID)
 	return nil
 }
 
-func (s *queuedDeliveryStore) Fail(_ context.Context, eventID uuid.UUID, _ string, _ error, _ time.Time) error {
+func (s *queuedDeliveryStore) Fail(_ context.Context, eventID uuid.UUID, _ string, _ error, _, _ time.Time) error {
 	s.rescheduled = append(s.rescheduled, eventID)
 	return nil
 }
 
-func (s *queuedDeliveryStore) Dead(_ context.Context, eventID uuid.UUID, _ string, _ error, _ time.Time) error {
+func (s *queuedDeliveryStore) Dead(_ context.Context, eventID uuid.UUID, _ string, _ error, _, _ time.Time) error {
 	s.rescheduled = append(s.rescheduled, eventID)
 	return nil
 }
@@ -299,3 +307,78 @@ func (c *flakyConsumer) Handle(context.Context, events.Delivery) error {
 }
 
 var _ events.DeliveryStore = (*queuedDeliveryStore)(nil)
+
+func TestOutboxWorkerPassesClaimLeaseToCompletion(t *testing.T) {
+	lockedAt := time.Date(2026, 3, 4, 10, 30, 0, 0, time.UTC)
+	store := &fakeDeliveryStore{delivery: &events.Delivery{
+		EventID: uuid.New(), Topic: events.TopicOrderPaid,
+		Consumer: events.ConsumerNotifications, LockedAt: lockedAt,
+	}}
+
+	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil).DispatchOnce(context.Background()); err != nil {
+		t.Fatalf("DispatchOnce() error = %v", err)
+	}
+	// Without the token the store can only match on status, which a re-claim
+	// leaves unchanged, so a slow worker would finalize someone else's work.
+	if !store.completeLockedAt.Equal(lockedAt) {
+		t.Fatalf("completion lease = %s, want the lease returned by Claim (%s)", store.completeLockedAt, lockedAt)
+	}
+}
+
+func TestOutboxWorkerTreatsLostLeaseAsNormalOutcome(t *testing.T) {
+	store := &fakeDeliveryStore{
+		delivery:    &events.Delivery{EventID: uuid.New(), Topic: events.TopicOrderPaid, Consumer: events.ConsumerNotifications},
+		completeErr: fmt.Errorf("%w: re-claimed", events.ErrLeaseLost),
+	}
+
+	// The delivery now belongs to whichever worker re-claimed it, so surfacing
+	// an error here would alert on the worker that behaved correctly.
+	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil).DispatchOnce(context.Background()); err != nil {
+		t.Fatalf("DispatchOnce() error = %v, want a lost lease handled as a normal outcome", err)
+	}
+}
+
+func TestOutboxWorkerDrainContinuesAfterLostLease(t *testing.T) {
+	store := &fakeDeliveryStore{
+		delivery: &events.Delivery{EventID: uuid.New(), Topic: events.TopicOrderPaid, Consumer: events.ConsumerNotifications, Attempts: 1},
+		failErr:  fmt.Errorf("%w: re-claimed", events.ErrLeaseLost),
+	}
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, errorConsumer{}).WithMaxAttempts(5)
+
+	err := worker.DispatchOnce(context.Background())
+	if !errors.Is(err, errDeliveryRescheduled) {
+		t.Fatalf("DispatchOnce() error = %v, want a rescheduled delivery so the drain continues", err)
+	}
+}
+
+func TestRetryDelayBacksOffExponentiallyWithJitter(t *testing.T) {
+	// A flat one-minute delay burned all ten attempts within ten minutes, so a
+	// longer provider outage sent every affected event to the dead-letter queue.
+	for _, testCase := range []struct {
+		attempts       int
+		atLeast, below time.Duration
+	}{
+		{attempts: 1, atLeast: time.Minute, below: 90 * time.Second},
+		{attempts: 2, atLeast: 2 * time.Minute, below: 3 * time.Minute},
+		{attempts: 5, atLeast: 16 * time.Minute, below: 24 * time.Minute},
+		{attempts: 9, atLeast: 64 * time.Minute, below: 96 * time.Minute},
+		{attempts: 40, atLeast: 64 * time.Minute, below: 96 * time.Minute},
+	} {
+		delay := retryDelay(testCase.attempts)
+		if delay < testCase.atLeast || delay >= testCase.below {
+			t.Fatalf("retryDelay(%d) = %s, want within [%s, %s)", testCase.attempts, delay, testCase.atLeast, testCase.below)
+		}
+	}
+}
+
+func TestRetryDelayIsJittered(t *testing.T) {
+	seen := make(map[time.Duration]struct{}, 32)
+	for range 32 {
+		seen[retryDelay(3)] = struct{}{}
+	}
+	// Identical delays would return a batch that failed together as one
+	// synchronized herd against the provider that just recovered.
+	if len(seen) < 2 {
+		t.Fatalf("retryDelay produced %d distinct value(s) across 32 calls, want jitter", len(seen))
+	}
+}
