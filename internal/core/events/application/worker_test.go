@@ -168,3 +168,134 @@ type recordingSpan struct{ ended bool }
 func (s *recordingSpan) End() { s.ended = true }
 
 var _ events.DeliveryStore = (*fakeDeliveryStore)(nil)
+
+func TestOutboxWorkerDrainsWholeBacklogInOnePass(t *testing.T) {
+	store := &queuedDeliveryStore{pending: backlog(12)}
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{})
+
+	if err := worker.drain(context.Background()); err != nil {
+		t.Fatalf("drain() error = %v", err)
+	}
+	// One delivery per tick capped a consumer at twelve events per minute, so
+	// a backlog grew faster than it could ever be worked off.
+	if len(store.completed) != 12 {
+		t.Fatalf("completed = %d, want the whole backlog of 12 in a single pass", len(store.completed))
+	}
+}
+
+func TestOutboxWorkerDrainContinuesPastRescheduledDelivery(t *testing.T) {
+	store := &queuedDeliveryStore{pending: backlog(5)}
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &flakyConsumer{failures: 1}).WithMaxAttempts(10)
+
+	if err := worker.drain(context.Background()); err != nil {
+		t.Fatalf("drain() error = %v", err)
+	}
+	if len(store.rescheduled) != 1 || len(store.completed) != 4 {
+		t.Fatalf("rescheduled/completed = %d/%d, want 1/4: a rescheduled delivery must not strand its batch",
+			len(store.rescheduled), len(store.completed))
+	}
+}
+
+func TestOutboxWorkerDrainStopsWhenStoreFails(t *testing.T) {
+	store := &queuedDeliveryStore{pending: backlog(5), claimErrAt: 3}
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{})
+
+	if err := worker.drain(context.Background()); err == nil {
+		t.Fatal("drain() error = nil, want the store failure surfaced to the caller")
+	}
+	if len(store.completed) != 2 {
+		t.Fatalf("completed = %d, want only the two deliveries claimed before the store failed", len(store.completed))
+	}
+}
+
+func TestOutboxWorkerDrainStopsAtBatchCeiling(t *testing.T) {
+	store := &queuedDeliveryStore{pending: backlog(maxDrainPerTick + 10)}
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{})
+
+	if err := worker.drain(context.Background()); err != nil {
+		t.Fatalf("drain() error = %v", err)
+	}
+	if len(store.completed) != maxDrainPerTick || len(store.pending) != 10 {
+		t.Fatalf("completed/pending = %d/%d, want %d/10", len(store.completed), len(store.pending), maxDrainPerTick)
+	}
+}
+
+func TestOutboxWorkerDrainStopsOnCancellation(t *testing.T) {
+	store := &queuedDeliveryStore{pending: backlog(5)}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{}).drain(ctx); err != nil {
+		t.Fatalf("drain() error = %v", err)
+	}
+	if len(store.completed) != 0 {
+		t.Fatalf("completed = %d, want no delivery claimed after cancellation", len(store.completed))
+	}
+}
+
+func backlog(count int) []events.Delivery {
+	deliveries := make([]events.Delivery, 0, count)
+	for range count {
+		deliveries = append(deliveries, events.Delivery{
+			EventID: uuid.New(), Topic: events.TopicOrderPaid, Consumer: events.ConsumerNotifications,
+		})
+	}
+	return deliveries
+}
+
+// queuedDeliveryStore serves a finite backlog so a whole drain pass can be
+// observed, unlike fakeDeliveryStore which replays one delivery forever.
+type queuedDeliveryStore struct {
+	pending     []events.Delivery
+	claims      int
+	claimErrAt  int // 1-based claim that fails; zero never fails.
+	completed   []uuid.UUID
+	rescheduled []uuid.UUID
+}
+
+func (s *queuedDeliveryStore) Claim(context.Context, string, time.Time, time.Duration) (*events.Delivery, error) {
+	s.claims++
+	if s.claimErrAt != 0 && s.claims == s.claimErrAt {
+		return nil, errors.New("database unavailable")
+	}
+	if len(s.pending) == 0 {
+		return nil, nil
+	}
+	delivery := s.pending[0]
+	s.pending = s.pending[1:]
+	return &delivery, nil
+}
+
+func (s *queuedDeliveryStore) Complete(_ context.Context, eventID uuid.UUID, _ string, _ time.Time) error {
+	s.completed = append(s.completed, eventID)
+	return nil
+}
+
+func (s *queuedDeliveryStore) Fail(_ context.Context, eventID uuid.UUID, _ string, _ error, _ time.Time) error {
+	s.rescheduled = append(s.rescheduled, eventID)
+	return nil
+}
+
+func (s *queuedDeliveryStore) Dead(_ context.Context, eventID uuid.UUID, _ string, _ error, _ time.Time) error {
+	s.rescheduled = append(s.rescheduled, eventID)
+	return nil
+}
+
+// flakyConsumer fails a fixed number of leading deliveries, modelling a
+// provider outage that clears while the batch is still being drained.
+type flakyConsumer struct {
+	failures int
+	calls    int
+}
+
+func (*flakyConsumer) Topic() string { return events.TopicOrderPaid }
+
+func (c *flakyConsumer) Handle(context.Context, events.Delivery) error {
+	c.calls++
+	if c.calls <= c.failures {
+		return errors.New("smtp temporarily unavailable")
+	}
+	return nil
+}
+
+var _ events.DeliveryStore = (*queuedDeliveryStore)(nil)

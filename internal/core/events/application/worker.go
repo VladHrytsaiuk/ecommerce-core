@@ -15,7 +15,15 @@ import (
 const (
 	DefaultMaxAttempts  = 10
 	finalizationTimeout = 3 * time.Second
+	// maxDrainPerTick bounds one drain pass so a consumer with a large backlog
+	// cannot hold its database connection or delay shutdown indefinitely.
+	maxDrainPerTick = 256
 )
+
+// errDeliveryRescheduled reports a handler failure that was durably recorded
+// against the delivery. The queue itself is healthy, which is what lets drain
+// continue; a store failure returns an unwrapped error and stops the pass.
+var errDeliveryRescheduled = errors.New("event delivery rescheduled")
 
 type Logger interface {
 	Infow(string, ...interface{})
@@ -86,13 +94,22 @@ func (w *OutboxWorker) WithMaxAttempts(maxAttempts int) *OutboxWorker {
 	return w
 }
 
+// DispatchOnce claims and processes at most one delivery. Run drains instead;
+// this stays the single-step entry point for tests and operational tooling.
 func (w *OutboxWorker) DispatchOnce(ctx context.Context) error {
+	_, err := w.dispatchOnce(ctx)
+	return err
+}
+
+// dispatchOnce reports whether a delivery was claimed so that drain can tell
+// an exhausted queue from a processed one and stop without waiting for a tick.
+func (w *OutboxWorker) dispatchOnce(ctx context.Context) (bool, error) {
 	if w.store == nil || w.consumer == "" {
-		return fmt.Errorf("event outbox worker is not configured")
+		return false, fmt.Errorf("event outbox worker is not configured")
 	}
 	event, err := w.store.Claim(ctx, w.consumer, time.Now().UTC(), w.lease)
 	if err != nil || event == nil {
-		return err
+		return false, err
 	}
 	ctx, span := w.tracer.ContinueDelivery(ctx, *event)
 	defer span.End()
@@ -101,7 +118,7 @@ func (w *OutboxWorker) DispatchOnce(ctx context.Context) error {
 	}
 	for _, handler := range w.handlers[event.Topic] {
 		if err := invokeSafely(ctx, handler, *event); err != nil {
-			return w.failDelivery(ctx, event, err)
+			return true, w.failDelivery(ctx, event, err)
 		}
 	}
 	finalizationCtx, cancel := finalizationContext(ctx)
@@ -110,10 +127,37 @@ func (w *OutboxWorker) DispatchOnce(ctx context.Context) error {
 		if w.logger != nil {
 			w.logger.Errorw("event outbox delivery completion failed", "event_id", event.EventID, "consumer", w.consumer, "error_code", sanitize.ErrorCode(err))
 		}
-		return err
+		return true, err
 	}
 	if w.logger != nil {
 		w.logger.Infow("event outbox delivery completed", "event_id", event.EventID, "topic", event.Topic, "consumer", event.Consumer)
+	}
+	return true, nil
+}
+
+// drain processes ready deliveries until the queue is exhausted or the batch
+// ceiling is reached. Returning to the ticker after a single delivery capped a
+// consumer at one event per interval, so a backlog could never be worked off.
+// The ceiling keeps one busy consumer from holding its database connection
+// indefinitely and bounds the work done between shutdown checks.
+func (w *OutboxWorker) drain(ctx context.Context) error {
+	for range maxDrainPerTick {
+		if ctx.Err() != nil {
+			return nil
+		}
+		claimed, err := w.dispatchOnce(ctx)
+		if err != nil {
+			// A rescheduled delivery is already durably recorded and will not
+			// be re-claimed now, so the queue is healthy and the rest of the
+			// batch must not wait for the next tick.
+			if errors.Is(err, errDeliveryRescheduled) {
+				continue
+			}
+			return err
+		}
+		if !claimed {
+			return nil
+		}
 	}
 	return nil
 }
@@ -134,7 +178,7 @@ func (w *OutboxWorker) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if err := w.DispatchOnce(ctx); err != nil && w.logger != nil {
+		if err := w.drain(ctx); err != nil && ctx.Err() == nil && w.logger != nil {
 			w.logger.Errorw("event outbox worker failed", "consumer", w.consumer, "error_code", sanitize.ErrorCode(err))
 		}
 		select {
@@ -151,22 +195,25 @@ func (w *OutboxWorker) failDelivery(ctx context.Context, event *events.Delivery,
 	finalizationCtx, cancel := finalizationContext(ctx)
 	defer cancel()
 	var err error
-	if event.Attempts >= w.maxAttempts {
+	dead := event.Attempts >= w.maxAttempts
+	if dead {
 		err = w.store.Dead(finalizationCtx, event.EventID, w.consumer, sanitizedCause, time.Now().UTC())
 	} else {
 		err = w.store.Fail(finalizationCtx, event.EventID, w.consumer, sanitizedCause, time.Now().UTC().Add(time.Minute))
 	}
 	if err != nil {
+		// The failure could not be recorded, so the delivery keeps its claim
+		// until the lease expires. This is a store problem, not a handler one.
 		return fmt.Errorf("record event delivery failure")
 	}
 	if w.logger != nil {
 		status := "failed"
-		if event.Attempts >= w.maxAttempts {
+		if dead {
 			status = "dead"
 		}
 		w.logger.Errorw("event outbox delivery failed", "event_id", event.EventID, "topic", event.Topic, "consumer", event.Consumer, "status", status, "error_code", code)
 	}
-	return fmt.Errorf("event delivery failed: %s", code)
+	return fmt.Errorf("%w: %s", errDeliveryRescheduled, code)
 }
 
 // finalizationContext allows a claimed delivery to be acknowledged even when
