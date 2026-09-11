@@ -482,8 +482,6 @@ Open follow-ups:
 - `Bootstrap` remains a single 560-line function with a 66-field `Application`.
   Module dependencies are now declared once in `internal/app/modules.go`, but
   the Composition Root itself has not been split into phases.
-- `Bootstrap` has not been split into phases (see the entry above); the typed
-  module set landed, the Composition Root did not.
 - Sync's inbound direction is blocked behind external inventory, not behind a
   missing route. `ImportService` and `InboundStateStore` are implemented, but
   `ReplaceExternalQuantity` requires `ModeExternal` while `StoreConfig.Validate`
