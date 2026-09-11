@@ -482,9 +482,8 @@ Open follow-ups:
 - `Bootstrap` remains a single 560-line function with a 66-field `Application`.
   Module dependencies are now declared once in `internal/app/modules.go`, but
   the Composition Root itself has not been split into phases.
-- Access-token revocation is bounded by `ACCESS_TOKEN_DURATION` (max 1h) rather
-  than closed. Carrying the RBAC `authorization_version` in the token would
-  close it, at the cost of making Identity depend on Admin state.
+- `Bootstrap` has not been split into phases (see the entry above); the typed
+  module set landed, the Composition Root did not.
 
 ## Global rules
 

@@ -14,7 +14,6 @@ const (
 	authorizationHeaderKey  = "Authorization"
 	authorizationTypeBearer = "bearer"
 	authorizationPayloadKey = "user_id"
-	authorizationRoleKey    = "role"
 )
 
 // AuthMiddleware створює gin-middleware для перевірки JWT токена.
@@ -50,9 +49,11 @@ func AuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 			return
 		}
 
-		// Зберігаємо userID та roleID в контексті для подальшого використання у хендлерах
+		// Only the subject is published. The role travels in the token and is
+		// therefore as old as the token; authorizing on it would reintroduce the
+		// stale-privilege problem that Authorizer.Require avoids by reading
+		// admin_users fresh on every call. Nothing may take a shortcut past it.
 		c.Set(authorizationPayloadKey, claims.UserID)
-		c.Set(authorizationRoleKey, claims.Role)
 		c.Next()
 	}
 }

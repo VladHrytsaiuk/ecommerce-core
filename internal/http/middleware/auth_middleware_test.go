@@ -249,3 +249,51 @@ func TestAuthMiddleware_BlocksRequest_WithoutCallingHandler(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.False(t, handlerCalled, "handler не повинен бути викликаний без токена")
 }
+
+func TestAuthMiddlewareDoesNotPublishTheTokenRole(t *testing.T) {
+	tokenMaker := &MockTokenMaker{}
+	claims := makeValidClaims(uuid.New())
+	claims.Role = token.RoleAdmin
+	tokenMaker.On("VerifyToken", mock.Anything).Return(claims, nil)
+
+	var published bool
+	r := gin.New()
+	r.GET("/check", AuthMiddleware(tokenMaker), func(c *gin.Context) {
+		_, published = c.Get("role")
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest(http.MethodGet, "/check", nil)
+	req.Header.Set("Authorization", "Bearer any-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	// The role in a token is as old as the token. Authorization reads
+	// admin_users fresh on every call, so a deactivated administrator is
+	// refused immediately; publishing the claim would invite a handler to
+	// short-circuit that and trust a stale privilege instead.
+	assert.False(t, published, "the token role must not reach the request context")
+}
+
+func TestOptionalAuthMiddlewareDoesNotPublishTheTokenRole(t *testing.T) {
+	tokenMaker := &MockTokenMaker{}
+	claims := makeValidClaims(uuid.New())
+	claims.Role = token.RoleOwner
+	tokenMaker.On("VerifyToken", mock.Anything).Return(claims, nil)
+
+	var published bool
+	r := gin.New()
+	r.GET("/check", OptionalAuthMiddleware(tokenMaker), func(c *gin.Context) {
+		_, published = c.Get("role")
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest(http.MethodGet, "/check", nil)
+	req.Header.Set("Authorization", "Bearer any-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.False(t, published, "the token role must not reach the request context")
+}

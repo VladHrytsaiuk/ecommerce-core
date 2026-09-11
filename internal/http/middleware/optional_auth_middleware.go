@@ -43,9 +43,9 @@ func OptionalAuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 			return
 		}
 
-		// Токен валідний — зберігаємо user_id та role_id в контексті
+		// Токен валідний — зберігаємо лише суб'єкт. Роль навмисно не
+		// публікується: див. AuthMiddleware.
 		c.Set(authorizationPayloadKey, claims.UserID)
-		c.Set(authorizationRoleKey, claims.Role)
 		c.Next()
 	}
 }
