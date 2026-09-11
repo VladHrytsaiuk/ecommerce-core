@@ -16,10 +16,17 @@ import (
 
 type contentTxMarker struct{}
 
-// contentTransaction stamps the context it hands to the unit of work. The
-// production publisher resolves its transaction from the context, so checking
-// for the stamp proves the audit event shares the mutation's transaction
-// rather than merely running during it.
+// contentTransaction stamps the context it hands to the unit of work, so a
+// test can tell whether the facade published the audit event with that context
+// or with the outer one.
+//
+// Note what this does not prove. It shows the facade passes its transaction
+// context down; it cannot show that anything underneath uses it, because the
+// services here are fakes with no database. A repository that took txCtx and
+// then wrote through the connection pool would pass every test in this file —
+// which is exactly the defect that shipped. The real property is asserted in
+// content_facade_integration_test.go, against PostgreSQL, by failing the audit
+// write and checking the table is unchanged.
 type contentTransaction struct{ rolledBack bool }
 
 func (t *contentTransaction) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
@@ -114,7 +121,7 @@ func newContentFacade(t *testing.T, authorizer adminDomain.Authorizer, tx Transa
 	return facade.WithBadges(&badgesFake{}).WithReviews(&reviewsFake{}).WithSEO(&seoFake{})
 }
 
-func TestContentMutationsAuditInsideTheSameTransaction(t *testing.T) {
+func TestEveryContentMutationPublishesOneAuditEventWithTheTransactionContext(t *testing.T) {
 	actor := uuid.New()
 	for name, mutate := range map[string]func(*ContentAdminFacade) error{
 		"create badge": func(f *ContentAdminFacade) error {

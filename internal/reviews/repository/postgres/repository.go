@@ -22,7 +22,7 @@ func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 func (repository *Repository) Create(ctx context.Context, command domain.CreateCommand) (*domain.Review, error) {
 	record := reviewRecord{ID: uuid.New(), ProductID: command.ProductID, UserID: command.UserID, Rating: command.Rating, Comment: command.Comment, Status: string(domain.StatusPending)}
-	if err := repository.db.WithContext(ctx).Create(&record).Error; err != nil {
+	if err := repository.database(ctx).Create(&record).Error; err != nil {
 		if isUniqueViolation(err) {
 			return nil, domain.ErrAlreadyExists
 		}
@@ -33,7 +33,7 @@ func (repository *Repository) Create(ctx context.Context, command domain.CreateC
 
 func (repository *Repository) ListApproved(ctx context.Context, productID uuid.UUID) ([]domain.Review, error) {
 	var records []reviewRecord
-	if err := repository.db.WithContext(ctx).Where("product_id = ? AND status = ?", productID, domain.StatusApproved).Order("created_at DESC").Find(&records).Error; err != nil {
+	if err := repository.database(ctx).Where("product_id = ? AND status = ?", productID, domain.StatusApproved).Order("created_at DESC").Find(&records).Error; err != nil {
 		return nil, err
 	}
 	reviews := make([]domain.Review, 0, len(records))
@@ -92,6 +92,16 @@ func (repository *Repository) Delete(ctx context.Context, reviewID uuid.UUID) er
 	})
 }
 
+// database returns the caller's transaction when one is in flight, so a read
+// issued inside an audited admin transaction sees that transaction's own
+// uncommitted writes rather than a pooled connection's view of the table.
+func (repository *Repository) database(ctx context.Context) *gorm.DB {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return tx.WithContext(ctx)
+	}
+	return repository.db.WithContext(ctx)
+}
+
 func lockProductForRatingProjection(ctx context.Context, tx *gorm.DB, productID uuid.UUID) error {
 	var locked struct {
 		ID uuid.UUID `gorm:"column:id"`
@@ -107,7 +117,7 @@ func lockProductForRatingProjection(ctx context.Context, tx *gorm.DB, productID 
 
 func (repository *Repository) RatingForProduct(ctx context.Context, productID uuid.UUID) (*catalogDomain.ProductRating, error) {
 	var record ratingRecord
-	if err := repository.db.WithContext(ctx).First(&record, "product_id = ?", productID).Error; err != nil {
+	if err := repository.database(ctx).First(&record, "product_id = ?", productID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
@@ -123,7 +133,7 @@ func (repository *Repository) RatingsForProducts(ctx context.Context, productIDs
 		return result, nil
 	}
 	var records []ratingRecord
-	if err := repository.db.WithContext(ctx).Where("product_id IN ?", productIDs).Find(&records).Error; err != nil {
+	if err := repository.database(ctx).Where("product_id IN ?", productIDs).Find(&records).Error; err != nil {
 		return nil, err
 	}
 	for _, record := range records {

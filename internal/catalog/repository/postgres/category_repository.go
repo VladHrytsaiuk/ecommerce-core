@@ -18,7 +18,7 @@ func NewCategoryRepository(db *gorm.DB) *CategoryRepository { return &CategoryRe
 
 func (r *CategoryRepository) FindBySlug(ctx context.Context, locale, slug string) (*domain.Category, error) {
 	var category domain.Category
-	err := r.db.WithContext(ctx).
+	err := r.database(ctx).
 		Joins("JOIN category_translations ct ON ct.category_id = categories.id").
 		Preload("Translations").
 		Where("ct.locale = ? AND ct.slug = ?", locale, slug).

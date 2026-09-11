@@ -49,7 +49,7 @@ func (r *VariantRepository) CreateVariant(ctx context.Context, variant *domain.P
 		Currency:    variant.Price.Currency(),
 		WeightGrams: variant.WeightGrams,
 	}
-	return r.db.WithContext(ctx).Create(&record).Error
+	return r.database(ctx).Create(&record).Error
 }
 
 // FindVariantForUpdate locks the row so an audited update records the state it
@@ -172,7 +172,7 @@ func (r *VariantRepository) FindActiveForCheckoutBatch(ctx context.Context, vari
 	}
 	// DISTINCT ON keeps one row per variant; ordering by the exact-locale
 	// match first makes the fallback apply only when the translation is absent.
-	err := r.db.WithContext(ctx).Raw(`
+	err := r.database(ctx).Raw(`
 		SELECT DISTINCT ON (variants.id)
 		       variants.id AS variant_id,
 		       variants.product_id,

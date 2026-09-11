@@ -23,7 +23,7 @@ func (r *Repository) Get(ctx context.Context, id uuid.UUID) (*domain.Badge, erro
 }
 func (r *Repository) List(ctx context.Context) ([]domain.Badge, error) {
 	var records []badgeRecord
-	if err := r.db.WithContext(ctx).Preload("Translations").Order("slug ASC").Find(&records).Error; err != nil {
+	if err := r.database(ctx).Preload("Translations").Order("slug ASC").Find(&records).Error; err != nil {
 		return nil, err
 	}
 	result := make([]domain.Badge, 0, len(records))
@@ -63,7 +63,7 @@ func (r *Repository) Update(ctx context.Context, id uuid.UUID, command domain.Up
 	return r.find(ctx, id)
 }
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
-	result := r.db.WithContext(ctx).Delete(&badgeRecord{}, "id = ?", id)
+	result := r.database(ctx).Delete(&badgeRecord{}, "id = ?", id)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -73,10 +73,10 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 func (r *Repository) AssignProduct(ctx context.Context, badgeID, productID uuid.UUID) error {
-	return r.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&productBadgeRecord{BadgeID: badgeID, ProductID: productID}).Error
+	return r.database(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&productBadgeRecord{BadgeID: badgeID, ProductID: productID}).Error
 }
 func (r *Repository) RemoveProduct(ctx context.Context, badgeID, productID uuid.UUID) error {
-	result := r.db.WithContext(ctx).Where("badge_id = ? AND product_id = ?", badgeID, productID).Delete(&productBadgeRecord{})
+	result := r.database(ctx).Where("badge_id = ? AND product_id = ?", badgeID, productID).Delete(&productBadgeRecord{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -85,9 +85,21 @@ func (r *Repository) RemoveProduct(ctx context.Context, badgeID, productID uuid.
 	}
 	return nil
 }
+
+// database returns the caller's transaction when one is in flight. Reads must
+// go through it: Create and Update read the row back after writing it, and a
+// pooled connection cannot see a row the caller's open transaction has not
+// committed yet.
+func (r *Repository) database(ctx context.Context) *gorm.DB {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return tx.WithContext(ctx)
+	}
+	return r.db.WithContext(ctx)
+}
+
 func (r *Repository) find(ctx context.Context, id uuid.UUID) (*domain.Badge, error) {
 	var record badgeRecord
-	if err := r.db.WithContext(ctx).Preload("Translations").First(&record, "id = ?", id).Error; err != nil {
+	if err := r.database(ctx).Preload("Translations").First(&record, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -108,7 +120,7 @@ func (r *Repository) BadgesForProducts(ctx context.Context, productIDs []uuid.UU
 		Slug, Color, Name  string
 	}
 	var rows []row
-	err := r.db.WithContext(ctx).Table("product_badges pb").Select("pb.product_id, b.id AS badge_id, b.slug, b.color, bt.name").Joins("JOIN badges b ON b.id = pb.badge_id").Joins("JOIN badge_translations bt ON bt.badge_id = b.id AND bt.locale = ?", locale).Where("pb.product_id IN ?", productIDs).Order("b.slug ASC").Scan(&rows).Error
+	err := r.database(ctx).Table("product_badges pb").Select("pb.product_id, b.id AS badge_id, b.slug, b.color, bt.name").Joins("JOIN badges b ON b.id = pb.badge_id").Joins("JOIN badge_translations bt ON bt.badge_id = b.id AND bt.locale = ?", locale).Where("pb.product_id IN ?", productIDs).Order("b.slug ASC").Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}

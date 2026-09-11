@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/seo/domain"
 )
 
@@ -19,7 +20,7 @@ func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
 
 func (r *Repository) Get(ctx context.Context, resourceType string, resourceID uuid.UUID, locale string) (*domain.Metadata, error) {
 	var value record
-	if err := r.db.WithContext(ctx).Where("resource_type = ? AND resource_id = ? AND locale = ?", resourceType, resourceID, locale).First(&value).Error; err != nil {
+	if err := r.database(ctx).Where("resource_type = ? AND resource_id = ? AND locale = ?", resourceType, resourceID, locale).First(&value).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound
 		}
@@ -28,23 +29,32 @@ func (r *Repository) Get(ctx context.Context, resourceType string, resourceID uu
 	return value.toDomain(), nil
 }
 
+// Upsert joins the caller's transaction when one is in flight. The audited
+// admin facade rolls its transaction back when recording the audit entry
+// fails; writing through the pool instead would leave the metadata change
+// committed with no record of who made it.
 func (r *Repository) Upsert(ctx context.Context, command domain.UpsertCommand) (*domain.Metadata, error) {
 	value := record{ID: uuid.New(), ResourceType: command.ResourceType, ResourceID: command.ResourceID, Locale: command.Locale, Title: command.Title, Description: command.Description, Keywords: command.Keywords, OGImageRef: command.OGImageRef}
-	if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "resource_type"}, {Name: "resource_id"}, {Name: "locale"}},
-		DoUpdates: clause.AssignmentColumns([]string{"title", "description", "keywords", "og_image_ref", "updated_at"}),
-	}).Create(&value).Error; err != nil {
-		return nil, err
-	}
 	var saved record
-	if err := r.db.WithContext(ctx).Where("resource_type = ? AND resource_id = ? AND locale = ?", command.ResourceType, command.ResourceID, command.Locale).First(&saved).Error; err != nil {
+	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "resource_type"}, {Name: "resource_id"}, {Name: "locale"}},
+			DoUpdates: clause.AssignmentColumns([]string{"title", "description", "keywords", "og_image_ref", "updated_at"}),
+		}).Create(&value).Error; err != nil {
+			return err
+		}
+		// Read back through the same transaction: on conflict the returned row
+		// carries the existing id, which a pooled connection would not see.
+		return tx.Where("resource_type = ? AND resource_id = ? AND locale = ?", command.ResourceType, command.ResourceID, command.Locale).First(&saved).Error
+	})
+	if err != nil {
 		return nil, err
 	}
 	return saved.toDomain(), nil
 }
 
 func (r *Repository) Delete(ctx context.Context, resourceType string, resourceID uuid.UUID, locale string) error {
-	result := r.db.WithContext(ctx).Where("resource_type = ? AND resource_id = ? AND locale = ?", resourceType, resourceID, locale).Delete(&record{})
+	result := r.database(ctx).Where("resource_type = ? AND resource_id = ? AND locale = ?", resourceType, resourceID, locale).Delete(&record{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -61,13 +71,20 @@ func (r *Repository) SEOForResources(ctx context.Context, resourceType string, r
 		return result, nil
 	}
 	var records []record
-	if err := r.db.WithContext(ctx).Where("resource_type = ? AND resource_id IN ? AND locale = ?", resourceType, resourceIDs, locale).Find(&records).Error; err != nil {
+	if err := r.database(ctx).Where("resource_type = ? AND resource_id IN ? AND locale = ?", resourceType, resourceIDs, locale).Find(&records).Error; err != nil {
 		return nil, err
 	}
 	for _, value := range records {
 		result[value.ResourceID] = catalogDomain.ProductSEO{Title: value.Title, Description: value.Description, Keywords: value.Keywords, OGImageRef: value.OGImageRef}
 	}
 	return result, nil
+}
+
+func (r *Repository) database(ctx context.Context) *gorm.DB {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return tx.WithContext(ctx)
+	}
+	return r.db.WithContext(ctx)
 }
 
 type record struct {
