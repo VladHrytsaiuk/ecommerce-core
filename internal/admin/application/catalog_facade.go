@@ -32,6 +32,15 @@ type CatalogProductOptions interface {
 	CreateProductOption(context.Context, *domain.ProductOption) error
 	CreateVariant(context.Context, *domain.ProductVariant, []uuid.UUID) error
 }
+
+// CatalogVariants is the mutation surface for an existing sellable unit. It is
+// separate from CatalogProductOptions because creating a variant needs the
+// option-value wiring while editing one does not.
+type CatalogVariants interface {
+	FindVariantForUpdate(context.Context, uuid.UUID) (*domain.ProductVariant, error)
+	Update(context.Context, uuid.UUID, domain.UpdateVariantCommand) (*domain.ProductVariant, error)
+	Archive(context.Context, uuid.UUID) (*domain.ProductVariant, error)
+}
 type InventoryAdjuster interface {
 	Adjust(context.Context, uuid.UUID, uuid.UUID, int) error
 }
@@ -52,6 +61,7 @@ type CatalogAdminFacade struct {
 	productEvents events.TransactionalEventPublisher
 	mediaReader   domain.MediaReader
 	options       CatalogProductOptions
+	variants      CatalogVariants
 	inventory     InventoryAdjuster
 	warehouseID   uuid.UUID
 }
@@ -70,6 +80,112 @@ func (f *CatalogAdminFacade) WithInventoryAdjustment(service InventoryAdjuster, 
 		f.inventory, f.warehouseID = service, warehouseID
 	}
 	return f
+}
+
+// WithVariantMutations enables editing and archiving existing variants.
+func (f *CatalogAdminFacade) WithVariantMutations(service CatalogVariants) *CatalogAdminFacade {
+	if f != nil {
+		f.variants = service
+	}
+	return f
+}
+
+func (f *CatalogAdminFacade) HasVariantMutations() bool { return f != nil && f.variants != nil }
+
+// UpdateVariant edits an existing sellable unit.
+//
+// The prior state is read under a write lock inside the transaction, so the
+// audit entry records what was actually replaced — a price change is the kind
+// of edit whose previous value matters most after the fact.
+func (f *CatalogAdminFacade) UpdateVariant(ctx context.Context, cmd CatalogCommand, variantID uuid.UUID, command domain.UpdateVariantCommand) (*domain.ProductVariant, error) {
+	if err := f.authorizeVariant(ctx, cmd); err != nil {
+		return nil, err
+	}
+	if variantID == uuid.Nil {
+		return nil, fmt.Errorf("catalog variant ID is required")
+	}
+	var updated *domain.ProductVariant
+	err := f.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		previous, err := f.variants.FindVariantForUpdate(txCtx, variantID)
+		if err != nil {
+			return err
+		}
+		variant, err := f.variants.Update(txCtx, variantID, command)
+		if err != nil {
+			return err
+		}
+		updated = variant
+		if err := f.auditVariant(txCtx, cmd, "catalog.variant.update", variantID, previous, variant); err != nil {
+			return err
+		}
+		// The search projection indexes the product, not the variant, so a
+		// price or status edit has to re-index its parent.
+		return f.publishProductChanged(txCtx, cmd.EventKey, variant.ProductID, domain.ProductChangeUpsert)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// ArchiveVariant withdraws a variant from sale. It is deliberately not a row
+// deletion; see ArchiveVariant on the catalog repository port for why.
+func (f *CatalogAdminFacade) ArchiveVariant(ctx context.Context, cmd CatalogCommand, variantID uuid.UUID) (*domain.ProductVariant, error) {
+	if err := f.authorizeVariant(ctx, cmd); err != nil {
+		return nil, err
+	}
+	if variantID == uuid.Nil {
+		return nil, fmt.Errorf("catalog variant ID is required")
+	}
+	var archived *domain.ProductVariant
+	err := f.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
+		previous, err := f.variants.FindVariantForUpdate(txCtx, variantID)
+		if err != nil {
+			return err
+		}
+		variant, err := f.variants.Archive(txCtx, variantID)
+		if err != nil {
+			return err
+		}
+		archived = variant
+		if err := f.auditVariant(txCtx, cmd, "catalog.variant.archive", variantID, previous, variant); err != nil {
+			return err
+		}
+		return f.publishProductChanged(txCtx, cmd.EventKey, variant.ProductID, domain.ProductChangeUpsert)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return archived, nil
+}
+
+func (f *CatalogAdminFacade) authorizeVariant(ctx context.Context, cmd CatalogCommand) error {
+	if f == nil || f.variants == nil {
+		return fmt.Errorf("catalog variant mutations are not configured")
+	}
+	if cmd.ActorUserID == uuid.Nil {
+		return adminDomain.ErrNotAdmin
+	}
+	return f.authorizer.Require(ctx, cmd.ActorUserID, PermissionCatalogWrite)
+}
+
+func (f *CatalogAdminFacade) auditVariant(ctx context.Context, cmd CatalogCommand, action string, variantID uuid.UUID, previous, current *domain.ProductVariant) error {
+	old, err := json.Marshal(previous)
+	if err != nil {
+		return fmt.Errorf("encode %s previous state: %w", action, err)
+	}
+	updated, err := json.Marshal(current)
+	if err != nil {
+		return fmt.Errorf("encode %s new state: %w", action, err)
+	}
+	if cmd.EventKey == uuid.Nil {
+		cmd.EventKey = uuid.New()
+	}
+	event, err := adminDomain.NewAdminActionEvent(cmd.EventKey, cmd.ActorUserID, action, "product_variant", variantID, old, updated, cmd.IPAddress, nil, nowUTC())
+	if err != nil {
+		return err
+	}
+	return f.publisher.Publish(ctx, event)
 }
 
 func (f *CatalogAdminFacade) WithMediaReader(r domain.MediaReader) *CatalogAdminFacade {

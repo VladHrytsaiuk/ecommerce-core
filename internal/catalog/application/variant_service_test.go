@@ -86,11 +86,27 @@ type fakeVariantRepository struct {
 	askedLocale   string
 	askedFallback string
 	askedIDs      []uuid.UUID
+	updated       domain.UpdateVariantCommand
+	archived      uuid.UUID
 }
 
 func (r *fakeVariantRepository) CreateVariant(_ context.Context, _ *domain.ProductVariant) error {
 	r.created = true
 	return nil
+}
+
+func (r *fakeVariantRepository) FindVariantForUpdate(_ context.Context, variantID uuid.UUID) (*domain.ProductVariant, error) {
+	return &domain.ProductVariant{ID: variantID, Status: "active"}, nil
+}
+
+func (r *fakeVariantRepository) UpdateVariant(_ context.Context, variantID uuid.UUID, command domain.UpdateVariantCommand) (*domain.ProductVariant, error) {
+	r.updated = command
+	return &domain.ProductVariant{ID: variantID, SKU: command.SKU, Status: command.Status, Price: command.Price, WeightGrams: command.WeightGrams}, nil
+}
+
+func (r *fakeVariantRepository) ArchiveVariant(_ context.Context, variantID uuid.UUID) (*domain.ProductVariant, error) {
+	r.archived = variantID
+	return &domain.ProductVariant{ID: variantID, Status: "archived"}, nil
 }
 
 func (r *fakeVariantRepository) FindActiveForCheckoutBatch(_ context.Context, variantIDs []uuid.UUID, locale, fallbackLocale string) (map[uuid.UUID]domain.CheckoutVariant, error) {
@@ -166,5 +182,77 @@ func TestFindActiveForCheckoutBatchRejectsEmptyAndNilInput(t *testing.T) {
 	}
 	if _, err := service.FindActiveForCheckoutBatch(context.Background(), []uuid.UUID{uuid.Nil}, "en"); !errors.Is(err, domain.ErrInvalidProduct) {
 		t.Fatalf("nil variant id error = %v, want ErrInvalidProduct", err)
+	}
+}
+
+func TestUpdateVariantEnforcesTheStoreCurrency(t *testing.T) {
+	repository := &fakeVariantRepository{}
+	service := NewVariantService(repository, []string{"en"}, "EUR")
+
+	// A price edited into another currency would be compared against order
+	// totals and cart subtotals that are all denominated in the store's own.
+	_, err := service.Update(context.Background(), uuid.New(), domain.UpdateVariantCommand{Price: mustMoney(100, "UAH")})
+	if !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Update() error = %v, want ErrInvalidProduct", err)
+	}
+}
+
+func TestUpdateVariantRejectsAnUnknownStatus(t *testing.T) {
+	service := NewVariantService(&fakeVariantRepository{}, []string{"en"}, "EUR")
+
+	// product_variants constrains status, so an unknown value would otherwise
+	// fail inside the driver instead of as a clear validation error.
+	_, err := service.Update(context.Background(), uuid.New(), domain.UpdateVariantCommand{Status: "discontinued", Price: mustMoney(100, "EUR")})
+	if !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Update() error = %v, want ErrInvalidProduct", err)
+	}
+}
+
+func TestUpdateVariantNormalizesItsInput(t *testing.T) {
+	repository := &fakeVariantRepository{}
+	service := NewVariantService(repository, []string{"en"}, "EUR")
+
+	if _, err := service.Update(context.Background(), uuid.New(), domain.UpdateVariantCommand{
+		SKU: "  CREAM-50 ", Barcode: " 590 ", Price: mustMoney(1299, "EUR"), WeightGrams: 250,
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	// An empty status defaults to active, matching creation.
+	if repository.updated.SKU != "CREAM-50" || repository.updated.Barcode != "590" || repository.updated.Status != "active" {
+		t.Fatalf("normalized command = %+v", repository.updated)
+	}
+}
+
+func TestUpdateVariantRejectsNegativeWeight(t *testing.T) {
+	service := NewVariantService(&fakeVariantRepository{}, []string{"en"}, "EUR")
+
+	_, err := service.Update(context.Background(), uuid.New(), domain.UpdateVariantCommand{Price: mustMoney(100, "EUR"), WeightGrams: -1})
+	if !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Update() error = %v, want ErrInvalidProduct", err)
+	}
+}
+
+func TestArchiveVariantWithdrawsItFromSale(t *testing.T) {
+	repository := &fakeVariantRepository{}
+	service := NewVariantService(repository, []string{"en"}, "EUR")
+	variantID := uuid.New()
+
+	archived, err := service.Archive(context.Background(), variantID)
+	if err != nil {
+		t.Fatalf("Archive() error = %v", err)
+	}
+	if repository.archived != variantID || archived.Status != "archived" {
+		t.Fatalf("Archive() = %+v, archived id = %s", archived, repository.archived)
+	}
+}
+
+func TestVariantMutationsRequireAnIdentifier(t *testing.T) {
+	service := NewVariantService(&fakeVariantRepository{}, []string{"en"}, "EUR")
+
+	if _, err := service.Update(context.Background(), uuid.Nil, domain.UpdateVariantCommand{Price: mustMoney(100, "EUR")}); !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Update(nil id) error = %v, want ErrInvalidProduct", err)
+	}
+	if _, err := service.Archive(context.Background(), uuid.Nil); !errors.Is(err, domain.ErrInvalidProduct) {
+		t.Fatalf("Archive(nil id) error = %v, want ErrInvalidProduct", err)
 	}
 }

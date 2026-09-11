@@ -1,6 +1,7 @@
 package http
 
 import (
+	stderrors "errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -119,5 +120,98 @@ func createProductVariantV1(f *adminApp.CatalogAdminFacade, errors *apiresponse.
 			return
 		}
 		apiresponse.Success(c, http.StatusCreated, variant)
+	}
+}
+
+type updateProductVariantRequest struct {
+	SKU         string `json:"sku"`
+	Barcode     string `json:"barcode"`
+	Status      string `json:"status"`
+	PriceAmount int64  `json:"price_amount" binding:"gte=0"`
+	Currency    string `json:"currency" binding:"required,len=3"`
+	WeightGrams int    `json:"weight_grams" binding:"gte=0"`
+}
+
+// updateProductVariantV1 godoc
+// @Summary Update a sellable product variant (v1 admin)
+// @Description Option values are not editable: they define which variant this is, so changing them would turn an existing SKU into a different one while carts, reservations and order snapshots still referenced it. Existing orders keep their immutable price snapshot.
+// @Tags Admin v1
+// @Accept json
+// @Produce json
+// @Param variant_id path string true "Variant UUID"
+// @Param request body updateProductVariantRequest true "Variant"
+// @Param Idempotency-Key header string false "Reuses the audit identity of a retried request"
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/variants/{variant_id} [put]
+func updateProductVariantV1(f *adminApp.CatalogAdminFacade, renderer *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cmd, ok := contentCommand(c, renderer)
+		if !ok {
+			return
+		}
+		variantID, ok := contentID(c, renderer, "variant_id")
+		if !ok {
+			return
+		}
+		var request updateProductVariantRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			renderer.Abort(c, apiresponse.InvalidPayload(err))
+			return
+		}
+		price, err := money.NewMoney(request.PriceAmount, request.Currency)
+		if err != nil {
+			renderer.Abort(c, apiresponse.InvalidPayload(err))
+			return
+		}
+		variant, err := f.UpdateVariant(c.Request.Context(), cmd, variantID, catalogDomain.UpdateVariantCommand{
+			SKU: request.SKU, Barcode: request.Barcode, Status: request.Status,
+			Price: price, WeightGrams: request.WeightGrams,
+		})
+		if err != nil {
+			renderer.Abort(c, variantError(err))
+			return
+		}
+		apiresponse.Success(c, http.StatusOK, variant)
+	}
+}
+
+// archiveProductVariantV1 godoc
+// @Summary Withdraw a product variant from sale (v1 admin)
+// @Description Archives rather than deletes. A row removal would be restricted by carts, silently cascade away wishlist and comparison entries, and orphan stock, reservations, returns and back-in-stock subscriptions, which reference variants without a foreign key.
+// @Tags Admin v1
+// @Produce json
+// @Param variant_id path string true "Variant UUID"
+// @Param Idempotency-Key header string false "Reuses the audit identity of a retried request"
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/variants/{variant_id} [delete]
+func archiveProductVariantV1(f *adminApp.CatalogAdminFacade, renderer *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		cmd, ok := contentCommand(c, renderer)
+		if !ok {
+			return
+		}
+		variantID, ok := contentID(c, renderer, "variant_id")
+		if !ok {
+			return
+		}
+		variant, err := f.ArchiveVariant(c.Request.Context(), cmd, variantID)
+		if err != nil {
+			renderer.Abort(c, variantError(err))
+			return
+		}
+		apiresponse.Success(c, http.StatusOK, variant)
+	}
+}
+
+func variantError(err error) error {
+	switch {
+	case stderrors.Is(err, catalogDomain.ErrProductNotFound):
+		return apiresponse.NotFound(err, "The product variant was not found.")
+	case stderrors.Is(err, catalogDomain.ErrInvalidProduct):
+		return apiresponse.ValidationFailed(err)
+	default:
+		return err
 	}
 }

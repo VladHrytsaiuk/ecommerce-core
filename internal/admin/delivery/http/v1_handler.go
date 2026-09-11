@@ -33,6 +33,10 @@ func RegisterV1Routes(g *gin.RouterGroup, authorizer adminDomain.Authorizer, pro
 		g.DELETE("/catalog/products/:id", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), deleteCatalogProductV1(catalog, renderer))
 		g.POST("/products/:id/options", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), createProductOptionV1(catalog, renderer))
 		g.POST("/products/:id/variants", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), createProductVariantV1(catalog, renderer))
+		if catalog.HasVariantMutations() {
+			g.PUT("/variants/:variant_id", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), updateProductVariantV1(catalog, renderer))
+			g.DELETE("/variants/:variant_id", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), archiveProductVariantV1(catalog, renderer))
+		}
 		g.POST("/catalog/categories", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), catalogCategoryV1(catalog, false, renderer))
 		g.PUT("/catalog/categories/:id", RequirePermissionV1(authorizer, adminApp.PermissionCatalogWrite, renderer), catalogCategoryV1(catalog, true, renderer))
 	}

@@ -2,14 +2,17 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
+	transaction "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
 )
 
 type VariantRepository struct {
@@ -47,6 +50,93 @@ func (r *VariantRepository) CreateVariant(ctx context.Context, variant *domain.P
 		WeightGrams: variant.WeightGrams,
 	}
 	return r.db.WithContext(ctx).Create(&record).Error
+}
+
+// FindVariantForUpdate locks the row so an audited update records the state it
+// actually replaced rather than one another writer moved in between.
+func (r *VariantRepository) FindVariantForUpdate(ctx context.Context, variantID uuid.UUID) (*domain.ProductVariant, error) {
+	if variantID == uuid.Nil {
+		return nil, domain.ErrInvalidProduct
+	}
+	var record variantRecord
+	if err := r.database(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", variantID).First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrProductNotFound
+		}
+		return nil, err
+	}
+	return variantFromRecord(record)
+}
+
+func (r *VariantRepository) UpdateVariant(ctx context.Context, variantID uuid.UUID, command domain.UpdateVariantCommand) (*domain.ProductVariant, error) {
+	if variantID == uuid.Nil {
+		return nil, domain.ErrInvalidProduct
+	}
+	result := r.database(ctx).Model(&variantRecord{}).Where("id = ?", variantID).Updates(map[string]any{
+		"sku": nullableString(command.SKU), "barcode": nullableString(command.Barcode),
+		"status": command.Status, "price_amount": command.Price.Amount(),
+		"currency": command.Price.Currency(), "weight_grams": command.WeightGrams,
+		"updated_at": gorm.Expr("CURRENT_TIMESTAMP"),
+	})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, domain.ErrProductNotFound
+	}
+	return r.findVariant(ctx, variantID)
+}
+
+// ArchiveVariant withdraws the variant from sale. Re-archiving is a no-op so a
+// retried admin request does not surface as a missing record.
+func (r *VariantRepository) ArchiveVariant(ctx context.Context, variantID uuid.UUID) (*domain.ProductVariant, error) {
+	if variantID == uuid.Nil {
+		return nil, domain.ErrInvalidProduct
+	}
+	result := r.database(ctx).Model(&variantRecord{}).Where("id = ? AND status <> ?", variantID, "archived").
+		Updates(map[string]any{"status": "archived", "updated_at": gorm.Expr("CURRENT_TIMESTAMP")})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return r.findVariant(ctx, variantID)
+}
+
+func (r *VariantRepository) findVariant(ctx context.Context, variantID uuid.UUID) (*domain.ProductVariant, error) {
+	var record variantRecord
+	if err := r.database(ctx).Where("id = ?", variantID).First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrProductNotFound
+		}
+		return nil, err
+	}
+	return variantFromRecord(record)
+}
+
+func variantFromRecord(record variantRecord) (*domain.ProductVariant, error) {
+	price, err := money.NewMoney(record.PriceAmount, record.Currency)
+	if err != nil {
+		return nil, fmt.Errorf("map variant %s price: %w", record.ID, err)
+	}
+	variant := &domain.ProductVariant{
+		ID: record.ID, ProductID: record.ProductID, Status: record.Status,
+		Price: price, WeightGrams: record.WeightGrams,
+	}
+	if record.SKU != nil {
+		variant.SKU = *record.SKU
+	}
+	if record.Barcode != nil {
+		variant.Barcode = *record.Barcode
+	}
+	return variant, nil
+}
+
+// database joins an outer transaction when the caller supplies one, so an
+// audited mutation and its event share a single unit of work.
+func (r *VariantRepository) database(ctx context.Context) *gorm.DB {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return tx.WithContext(ctx)
+	}
+	return r.db.WithContext(ctx)
 }
 
 func nullableString(value string) *string {

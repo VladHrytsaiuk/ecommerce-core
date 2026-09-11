@@ -486,10 +486,11 @@ Open follow-ups:
   module set landed, the Composition Root did not.
 - Sync imports the other direction only as ports: `ImportService` has no
   authenticated ERP delivery route, so nothing invokes it.
-- Product variants can be created but not updated or deleted. Creation already
-  runs through the audited catalog facade; update and delete are absent from
-  the repository and domain ports entirely, so exposing them is new
-  persistence rather than a new facade.
+- Variants are archived rather than deleted. A row removal is restricted by
+  carts, would silently cascade away wishlist and comparison entries, and
+  would orphan stock, reservations, returns and back-in-stock subscriptions,
+  which reference variants without a foreign key. If a hard delete is ever
+  required it needs those references reconciled first.
 
 ## Global rules
 

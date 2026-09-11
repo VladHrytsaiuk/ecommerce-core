@@ -43,6 +43,53 @@ func (s *VariantService) Create(ctx context.Context, variant *domain.ProductVari
 	return s.repo.CreateVariant(ctx, variant)
 }
 
+// Update replaces the mutable fields of an existing variant. It applies the
+// same validation as creation, so a price cannot be edited into a currency the
+// store does not sell in or a status the catalog does not recognise.
+//
+// Existing orders are unaffected: they carry an immutable price snapshot. A
+// cart holding this variant re-reads the price when checkout prepares it, so
+// the buyer pays the current one.
+func (s *VariantService) Update(ctx context.Context, variantID uuid.UUID, command domain.UpdateVariantCommand) (*domain.ProductVariant, error) {
+	if variantID == uuid.Nil {
+		return nil, fmt.Errorf("%w: variant id is required", domain.ErrInvalidProduct)
+	}
+	command.SKU = strings.TrimSpace(command.SKU)
+	command.Barcode = strings.TrimSpace(command.Barcode)
+	command.Status = normalize(command.Status)
+	if command.Status == "" {
+		command.Status = "active"
+	}
+	if command.Status != "active" && command.Status != "archived" {
+		return nil, fmt.Errorf("%w: unsupported variant status %q", domain.ErrInvalidProduct, command.Status)
+	}
+	if err := command.Price.Validate(); err != nil || command.Price.Currency() != s.currency {
+		return nil, fmt.Errorf("%w: variant price must use configured currency %q", domain.ErrInvalidProduct, s.currency)
+	}
+	if command.WeightGrams < 0 {
+		return nil, fmt.Errorf("%w: variant weight must not be negative", domain.ErrInvalidProduct)
+	}
+	return s.repo.UpdateVariant(ctx, variantID, command)
+}
+
+// FindVariantForUpdate exposes the locked read the audited admin facade needs
+// to record the state it replaced. It performs no validation of its own.
+func (s *VariantService) FindVariantForUpdate(ctx context.Context, variantID uuid.UUID) (*domain.ProductVariant, error) {
+	if variantID == uuid.Nil {
+		return nil, fmt.Errorf("%w: variant id is required", domain.ErrInvalidProduct)
+	}
+	return s.repo.FindVariantForUpdate(ctx, variantID)
+}
+
+// Archive withdraws a variant from sale. It is the catalog's delete: see
+// ArchiveVariant on the repository port for why a row removal is not offered.
+func (s *VariantService) Archive(ctx context.Context, variantID uuid.UUID) (*domain.ProductVariant, error) {
+	if variantID == uuid.Nil {
+		return nil, fmt.Errorf("%w: variant id is required", domain.ErrInvalidProduct)
+	}
+	return s.repo.ArchiveVariant(ctx, variantID)
+}
+
 func (s *VariantService) FindActiveForCheckoutBatch(ctx context.Context, variantIDs []uuid.UUID, locale string) (map[uuid.UUID]domain.CheckoutVariant, error) {
 	requested := normalize(locale)
 	if len(variantIDs) == 0 || !s.locales.allows(requested) {

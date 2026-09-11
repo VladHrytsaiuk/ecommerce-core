@@ -375,6 +375,25 @@ definitions:
     required:
     - to_status_code
     type: object
+  internal_admin_delivery_http.updateProductVariantRequest:
+    properties:
+      barcode:
+        type: string
+      currency:
+        type: string
+      price_amount:
+        minimum: 0
+        type: integer
+      sku:
+        type: string
+      status:
+        type: string
+      weight_grams:
+        minimum: 0
+        type: integer
+    required:
+    - currency
+    type: object
   internal_availability_notifications_delivery_http.request:
     properties:
       email:
@@ -2341,6 +2360,101 @@ paths:
           schema:
             $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
       summary: Change a support ticket's status (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/variants/{variant_id}:
+    delete:
+      description: Archives rather than deletes. A row removal would be restricted
+        by carts, silently cascade away wishlist and comparison entries, and orphan
+        stock, reservations, returns and back-in-stock subscriptions, which reference
+        variants without a foreign key.
+      parameters:
+      - description: Variant UUID
+        in: path
+        name: variant_id
+        required: true
+        type: string
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Withdraw a product variant from sale (v1 admin)
+      tags:
+      - Admin v1
+    put:
+      consumes:
+      - application/json
+      description: 'Option values are not editable: they define which variant this
+        is, so changing them would turn an existing SKU into a different one while
+        carts, reservations and order snapshots still referenced it. Existing orders
+        keep their immutable price snapshot.'
+      parameters:
+      - description: Variant UUID
+        in: path
+        name: variant_id
+        required: true
+        type: string
+      - description: Variant
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_admin_delivery_http.updateProductVariantRequest'
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Update a sellable product variant (v1 admin)
       tags:
       - Admin v1
   /api/v1/admin/videos/upload-url:

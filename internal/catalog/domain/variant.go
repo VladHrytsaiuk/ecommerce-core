@@ -67,8 +67,31 @@ type CheckoutVariant struct {
 	WeightGrams int
 }
 
+// UpdateVariantCommand is the mutable surface of a sellable unit. Option
+// values are deliberately absent: they define which variant this is, so
+// changing them would silently turn "Red / XL" into a different SKU while
+// carts, reservations and order snapshots still pointed at it.
+type UpdateVariantCommand struct {
+	SKU         string
+	Barcode     string
+	Status      string
+	Price       money.Money
+	WeightGrams int
+}
+
 type VariantRepository interface {
 	CreateVariant(context.Context, *ProductVariant) error
+	// FindVariantForUpdate reads a variant under a write lock so a caller can
+	// record what it replaced without another writer moving it in between.
+	FindVariantForUpdate(context.Context, uuid.UUID) (*ProductVariant, error)
+	UpdateVariant(context.Context, uuid.UUID, UpdateVariantCommand) (*ProductVariant, error)
+	// ArchiveVariant withdraws a variant from sale. There is deliberately no
+	// hard delete: cart_items restricts it, wishlist and comparison rows would
+	// be silently cascaded away, and stock, reservations, returns and
+	// back-in-stock subscriptions reference variants without a foreign key, so
+	// a row removal would orphan them without a single error. Archiving
+	// withdraws the variant from every sale path while that history survives.
+	ArchiveVariant(context.Context, uuid.UUID) (*ProductVariant, error)
 	// FindActiveForCheckoutBatch resolves every requested variant in one
 	// round trip. Checkout snapshots a whole cart at once, so a per-variant
 	// lookup made database traffic scale with basket size on the most
@@ -83,5 +106,7 @@ type VariantRepository interface {
 
 type VariantService interface {
 	Create(context.Context, *ProductVariant) error
+	Update(context.Context, uuid.UUID, UpdateVariantCommand) (*ProductVariant, error)
+	Archive(context.Context, uuid.UUID) (*ProductVariant, error)
 	FindActiveForCheckoutBatch(ctx context.Context, variantIDs []uuid.UUID, locale string) (map[uuid.UUID]CheckoutVariant, error)
 }

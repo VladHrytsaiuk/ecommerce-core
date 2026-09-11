@@ -669,6 +669,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		}
 		catalogAdminFacade.WithProductEventPublisher(productEventPublisher)
 		catalogAdminFacade.WithProductOptions(productOptionsService).WithInventoryAdjustment(inventoryService, storeConfig.DefaultWarehouseID)
+		catalogAdminFacade.WithVariantMutations(variantService)
 		if mediaCatalogReader != nil {
 			catalogAdminFacade.WithMediaReader(mediaCatalogReader)
 		}
