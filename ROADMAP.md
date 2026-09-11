@@ -484,8 +484,15 @@ Open follow-ups:
   the Composition Root itself has not been split into phases.
 - `Bootstrap` has not been split into phases (see the entry above); the typed
   module set landed, the Composition Root did not.
-- Sync imports the other direction only as ports: `ImportService` has no
-  authenticated ERP delivery route, so nothing invokes it.
+- Sync's inbound direction is blocked behind external inventory, not behind a
+  missing route. `ImportService` and `InboundStateStore` are implemented, but
+  `ReplaceExternalQuantity` requires `ModeExternal` while `StoreConfig.Validate`
+  refuses any `INVENTORY_MODE` other than `internal`. Adding the HTTP endpoint
+  today would publish an authenticated integration point that always answers
+  "external stock import is disabled", which reads as a working ERP hook and is
+  worse than its absence. Implementing external inventory mode — ERP as the
+  source of truth for stock, with reconciliation against local reservations —
+  is the prerequisite, and only then the delivery route.
 - Variants are archived rather than deleted. A row removal is restricted by
   carts, would silently cascade away wishlist and comparison entries, and
   would orphan stock, reservations, returns and back-in-stock subscriptions,

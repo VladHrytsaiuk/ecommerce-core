@@ -350,10 +350,13 @@ default adapter delivers a signed HTTP POST, which is the provider-neutral
 primitive for a core deployed against many back-office systems; a
 protocol-specific adapter replaces it without the Sync module changing.
 
-`ImportService` and `InboundStateStore` are implemented but have no transport:
-an authenticated ERP delivery route has not been added, so nothing calls them
-yet. Unlike the outbound direction this accumulates nothing, so it does not
-fail closed.
+`ImportService` and `InboundStateStore` are implemented but unreachable:
+`ReplaceExternalQuantity` requires `ModeExternal`, and startup refuses any
+`INVENTORY_MODE` other than `internal`. The missing piece is external inventory
+mode itself (section 5.1), not the HTTP endpoint — adding a route first would
+expose an authenticated integration point that always refuses. Unlike the
+outbound direction nothing accumulates meanwhile, so this does not fail
+closed.
 
 The Sync module provides ports for two directions:
 
