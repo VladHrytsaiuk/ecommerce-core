@@ -65,6 +65,8 @@ git clone <repository-url>
 cd ecommerce-core
 cp .env.example .env
 # Set strong JWT_SECRET and POSTGRES_PASSWORD in .env first.
+# STORE_CODE scopes issued tokens to this deployment; changing it later signs
+# every user out.
 go mod tidy
 go run ./cmd/migrate up
 go run ./cmd/api

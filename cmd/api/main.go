@@ -71,8 +71,12 @@ func main() {
 	defer func() { _ = sqlDB.Close() }()
 	logger.Log.Info("✅ Database connection established")
 
-	// 4. Ініціалізація Token Maker для JWT
-	tokenMaker, err := token.NewJWTMaker(cfg.JWTSecret)
+	// 4. Ініціалізація Token Maker для JWT.
+	// Токени прив'язані до STORE_CODE, а не лише до JWT_SECRET: дві копії ядра,
+	// що випадково отримали однаковий секрет, інакше приймали б токени одна
+	// одної. Зміна STORE_CODE знецінює всі наявні сесії цього деплою.
+	issuer, audience := token.IdentityForStore(storeConfig.Code)
+	tokenMaker, err := token.NewJWTMakerFor(cfg.JWTSecret, issuer, audience)
 	if err != nil {
 		logger.Log.Fatalw("❌ Cannot create token maker", "error", err)
 	}

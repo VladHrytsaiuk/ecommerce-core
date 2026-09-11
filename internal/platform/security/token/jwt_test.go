@@ -429,6 +429,56 @@ func TestVerifyTokenRejectsTokenFromAnotherDeployment(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestIdentityForStoreSeparatesTwoStoresSharingASecret(t *testing.T) {
+	// This is the production path: cmd/api derives the identity from
+	// STORE_CODE rather than naming an issuer by hand, so the derivation
+	// itself has to be what keeps two deployments apart.
+	issuerA, audienceA := IdentityForStore("northwind")
+	issuerB, audienceB := IdentityForStore("contoso")
+	require.NotEqual(t, issuerA, issuerB)
+	require.NotEqual(t, audienceA, audienceB)
+
+	storeA, err := NewJWTMakerFor(testSecretKey, issuerA, audienceA)
+	require.NoError(t, err)
+	storeB, err := NewJWTMakerFor(testSecretKey, issuerB, audienceB)
+	require.NoError(t, err)
+
+	signed, _, err := storeA.CreateTokenForRole(uuid.New(), RoleAdmin, time.Hour)
+	require.NoError(t, err)
+
+	verified, err := storeA.VerifyToken(signed)
+	require.NoError(t, err)
+	assert.Equal(t, RoleAdmin, verified.Role)
+
+	rejected, err := storeB.VerifyToken(signed)
+	assert.Nil(t, rejected)
+	assert.Error(t, err)
+
+	// A deployment that still uses the shared defaults must not be a way back
+	// in either, or the separation would only hold between configured stores.
+	shared, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+	rejected, err = shared.VerifyToken(signed)
+	assert.Nil(t, rejected)
+	assert.Error(t, err)
+}
+
+func TestIdentityForStoreIsNormalizedAndFallsBackWithoutAStore(t *testing.T) {
+	// STORE_CODE is already validated as lowercase, but tooling calls this
+	// with whatever it has; a differently cased code must not produce a second
+	// identity for the same store.
+	issuer, audience := IdentityForStore("  Northwind  ")
+	expectedIssuer, expectedAudience := IdentityForStore("northwind")
+	assert.Equal(t, expectedIssuer, issuer)
+	assert.Equal(t, expectedAudience, audience)
+
+	// No store configured: degrade to the previous behaviour rather than mint
+	// tokens with a trailing separator that nothing would verify.
+	issuer, audience = IdentityForStore("")
+	assert.Equal(t, DefaultIssuer, issuer)
+	assert.Equal(t, DefaultAudience, audience)
+}
+
 func TestVerifyTokenRejectsUnexpectedSigningAlgorithm(t *testing.T) {
 	maker, err := NewJWTMaker(testSecretKey)
 	require.NoError(t, err)

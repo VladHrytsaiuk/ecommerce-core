@@ -27,12 +27,34 @@ type CustomClaims struct {
 const (
 	// TokenTypeAccess is the only purpose VerifyToken accepts.
 	TokenTypeAccess = "access"
-	// DefaultIssuer and DefaultAudience bind a token to this deployment.
-	// Without them a token minted by one store is valid at any other store
-	// that happens to share JWT_SECRET, which the configuration permits.
+	// DefaultIssuer and DefaultAudience are the fallback identity, used only
+	// where no store is known — tests and tooling. They are the same constants
+	// in every build, so they bind a token to the software, not to a
+	// deployment: two stores using them both accept each other's tokens.
+	// Production entrypoints pass a store identity instead; see
+	// IdentityForStore.
 	DefaultIssuer   = "ecommerce-core"
 	DefaultAudience = "ecommerce-core-api"
 )
+
+// IdentityForStore derives the JWT issuer and audience for one deployment.
+//
+// This core is copied per store, and nothing stops two of those copies from
+// being configured with the same JWT_SECRET — a shared secrets manager, a
+// staging environment cloned from production, a template .env that was never
+// changed. The secret alone therefore cannot separate them. STORE_CODE can:
+// it is required, validated, and unique to the deployment by definition.
+//
+// An empty code returns the defaults rather than a malformed identity, so a
+// caller without a store configuration degrades to the previous behaviour
+// instead of minting tokens nothing can verify.
+func IdentityForStore(storeCode string) (issuer, audience string) {
+	code := strings.ToLower(strings.TrimSpace(storeCode))
+	if code == "" {
+		return DefaultIssuer, DefaultAudience
+	}
+	return DefaultIssuer + "/" + code, DefaultAudience + "/" + code
+}
 
 const (
 	RoleCustomer = "customer"
