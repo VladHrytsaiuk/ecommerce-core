@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+# Every check below is an `if rg ...` condition, and a missing rg makes each
+# one simply false: the script would report success having verified nothing.
+if ! command -v rg >/dev/null 2>&1; then
+  echo 'ripgrep (rg) is required; without it this script checks nothing and still exits 0.' >&2
+  exit 1
+fi
+
 active_paths=(
   cmd/api
   cmd/migrate
