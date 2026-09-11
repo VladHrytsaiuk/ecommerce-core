@@ -147,6 +147,13 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 			return StoreConfig{}, fmt.Errorf("MEDIA_PROVIDER must be s3, minio, r2, or cloudinary when media is enabled")
 		}
 	}
+	if storeConfig.Modules().Has(ModuleSync) {
+		// The order workflow starts appending to sync_outbox as soon as this
+		// module is on, so an export destination has to exist before it does.
+		if strings.TrimSpace(cfg.SyncExportURL) == "" || strings.TrimSpace(cfg.SyncExportSecret) == "" {
+			return StoreConfig{}, fmt.Errorf("SYNC_EXPORT_URL and SYNC_EXPORT_SECRET are required when sync is enabled")
+		}
+	}
 	if storeConfig.Modules().Has(ModuleVideo) {
 		if strings.ToLower(strings.TrimSpace(cfg.VideoProvider)) != "cloudflare" {
 			return StoreConfig{}, fmt.Errorf("VIDEO_PROVIDER must be cloudflare when video is enabled")

@@ -24,15 +24,27 @@ type OutboxEvent struct {
 	Payload        []byte
 	Attempts       int
 	CreatedAt      time.Time
+	// LockedAt fences this claim. A dispatcher that overruns its lease has the
+	// event re-claimed by another, which leaves the status at 'processing';
+	// without this token the slow dispatcher's acknowledgement would still
+	// match and would finalize an export the new holder is still performing.
+	LockedAt time.Time
 }
 
+// ErrLeaseLost reports that an event was re-claimed by another dispatcher
+// before this one finished. The export is not lost — its new holder owns it —
+// so this is an expected race, not an infrastructure fault.
+var ErrLeaseLost = errors.New("sync outbox lease was lost")
+
 // OutboxStore claims one due message exclusively. A claimed event remains
-// recoverable after lease expiry if its worker crashes.
+// recoverable after lease expiry if its worker crashes. Every finalizing call
+// takes the lockedAt token returned by Claim and applies only while the event
+// still holds that exact lease.
 type OutboxStore interface {
 	Claim(context.Context, time.Time, time.Duration) (*OutboxEvent, error)
-	Complete(context.Context, uuid.UUID, time.Time) error
-	Retry(context.Context, uuid.UUID, error, time.Time) error
-	DeadLetter(context.Context, uuid.UUID, error, time.Time) error
+	Complete(ctx context.Context, eventID uuid.UUID, lockedAt, deliveredAt time.Time) error
+	Retry(ctx context.Context, eventID uuid.UUID, cause error, lockedAt, availableAt time.Time) error
+	DeadLetter(ctx context.Context, eventID uuid.UUID, cause error, lockedAt, deadAt time.Time) error
 }
 
 // OrderExporter is implemented by an ERP adapter. Its implementation must

@@ -18,6 +18,7 @@ import (
 	abandonedPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/abandoned_cart/repository/postgres"
 	googleAuthAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/auth/google"
 	deliveryWorkflowAdapter "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/delivery/orderworkflow"
+	syncHTTPExport "github.com/VladHrytsaiuk/ecommerce-core/internal/adapters/sync/httpexport"
 	adminApp "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/application"
 	adminDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
 	adminPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/repository/postgres"
@@ -105,6 +106,8 @@ import (
 	supportIdentity "github.com/VladHrytsaiuk/ecommerce-core/internal/support/adapter/identity"
 	supportApp "github.com/VladHrytsaiuk/ecommerce-core/internal/support/application"
 	supportPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/support/repository/postgres"
+	syncApp "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/application"
+	syncPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/repository/postgres"
 	videoCloudflare "github.com/VladHrytsaiuk/ecommerce-core/internal/video/adapter/cloudflare"
 	videoApp "github.com/VladHrytsaiuk/ecommerce-core/internal/video/application"
 	videoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/video/repository/postgres"
@@ -151,6 +154,7 @@ type Application struct {
 	MediaOutboxWorker         *eventsApp.OutboxWorker
 	ReportsOutboxWorker       *eventsApp.OutboxWorker
 	OutboxRetention           *eventsApp.RetentionWorker
+	SyncDispatcher            *syncApp.Dispatcher
 	MediaOrphanCleanup        *mediaApp.OrphanCleanupWorker
 	SearchService             searchDomain.SearchService
 	MediaUploadService        *mediaApp.UploadService
@@ -213,14 +217,6 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// silently multiply the quota during a rollout or restart.
 	if modules.Has(ModuleSupport) && !cfg.RedisEnabled {
 		return nil, fmt.Errorf("support requires REDIS_ENABLED=true for distributed anti-spam enforcement")
-	}
-	// Enabling sync makes the order workflow append to sync_outbox, but this
-	// Composition Root constructs no dispatcher to drain it. Booting anyway
-	// would accumulate export rows that nothing ever consumes and give the
-	// operator every appearance of a working ERP integration. Refuse instead,
-	// until the dispatcher is assembled here.
-	if modules.Has(ModuleSync) {
-		return nil, fmt.Errorf("sync is enabled but its outbox dispatcher is not wired into Bootstrap; remove sync from ENABLED_MODULES")
 	}
 	taxPolicy, err := tax.NewPolicy(tax.Mode(storeConfig.TaxMode), storeConfig.VATRate)
 	if err != nil {
@@ -448,6 +444,16 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	outboxRetention, err := eventsApp.NewRetentionWorker(eventsPostgres.NewRetentionStore(db), cfg.OutboxDoneRetention, 1000, logger.Log)
 	if err != nil {
 		return nil, fmt.Errorf("configure outbox retention: %w", err)
+	}
+	var syncDispatcher *syncApp.Dispatcher
+	if modules.Has(ModuleSync) {
+		exporter, exportErr := syncHTTPExport.New(syncHTTPExport.Config{
+			Endpoint: cfg.SyncExportURL, Secret: cfg.SyncExportSecret, Timeout: cfg.SyncExportTimeout,
+		})
+		if exportErr != nil {
+			return nil, fmt.Errorf("configure sync order export: %w", exportErr)
+		}
+		syncDispatcher = syncApp.NewDispatcher(syncPostgres.NewOutboxStore(db), exporter, cfg.SyncRetryDelay, cfg.SyncDispatchLease, cfg.SyncMaxAttempts)
 	}
 	var mediaOrphanCleanup *mediaApp.OrphanCleanupWorker
 	var productEventPublisher eventsDomain.TransactionalEventPublisher
@@ -730,6 +736,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		MediaOutboxWorker:         mediaOutboxWorker,
 		ReportsOutboxWorker:       reportsOutboxWorker,
 		OutboxRetention:           outboxRetention,
+		SyncDispatcher:            syncDispatcher,
 		MediaOrphanCleanup:        mediaOrphanCleanup,
 		SearchService:             searchService,
 		MediaUploadService:        mediaUploadService,

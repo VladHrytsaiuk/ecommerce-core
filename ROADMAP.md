@@ -484,6 +484,8 @@ Open follow-ups:
   the Composition Root itself has not been split into phases.
 - `Bootstrap` has not been split into phases (see the entry above); the typed
   module set landed, the Composition Root did not.
+- Sync imports the other direction only as ports: `ImportService` has no
+  authenticated ERP delivery route, so nothing invokes it.
 
 ## Global rules
 

@@ -104,6 +104,15 @@ type Config struct {
 	CloudflareStreamSigningKeyPEM string
 	VideoPlaybackTTL              time.Duration
 
+	// Sync export. The ERP receives a signed POST; anything able to accept one
+	// needs no bespoke adapter in this core.
+	SyncExportURL     string
+	SyncExportSecret  string
+	SyncExportTimeout time.Duration
+	SyncDispatchLease time.Duration
+	SyncRetryDelay    time.Duration
+	SyncMaxAttempts   int
+
 	// SendGrid (Email)
 	SendGridAPIKey string
 	EmailFrom      string
@@ -359,6 +368,17 @@ func Load() *Config {
 	cloudflareStreamCustomerCode := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_CUSTOMER_CODE"))
 	cloudflareStreamSigningKeyID := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_SIGNING_KEY_ID"))
 	cloudflareStreamSigningKeyPEM := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_SIGNING_KEY_PEM"))
+	syncExportURL := strings.TrimSpace(os.Getenv("SYNC_EXPORT_URL"))
+	syncExportSecret := strings.TrimSpace(os.Getenv("SYNC_EXPORT_SECRET"))
+	syncExportTimeout := getEnvDuration("SYNC_EXPORT_TIMEOUT", 30*time.Second)
+	syncDispatchLease := getEnvDuration("SYNC_DISPATCH_LEASE", time.Minute)
+	syncRetryDelay := getEnvDuration("SYNC_RETRY_DELAY", time.Minute)
+	syncMaxAttempts := getEnvInt("SYNC_MAX_ATTEMPTS", 10)
+	// The lease has to outlast a slow ERP call, or a second dispatcher reclaims
+	// the event while the first is still waiting on the same export.
+	if syncExportTimeout <= 0 || syncDispatchLease <= syncExportTimeout {
+		log.Fatal("Fatal: SYNC_DISPATCH_LEASE must be greater than SYNC_EXPORT_TIMEOUT")
+	}
 	videoPlaybackTTL := getEnvDuration("VIDEO_PLAYBACK_TTL", 4*time.Hour)
 	// A playback token is the only thing standing between a storefront visitor
 	// and an unrestricted copy of the video, so its lifetime is bounded here
@@ -669,6 +689,12 @@ func Load() *Config {
 		CloudflareStreamSigningKeyID:         cloudflareStreamSigningKeyID,
 		CloudflareStreamSigningKeyPEM:        cloudflareStreamSigningKeyPEM,
 		VideoPlaybackTTL:                     videoPlaybackTTL,
+		SyncExportURL:                        syncExportURL,
+		SyncExportSecret:                     syncExportSecret,
+		SyncExportTimeout:                    syncExportTimeout,
+		SyncDispatchLease:                    syncDispatchLease,
+		SyncRetryDelay:                       syncRetryDelay,
+		SyncMaxAttempts:                      syncMaxAttempts,
 		SendGridAPIKey:                       sendGridAPIKey,
 		EmailFrom:                            emailFrom,
 		NovaPoshtaAPIKey:                     novaPoshtaAPIKey,

@@ -290,8 +290,13 @@ func assertSyncPersistence(t *testing.T, ctx context.Context, db *gorm.DB, order
 	if duplicate, err := outbox.Claim(ctx, time.Now().UTC(), time.Minute); err != nil || duplicate != nil {
 		t.Fatalf("concurrent claim = (%+v, %v), want no second claim", duplicate, err)
 	}
-	if err := outbox.Complete(ctx, event.ID, time.Now().UTC()); err != nil {
+	// The claim's lease fences the acknowledgement: a dispatcher that overran
+	// and had the event re-claimed must not finalize the new holder's work.
+	if err := outbox.Complete(ctx, event.ID, event.LockedAt, time.Now().UTC()); err != nil {
 		t.Fatalf("complete order event: %v", err)
+	}
+	if err := outbox.Complete(ctx, event.ID, event.LockedAt.Add(time.Second), time.Now().UTC()); !errors.Is(err, syncDomain.ErrLeaseLost) {
+		t.Fatalf("complete with a stale lease = %v, want ErrLeaseLost", err)
 	}
 
 	crashedID := uuid.New()

@@ -343,13 +343,17 @@ service, not merely hidden in an admin screen.
 
 ### 5.2 Sync module
 
-**Status: ports and schema only; not assembled.** The order workflow already
-appends an `order.created` envelope to `sync_outbox` when `sync` is enabled,
-and `migrations/modules/sync` provisions the table, but Bootstrap constructs no
-dispatcher to drain it. Enabling `sync` therefore fails at startup rather than
-accumulating export rows that nothing consumes. Wiring the dispatcher into the
-Composition Root is what lifts that restriction; the contracts below are the
-target and have not changed.
+**Status: outbound export assembled; inbound import ports only.** The order
+workflow appends an `order.created` envelope to `sync_outbox` when `sync` is
+enabled, and the dispatcher drains it through the `OrderExporter` port. The
+default adapter delivers a signed HTTP POST, which is the provider-neutral
+primitive for a core deployed against many back-office systems; a
+protocol-specific adapter replaces it without the Sync module changing.
+
+`ImportService` and `InboundStateStore` are implemented but have no transport:
+an authenticated ERP delivery route has not been added, so nothing calls them
+yet. Unlike the outbound direction this accumulates nothing, so it does not
+fail closed.
 
 The Sync module provides ports for two directions:
 

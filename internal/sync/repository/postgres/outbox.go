@@ -24,6 +24,7 @@ type eventRecord struct {
 	Payload        string
 	Attempts       int
 	CreatedAt      time.Time
+	LockedAt       time.Time
 }
 
 func (eventRecord) TableName() string { return "sync_outbox" }
@@ -49,7 +50,7 @@ UPDATE sync_outbox AS outbox
 SET status = 'processing', attempts = outbox.attempts + 1, locked_at = ?, updated_at = CURRENT_TIMESTAMP
 FROM candidate
 WHERE outbox.id = candidate.id
-RETURNING outbox.id, outbox.topic, outbox.aggregate_id, outbox.idempotency_key, outbox.payload, outbox.attempts, outbox.created_at`
+RETURNING outbox.id, outbox.topic, outbox.aggregate_id, outbox.idempotency_key, outbox.payload, outbox.attempts, outbox.created_at, outbox.locked_at`
 	result := s.db.WithContext(ctx).Raw(query, now, now.Add(-lease), now).Scan(&event)
 	if result.Error != nil {
 		return nil, result.Error
@@ -60,46 +61,44 @@ RETURNING outbox.id, outbox.topic, outbox.aggregate_id, outbox.idempotency_key, 
 	return &domain.OutboxEvent{
 		ID: event.ID, Topic: event.Topic, AggregateID: event.AggregateID,
 		IdempotencyKey: event.IdempotencyKey, Payload: []byte(event.Payload), Attempts: event.Attempts, CreatedAt: event.CreatedAt,
+		LockedAt: event.LockedAt,
 	}, nil
 }
 
 var _ domain.OutboxStore = (*OutboxStore)(nil)
 
-func (s *OutboxStore) Complete(ctx context.Context, eventID uuid.UUID, deliveredAt time.Time) error {
-	result := s.db.WithContext(ctx).Exec(`UPDATE sync_outbox SET status = 'delivered', delivered_at = ?, locked_at = NULL, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'processing'`, deliveredAt, eventID)
+// finalize applies a terminal state only while the event still holds the lease
+// this dispatcher was granted. Matching on status alone was unsafe: a re-claim
+// leaves the status at 'processing', so an overrunning dispatcher could
+// finalize an export another dispatcher had already taken over.
+func (s *OutboxStore) finalize(ctx context.Context, query string, eventID uuid.UUID, lockedAt time.Time, args ...any) error {
+	result := s.db.WithContext(ctx).Exec(query, append(args, eventID, lockedAt)...)
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected != 1 {
-		return fmt.Errorf("sync outbox event %s is not claimed", eventID)
+		return fmt.Errorf("%w: %s", domain.ErrLeaseLost, eventID)
 	}
 	return nil
 }
 
-func (s *OutboxStore) Retry(ctx context.Context, eventID uuid.UUID, cause error, availableAt time.Time) error {
+func (s *OutboxStore) Complete(ctx context.Context, eventID uuid.UUID, lockedAt, deliveredAt time.Time) error {
+	return s.finalize(ctx, `UPDATE sync_outbox SET status = 'delivered', delivered_at = ?, locked_at = NULL, last_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'processing' AND locked_at = ?`,
+		eventID, lockedAt, deliveredAt)
+}
+
+func (s *OutboxStore) Retry(ctx context.Context, eventID uuid.UUID, cause error, lockedAt, availableAt time.Time) error {
 	if cause == nil {
 		return fmt.Errorf("sync outbox retry requires a cause")
 	}
-	result := s.db.WithContext(ctx).Exec(`UPDATE sync_outbox SET status = 'failed', available_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'processing'`, availableAt, cause.Error(), eventID)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return fmt.Errorf("sync outbox event %s is not claimed", eventID)
-	}
-	return nil
+	return s.finalize(ctx, `UPDATE sync_outbox SET status = 'failed', available_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'processing' AND locked_at = ?`,
+		eventID, lockedAt, availableAt, cause.Error())
 }
 
-func (s *OutboxStore) DeadLetter(ctx context.Context, eventID uuid.UUID, cause error, deadAt time.Time) error {
+func (s *OutboxStore) DeadLetter(ctx context.Context, eventID uuid.UUID, cause error, lockedAt, deadAt time.Time) error {
 	if cause == nil {
 		return fmt.Errorf("sync outbox dead-letter requires a cause")
 	}
-	result := s.db.WithContext(ctx).Exec(`UPDATE sync_outbox SET status = 'dead', dead_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'processing'`, deadAt, cause.Error(), eventID)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return fmt.Errorf("sync outbox event %s is not claimed", eventID)
-	}
-	return nil
+	return s.finalize(ctx, `UPDATE sync_outbox SET status = 'dead', dead_at = ?, locked_at = NULL, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'processing' AND locked_at = ?`,
+		eventID, lockedAt, deadAt, cause.Error())
 }
