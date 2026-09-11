@@ -2508,6 +2508,33 @@ paths:
       summary: Create a Cloudflare Stream direct-upload URL
       tags:
       - Admin v1
+  /api/v1/catalog/{lang}/categories/by-slug/{slug}:
+    get:
+      parameters:
+      - description: Locale
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Category slug in the requested locale
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Get a catalog category by slug (v1)
+      tags:
+      - Catalog v1
   /api/v1/catalog/{lang}/products:
     get:
       parameters:

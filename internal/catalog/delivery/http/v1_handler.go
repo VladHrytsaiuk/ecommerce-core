@@ -141,9 +141,41 @@ func classifyCatalogError(err error) (*apiresponse.PublicError, bool) {
 	switch {
 	case errors.Is(err, domain.ErrProductNotFound):
 		return apiresponse.NotFound(err, "The requested product does not exist."), true
-	case errors.Is(err, domain.ErrInvalidProduct):
+	case errors.Is(err, domain.ErrCatalogCategoryNotFound):
+		return apiresponse.NotFound(err, "The requested category does not exist."), true
+	case errors.Is(err, domain.ErrInvalidProduct), errors.Is(err, domain.ErrInvalidCatalogCategory):
 		return apiresponse.ValidationFailed(err), true
 	default:
 		return nil, false
 	}
+}
+
+// CategoryV1Handler completes the v1 catalog contract. Categories existed only
+// on the predecessor routes, so removing those would have taken the storefront's
+// only category lookup with them.
+type CategoryV1Handler struct {
+	service domain.CategoryService
+	errors  *apiresponse.ErrorRenderer
+}
+
+func NewCategoryV1Handler(service domain.CategoryService, renderer *apiresponse.ErrorRenderer) *CategoryV1Handler {
+	return &CategoryV1Handler{service: service, errors: renderer.WithClassifier(classifyCatalogError)}
+}
+
+// GetBySlug godoc
+// @Summary Get a catalog category by slug (v1)
+// @Tags Catalog v1
+// @Produce json
+// @Param lang path string true "Locale"
+// @Param slug path string true "Category slug in the requested locale"
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 404 {object} apiresponse.ProblemDetails
+// @Router /api/v1/catalog/{lang}/categories/by-slug/{slug} [get]
+func (h *CategoryV1Handler) GetBySlug(c *gin.Context) {
+	category, err := h.service.FindBySlug(c.Request.Context(), middleware.GetLanguage(c), c.Param("slug"))
+	if err != nil {
+		h.errors.Abort(c, err)
+		return
+	}
+	apiresponse.Success(c, stdhttp.StatusOK, mapCategory(category))
 }

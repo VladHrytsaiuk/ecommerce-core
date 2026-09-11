@@ -28,7 +28,7 @@ func TestCatalogV1ListUsesStandardPaginationEnvelope(t *testing.T) {
 	router.Use(renderer.Middleware())
 	group := router.Group("/api/v1/catalog/:lang")
 	group.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{FallbackLocale: "uk", SupportedLocales: []string{"uk"}}))
-	RegisterV1Routes(group, service, renderer)
+	RegisterV1Routes(group, service, nil, renderer)
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/products?page=2&limit=2", nil))
@@ -51,7 +51,7 @@ func TestCatalogV1ReturnsProblemForMissingProduct(t *testing.T) {
 	router.Use(renderer.Middleware())
 	group := router.Group("/api/v1/catalog/:lang")
 	group.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{FallbackLocale: "uk", SupportedLocales: []string{"uk"}}))
-	RegisterV1Routes(group, &v1ProductService{findErr: domain.ErrProductNotFound}, renderer)
+	RegisterV1Routes(group, &v1ProductService{findErr: domain.ErrProductNotFound}, nil, renderer)
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/products/by-slug/missing", nil))
@@ -69,7 +69,7 @@ func TestCatalogV1RejectsUnsafeSlugBeforeService(t *testing.T) {
 	router.Use(renderer.Middleware())
 	group := router.Group("/api/v1/catalog/:lang")
 	group.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{FallbackLocale: "uk", SupportedLocales: []string{"uk"}}))
-	RegisterV1Routes(group, service, renderer)
+	RegisterV1Routes(group, service, nil, renderer)
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/products/by-slug/bad_slug", nil))
@@ -86,7 +86,7 @@ func TestCatalogV1RejectsDeepPagination(t *testing.T) {
 	router.Use(renderer.Middleware())
 	group := router.Group("/api/v1/catalog/:lang")
 	group.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{FallbackLocale: "uk", SupportedLocales: []string{"uk"}}))
-	RegisterV1Routes(group, &v1ProductService{}, renderer)
+	RegisterV1Routes(group, &v1ProductService{}, nil, renderer)
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/products?page=1001", nil))
@@ -115,7 +115,7 @@ func TestCatalogV1ProductResponseContainsOptionMatrixAndAvailability(t *testing.
 	router.Use(renderer.Middleware())
 	group := router.Group("/api/v1/catalog/:lang")
 	group.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{FallbackLocale: "uk", SupportedLocales: []string{"uk"}}))
-	RegisterV1Routes(group, service, renderer, availabilityFake{values: map[uuid.UUID]bool{variantID: true}})
+	RegisterV1Routes(group, service, nil, renderer, availabilityFake{values: map[uuid.UUID]bool{variantID: true}})
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/products/by-slug/cream", nil))
 	if recorder.Code != http.StatusOK {
@@ -176,4 +176,85 @@ func (s *v1ProductService) ListProducts(_ context.Context, _ string, page, limit
 		end = len(s.products)
 	}
 	return s.products[start:end], int64(len(s.products)), nil
+}
+
+func TestCatalogV1ServesCategoriesThatOnlyExistedOnTheRemovedRoutes(t *testing.T) {
+	// Categories were served only by the predecessor registration, so dropping
+	// it without this would have taken the storefront's only category lookup.
+	gin.SetMode(gin.TestMode)
+	categoryID := uuid.New()
+	router, _ := newCatalogV1Router(t, &v1ProductService{}, &v1CategoryService{
+		category: &domain.Category{ID: categoryID, IsActive: true, Translations: []domain.CategoryTranslation{
+			{Locale: "uk", Name: "Креми", Slug: "kremy"},
+		}},
+	})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/categories/by-slug/kremy", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	// The v1 envelope, not the bare object the predecessor route returned.
+	for _, expected := range []string{`"data":{`, categoryID.String(), `"kremy"`, `"request_id":"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("response misses %s: %s", expected, body)
+		}
+	}
+}
+
+func TestCatalogV1ReportsAMissingCategoryAsProblemDetails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router, _ := newCatalogV1Router(t, &v1ProductService{}, &v1CategoryService{err: domain.ErrCatalogCategoryNotFound})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/categories/by-slug/missing", nil))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"RESOURCE_NOT_FOUND"`) {
+		t.Fatalf("body = %s, want the shared problem-details code", recorder.Body.String())
+	}
+}
+
+func TestCatalogV1OmitsCategoriesWhenNoServiceIsConfigured(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router, _ := newCatalogV1Router(t, &v1ProductService{}, nil)
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/catalog/uk/categories/by-slug/kremy", nil))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want the route to be absent", recorder.Code)
+	}
+}
+
+func newCatalogV1Router(t *testing.T, products domain.ProductService, categories domain.CategoryService) (*gin.Engine, *apiresponse.ErrorRenderer) {
+	t.Helper()
+	renderer := apiresponse.NewErrorRenderer(nil)
+	router := gin.New()
+	router.Use(renderer.Middleware())
+	group := router.Group("/api/v1/catalog/:lang")
+	group.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{FallbackLocale: "uk", SupportedLocales: []string{"uk"}}))
+	if categories == nil {
+		RegisterV1Routes(group, products, nil, renderer)
+	} else {
+		RegisterV1Routes(group, products, categories, renderer)
+	}
+	return router, renderer
+}
+
+type v1CategoryService struct {
+	category *domain.Category
+	err      error
+}
+
+func (s *v1CategoryService) Create(context.Context, *domain.Category) error { return nil }
+func (s *v1CategoryService) FindBySlug(context.Context, string, string) (*domain.Category, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.category, nil
 }

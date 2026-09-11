@@ -7,36 +7,19 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 )
 
-// RegisterProductRoutes attaches the clean Catalog product contract. These
-// paths intentionally do not reuse the predecessor product API contract.
-func RegisterProductRoutes(localeGroup, adminGroup *gin.RouterGroup, service domain.ProductService) {
-	handler := NewProductHandler(service)
-	localeGroup.GET("/catalog/products", handler.List)
-	localeGroup.GET("/catalog/products/by-slug/:slug", handler.GetBySlug)
-	if adminGroup != nil {
-		adminGroup.POST("/catalog/products", handler.Create)
-	}
-}
-
-func RegisterVariantRoutes(adminGroup *gin.RouterGroup, service domain.VariantService) {
-	handler := NewVariantHandler(service)
-	if adminGroup != nil {
-		adminGroup.POST("/catalog/variants", handler.Create)
-	}
-}
-
-func RegisterCategoryRoutes(localeGroup, adminGroup *gin.RouterGroup, service domain.CategoryService) {
-	handler := NewCategoryHandler(service)
-	localeGroup.GET("/catalog/categories/by-slug/:slug", handler.GetBySlug)
-	if adminGroup != nil {
-		adminGroup.POST("/catalog/categories", handler.Create)
-	}
-}
-
-// RegisterV1Routes attaches the additive Catalog v1 contract. Legacy catalog
-// routes remain registered independently for existing clients.
-func RegisterV1Routes(group *gin.RouterGroup, service domain.ProductService, renderer *apiresponse.ErrorRenderer, availability ...domain.VariantAvailabilityReader) {
-	handler := NewCatalogV1Handler(service, renderer, availability...)
+// RegisterV1Routes attaches the Catalog storefront contract.
+//
+// A second, older registration used to sit alongside this one, serving the
+// same products at /api/{lang}/catalog/products through a different handler.
+// Its comment justified the duplication as compatibility for existing clients,
+// but this core is copied to start a store, so there are no existing clients
+// to be compatible with — only two implementations to keep in step, one of
+// which had no OpenAPI annotations and did not consult inventory availability.
+func RegisterV1Routes(group *gin.RouterGroup, products domain.ProductService, categories domain.CategoryService, renderer *apiresponse.ErrorRenderer, availability ...domain.VariantAvailabilityReader) {
+	handler := NewCatalogV1Handler(products, renderer, availability...)
 	group.GET("/products", handler.List)
 	group.GET("/products/by-slug/:slug", handler.GetBySlug)
+	if categories != nil {
+		group.GET("/categories/by-slug/:slug", NewCategoryV1Handler(categories, renderer).GetBySlug)
+	}
 }

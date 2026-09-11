@@ -77,7 +77,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	deliveryHTTP.RegisterV1LocationRoutes(v1.Group("/delivery"), application.DeliveryLocations, application.HTTP.ErrorRenderer)
 	v1Catalog := v1.Group("/catalog/:lang")
 	v1Catalog.Use(application.HTTP.RequestBodyLimit, application.HTTP.LocaleMiddleware)
-	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer, application.InventoryAvailability)
+	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.CatalogCategoryService, application.HTTP.ErrorRenderer, application.InventoryAvailability)
 	if application.VideoStorefront != nil {
 		videoHTTP.RegisterStorefrontRoutes(v1.Group("/catalog/products"), application.VideoStorefront, application.HTTP.ErrorRenderer)
 	}
@@ -141,8 +141,6 @@ func InitRouter(application *app.Application) *gin.Engine {
 	cart.Use(application.HTTP.OptionalAuth)
 	cartHTTP.RegisterRoutes(cart, application.CartService, application.Config.CookieSecure)
 	checkoutHTTP.RegisterRoutes(cart, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID, application.Config.CookieSecure, sensitiveLimit)
-	catalogHTTP.RegisterCategoryRoutes(localized, nil, application.CatalogCategoryService)
-	catalogHTTP.RegisterProductRoutes(localized, nil, application.CatalogProductService)
 	return r
 }
 
