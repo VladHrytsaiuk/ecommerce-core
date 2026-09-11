@@ -52,11 +52,12 @@ func (s *Service) ReplyAsAgent(ctx context.Context, ticketID, agentID uuid.UUID,
 		if err != nil {
 			return err
 		}
-		if err := s.scheduler.ScheduleEmail(txCtx, "support_agent_reply", ticket.Email, struct {
-			TicketID    uuid.UUID `json:"ticket_id"`
-			Subject     string    `json:"subject"`
-			MessageBody string    `json:"message_body"`
-		}{ticket.ID, ticket.Subject, strings.TrimSpace(body)}); err != nil {
+		if err := // support_tickets records no locale, so the store's is used.
+			s.scheduler.ScheduleEmail(txCtx, "support_agent_reply", "", ticket.Email, struct {
+				TicketID    uuid.UUID `json:"ticket_id"`
+				Subject     string    `json:"subject"`
+				MessageBody string    `json:"message_body"`
+			}{ticket.ID, ticket.Subject, strings.TrimSpace(body)}); err != nil {
 			return err
 		}
 		result = ticket

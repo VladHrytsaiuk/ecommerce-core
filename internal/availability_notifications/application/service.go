@@ -75,7 +75,10 @@ func (h *Handler) Handle(ctx context.Context, d events.Delivery) error {
 				SubscriptionID uuid.UUID `json:"subscription_id"`
 				VariantID      uuid.UUID `json:"variant_id"`
 			}{s.ID, s.VariantID}
-			if e := h.scheduler.ScheduleEmail(t, notifications.BackInStockJobType, s.Email, payload); e != nil {
+			if e := // A back-in-stock subscription records an email and nothing about the
+				// subscriber's language, so the store's locale is the best available
+				// answer. Capturing one at subscribe time would be the improvement.
+				h.scheduler.ScheduleEmail(t, notifications.BackInStockJobType, "", s.Email, payload); e != nil {
 				return e
 			}
 		}

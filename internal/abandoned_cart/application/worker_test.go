@@ -44,9 +44,12 @@ func (workerConsentFake) HasConsent(context.Context, *uuid.UUID, string) (bool, 
 	return false, nil
 }
 
-type workerSchedulerFake struct{}
+type workerSchedulerFake struct{ locales []string }
 
-func (workerSchedulerFake) ScheduleEmail(context.Context, string, string, any) error { return nil }
+func (f *workerSchedulerFake) ScheduleEmail(_ context.Context, _, locale, _ string, _ any) error {
+	f.locales = append(f.locales, locale)
+	return nil
+}
 
 type workerTxFake struct{}
 
@@ -55,11 +58,22 @@ func (workerTxFake) WithinTransaction(ctx context.Context, fn func(context.Conte
 }
 
 func TestWorkerRequeuesClaimWithFinalizationContextAfterCancellation(t *testing.T) {
+	// Claiming and processing are separate transactions, so a campaign whose
+	// processing failed during shutdown has to have its lease released on a
+	// detached context — the cancelled one would roll the release back too and
+	// the campaign would sit unclaimable until its lease expired.
+	//
+	// This drives the pass directly rather than through Run, because Run does
+	// no work on an already-cancelled context: shutdown is not the time to
+	// start claiming.
 	repository := &workerRepoFake{claimed: &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), Step: 1}}
-	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, workerSchedulerFake{}, workerTxFake{}, Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, &workerSchedulerFake{}, workerTxFake{}, Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	worker.Run(ctx, time.Millisecond)
+
+	if _, err := worker.claimAndProcess(ctx); err != nil {
+		t.Fatalf("claimAndProcess() error = %v", err)
+	}
 	if !repository.requeued {
 		t.Fatal("claimed campaign was not requeued")
 	}
@@ -68,4 +82,17 @@ func TestWorkerRequeuesClaimWithFinalizationContextAfterCancellation(t *testing.
 	}
 }
 
-var _ notifications.NotificationScheduler = workerSchedulerFake{}
+func TestWorkerDoesNotStartClaimingDuringShutdown(t *testing.T) {
+	repository := &workerRepoFake{claimed: &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), Step: 1}}
+	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, &workerSchedulerFake{}, workerTxFake{}, Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	worker.Run(ctx, time.Millisecond)
+
+	if repository.claimed == nil {
+		t.Fatal("a campaign was claimed on an already-cancelled context")
+	}
+}
+
+var _ notifications.NotificationScheduler = (*workerSchedulerFake)(nil)

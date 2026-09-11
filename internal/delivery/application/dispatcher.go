@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/worker"
 )
 
 type Dispatcher struct {
@@ -14,6 +15,16 @@ type Dispatcher struct {
 	carriers    *Registry
 	retryDelay  time.Duration
 	maxAttempts int
+	logger      worker.Logger
+}
+
+// WithLogger makes a failing pass visible. Without it the dispatcher is silent
+// by construction: an unreachable database looks exactly like an empty queue.
+func (d *Dispatcher) WithLogger(logger worker.Logger) *Dispatcher {
+	if d != nil && logger != nil {
+		d.logger = logger
+	}
+	return d
 }
 
 // MaxAttempts bounds ambiguous carrier retries. A dead job is deliberately
@@ -26,17 +37,25 @@ func NewDispatcher(jobs domain.JobStore, carriers *Registry, retryDelay time.Dur
 	}
 	return &Dispatcher{jobs: jobs, carriers: carriers, retryDelay: retryDelay, maxAttempts: MaxAttempts}
 }
+
+// DispatchOnce settles at most one job. It reports whether it found one, so a
+// drain can tell an empty queue from a completed unit of work.
 func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
+	_, err := d.dispatchOnce(ctx)
+	return err
+}
+
+func (d *Dispatcher) dispatchOnce(ctx context.Context) (bool, error) {
 	if d.jobs == nil || d.carriers == nil {
-		return fmt.Errorf("delivery dispatcher is not configured")
+		return false, fmt.Errorf("delivery dispatcher is not configured")
 	}
 	job, err := d.jobs.Claim(ctx, time.Now().UTC())
 	if err != nil || job == nil {
-		return err
+		return false, err
 	}
 	carrier, ok := d.carriers.Get(job.Provider)
 	if !ok {
-		return d.jobs.Fail(context.WithoutCancel(ctx), *job, fmt.Errorf("delivery carrier %q is not enabled", job.Provider))
+		return true, d.jobs.Fail(context.WithoutCancel(ctx), *job, fmt.Errorf("delivery carrier %q is not enabled", job.Provider))
 	}
 	// Reconcile before issuing a non-idempotent provider create. Nova Poshta
 	// stores this stable UUID in InfoRegClientBarcodes; a timeout can therefore
@@ -45,10 +64,10 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
 	if canReconcile {
 		result, findErr := finder.FindShipment(ctx, job.IdempotencyKey.String())
 		if findErr != nil {
-			return d.retryOrDead(ctx, job, findErr)
+			return true, d.retryOrDead(ctx, job, findErr)
 		}
 		if result != nil {
-			return d.jobs.Complete(context.WithoutCancel(ctx), *job, *result)
+			return true, d.jobs.Complete(context.WithoutCancel(ctx), *job, *result)
 		}
 	}
 	// Re-dispatching after an ambiguous failure is the one case where a
@@ -60,14 +79,14 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context) error {
 	// A failure the adapter marked ErrShipmentNotSent is exempt: it promises
 	// nothing was created, so there is nothing to duplicate.
 	if !canReconcile && job.Attempts > 1 && !job.LastFailureWasDefinite {
-		return d.jobs.Dead(context.WithoutCancel(ctx), *job,
+		return true, d.jobs.Dead(context.WithoutCancel(ctx), *job,
 			fmt.Errorf("delivery carrier %q cannot confirm whether attempt %d created a shipment; reconcile manually before re-dispatching", job.Provider, job.Attempts-1))
 	}
 	result, err := carrier.CreateShipment(ctx, domain.CreateShipmentRequest{OrderID: job.OrderID, IdempotencyKey: job.IdempotencyKey.String(), Destination: job.Destination, Items: job.Items, DeclaredValue: job.DeclaredValue})
 	if err != nil {
-		return d.retryOrDead(ctx, job, err)
+		return true, d.retryOrDead(ctx, job, err)
 	}
-	return d.jobs.Complete(context.WithoutCancel(ctx), *job, result)
+	return true, d.jobs.Complete(context.WithoutCancel(ctx), *job, result)
 }
 
 func (d *Dispatcher) retryOrDead(ctx context.Context, job *domain.DispatchJob, cause error) error {
@@ -79,18 +98,10 @@ func (d *Dispatcher) retryOrDead(ctx context.Context, job *domain.DispatchJob, c
 	// claim can tell a safe retry from a possible duplicate.
 	return d.jobs.Retry(finalizeCtx, *job, cause, time.Now().UTC().Add(d.retryDelay), errors.Is(cause, domain.ErrShipmentNotSent))
 }
+
+// Run drains the job queue each tick rather than settling one shipment per
+// interval. On the default five-second tick that was twelve dispatches an
+// hour: a backlog from any outage took days to clear.
 func (d *Dispatcher) Run(ctx context.Context, interval time.Duration) {
-	if interval <= 0 {
-		interval = 5 * time.Second
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		_ = d.DispatchOnce(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
+	worker.LoopDraining(ctx, interval, 5*time.Second, d.logger, "delivery dispatcher", d.dispatchOnce)
 }

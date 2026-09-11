@@ -242,7 +242,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var availabilityService *availabilityApp.Service
 	var availabilityOutboxWorker *eventsApp.OutboxWorker
 	if availabilityEnabled {
-		availability := buildAvailability(db)
+		availability := buildAvailability(storeConfig, db)
 		availabilityService, availabilityOutboxWorker = availability.Service, availability.Worker
 		// Inventory publishes the stock transition that wakes the consumer, so
 		// the publisher is attached where that transition happens.
@@ -250,7 +250,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	var supportService *supportApp.Service
 	if supportEnabled {
-		supportService = buildSupport(db, loginLimiter)
+		supportService = buildSupport(storeConfig, db, loginLimiter)
 	}
 	var consentService *consentApp.Service
 	if consentEnabled {
@@ -334,7 +334,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if exportErr != nil {
 			return nil, fmt.Errorf("configure sync order export: %w", exportErr)
 		}
-		syncDispatcher = syncApp.NewDispatcher(syncPostgres.NewOutboxStore(db), exporter, cfg.SyncRetryDelay, cfg.SyncDispatchLease, cfg.SyncMaxAttempts)
+		syncDispatcher = syncApp.NewDispatcher(syncPostgres.NewOutboxStore(db), exporter, cfg.SyncRetryDelay, cfg.SyncDispatchLease, cfg.SyncMaxAttempts).WithLogger(logger.Log)
 	}
 	var mediaOrphanCleanup *mediaApp.OrphanCleanupWorker
 	var productEventPublisher eventsDomain.TransactionalEventPublisher
@@ -421,7 +421,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	var checkoutContactCapture checkoutDomain.ContactCaptureService
 	if abandonedCartEnabled {
-		abandoned, abandonedErr := buildAbandonedCart(cfg, db, consentService, func() *cartApp.Service {
+		abandoned, abandonedErr := buildAbandonedCart(cfg, storeConfig, db, consentService, func() *cartApp.Service {
 			return cartApp.NewService(newCartRepository(db, reportsEnabled, abandonedCartEnabled))
 		})
 		if abandonedErr != nil {
@@ -463,9 +463,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			},
 		})
 	}
-	deliveryTracker := deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers)
+	deliveryTracker := deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers).WithLogger(logger.Log)
 	if deliveryOrderTransitioner != nil {
-		deliveryTracker = deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers, deliveryOrderTransitioner)
+		deliveryTracker = deliveryApp.NewTracker(deliveryPostgres.NewTrackingStore(db), deliveryCarriers, deliveryOrderTransitioner).WithLogger(logger.Log)
 	}
 	application := &Application{
 		Config: cfg, StoreConfig: storeConfig, TokenMaker: tokenMaker,
@@ -476,7 +476,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		CheckoutService:           checkoutService,
 		CheckoutContactCapture:    checkoutContactCapture,
 		CheckoutRecovery:          checkoutApp.NewRecoveryService(orderWorkflowService, paymentGateways, logger.Log),
-		CheckoutExpiry:            checkoutApp.NewExpiryService(orderWorkflowService),
+		CheckoutExpiry:            checkoutApp.NewExpiryService(orderWorkflowService).WithLogger(logger.Log),
 		OrderWorkflowService:      orderWorkflowService,
 		InventoryService:          inventoryService,
 		InventoryAvailability:     inventoryRepository,
@@ -494,7 +494,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		PaymentWebhookService:     paymentWebhookService,
 		DeliveryCarriers:          deliveryCarriers,
 		DeliveryLocations:         deliveryApp.NewLocationService(deliveryCarriers, cacheService),
-		DeliveryDispatcher:        deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute),
+		DeliveryDispatcher:        deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute).WithLogger(logger.Log),
 		DeliveryTracker:           deliveryTracker,
 		OutboxWorker:              eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...).WithTracer(observability.NewOutboxTracer()),
 		AdminAuditOutboxWorker:    adminAuditOutboxWorker,

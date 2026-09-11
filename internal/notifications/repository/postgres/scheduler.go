@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func (r *Repository) ScheduleEmail(ctx context.Context, typ, email string, payload any) error {
+func (r *Repository) ScheduleEmail(ctx context.Context, typ, locale, email string, payload any) error {
 	tx, err := transaction.FromContext(ctx)
 	if err != nil {
 		return fmt.Errorf("notification schedule requires transaction: %w", err)
@@ -20,6 +20,15 @@ func (r *Repository) ScheduleEmail(ctx context.Context, typ, email string, paylo
 	email = strings.ToLower(strings.TrimSpace(email))
 	if typ == "" || email == "" {
 		return fmt.Errorf("notification type and email are required")
+	}
+	// notification_jobs.locale is NOT NULL and rejects an empty string, and a
+	// caller that does not know the recipient's language should get the
+	// store's, not a language picked in this file.
+	if locale = strings.ToLower(strings.TrimSpace(locale)); locale == "" {
+		locale = r.defaultLocale
+	}
+	if locale == "" {
+		return fmt.Errorf("notification schedule requires a locale or a configured default")
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -30,7 +39,7 @@ func (r *Repository) ScheduleEmail(ctx context.Context, typ, email string, paylo
 	// dispatcher names the worker that owns this row. Without it DurableWorker
 	// also claimed the order-paid receipts, whose render data is encrypted and
 	// whose payload column is NULL, and recorded them dead.
-	return tx.Exec(`INSERT INTO notification_jobs (id,event_id,order_id,dedupe_key,channel,recipient_email,locale,template_key,payload_ciphertext,status,provider,dispatcher,type,payload,retry_count,next_retry_at,created_at) VALUES (?,?,NULL,?,'email',?,'en',?,'{}','pending','scheduled','scheduler',?,?,0,?,?) ON CONFLICT (dedupe_key) DO NOTHING`, uuid.New(), uuid.New(), dedupe, email, typ, typ, string(raw), now, now).Error
+	return tx.Exec(`INSERT INTO notification_jobs (id,event_id,order_id,dedupe_key,channel,recipient_email,locale,template_key,payload_ciphertext,status,provider,dispatcher,type,payload,retry_count,next_retry_at,created_at) VALUES (?,?,NULL,?,'email',?,?,?,'{}','pending','scheduled','scheduler',?,?,0,?,?) ON CONFLICT (dedupe_key) DO NOTHING`, uuid.New(), uuid.New(), dedupe, email, locale, typ, typ, string(raw), now, now).Error
 }
 
 var _ notifications.NotificationScheduler = (*Repository)(nil)
@@ -43,13 +52,14 @@ func (r *Repository) ClaimDue(ctx context.Context, now time.Time) (*notification
 		ID             uuid.UUID
 		Type           string
 		RecipientEmail string
+		Locale         string
 		Payload        []byte
 		RetryCount     int
 		LockToken      uuid.UUID
 	}
 	token := uuid.New()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return tx.Raw(`WITH c AS (SELECT id FROM notification_jobs WHERE dispatcher='scheduler' AND ((status IN ('pending','failed') AND next_retry_at<=?) OR (status='sending' AND locked_at<=?)) ORDER BY next_retry_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE notification_jobs j SET status='sending',retry_count=j.retry_count+1,locked_at=?,lock_token=?,updated_at=CURRENT_TIMESTAMP FROM c WHERE j.id=c.id RETURNING j.id,j.type,j.recipient_email,j.payload,j.retry_count,j.lock_token`, now, now.Add(-5*time.Minute), now, token).Scan(&row).Error
+		return tx.Raw(`WITH c AS (SELECT id FROM notification_jobs WHERE dispatcher='scheduler' AND ((status IN ('pending','failed') AND next_retry_at<=?) OR (status='sending' AND locked_at<=?)) ORDER BY next_retry_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE notification_jobs j SET status='sending',retry_count=j.retry_count+1,locked_at=?,lock_token=?,updated_at=CURRENT_TIMESTAMP FROM c WHERE j.id=c.id RETURNING j.id,j.type,j.recipient_email,j.locale,j.payload,j.retry_count,j.lock_token`, now, now.Add(-5*time.Minute), now, token).Scan(&row).Error
 	})
 	if err != nil {
 		return nil, err
@@ -57,7 +67,7 @@ func (r *Repository) ClaimDue(ctx context.Context, now time.Time) (*notification
 	if row.ID == uuid.Nil {
 		return nil, nil
 	}
-	return &notifications.DurableJob{ID: row.ID, LockToken: row.LockToken, Type: row.Type, Email: row.RecipientEmail, Payload: row.Payload, RetryCount: row.RetryCount}, nil
+	return &notifications.DurableJob{ID: row.ID, LockToken: row.LockToken, Type: row.Type, Email: row.RecipientEmail, Locale: row.Locale, Payload: row.Payload, RetryCount: row.RetryCount}, nil
 }
 func (r *Repository) Complete(ctx context.Context, job notifications.DurableJob) error {
 	result := r.db.WithContext(ctx).Exec(`UPDATE notification_jobs SET status='sent',sent_at=CURRENT_TIMESTAMP,locked_at=NULL,lock_token=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='sending' AND lock_token=?`, job.ID, job.LockToken)

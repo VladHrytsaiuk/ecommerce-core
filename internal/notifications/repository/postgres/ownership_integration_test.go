@@ -54,6 +54,23 @@ func TestClaimDueNeverTakesAnOrderPaidReceipt(t *testing.T) {
 
 // TestClaimDueStillTakesItsOwnJobs guards the other direction: the filter must
 // not stop the scheduler doing its own work.
+// TestAScheduledJobCarriesItsLocaleToTheWorker covers the other half of the
+// same row. The locale column was written as a hard-coded "en" and then never
+// read back: the worker rendered every scheduled email in English, so a store
+// that had seeded both English and its own templates sent English to everyone.
+func TestAScheduledJobCarriesItsLocaleToTheWorker(t *testing.T) {
+	repository, db := newNotificationTestRepository(t)
+	seedScheduledJob(t, db, "back_in_stock")
+
+	claimed, err := repository.ClaimDue(context.Background(), time.Now().UTC())
+	if err != nil || claimed == nil {
+		t.Fatalf("ClaimDue() = (%v, %v)", claimed, err)
+	}
+	if claimed.Locale != "uk" {
+		t.Fatalf("claimed locale = %q, want the store's configured locale", claimed.Locale)
+	}
+}
+
 func TestClaimDueStillTakesItsOwnJobs(t *testing.T) {
 	repository, db := newNotificationTestRepository(t)
 	ctx := context.Background()
@@ -129,9 +146,11 @@ func seedOrderPaidJob(t *testing.T, db *gorm.DB) uuid.UUID {
 // writer, which is where the ownership marker has to be set.
 func seedScheduledJob(t *testing.T, db *gorm.DB, jobType string) uuid.UUID {
 	t.Helper()
-	repository := NewRepository(db)
+	repository := NewRepository(db).WithDefaultLocale("uk")
 	err := db.Transaction(func(tx *gorm.DB) error {
-		return repository.ScheduleEmail(transaction.WithContext(context.Background(), tx), jobType, "buyer@example.com",
+		// Empty locale: the caller does not know the recipient's, so the
+		// store's configured one must be stored rather than a hard-coded "en".
+		return repository.ScheduleEmail(transaction.WithContext(context.Background(), tx), jobType, "", "buyer@example.com",
 			map[string]string{"product": "Hand cream"})
 	})
 	if err != nil {

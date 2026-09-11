@@ -18,9 +18,21 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/sanitize"
 )
 
-type Repository struct{ db *gorm.DB }
+type Repository struct {
+	db            *gorm.DB
+	defaultLocale string
+}
 
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
+
+// WithDefaultLocale supplies the store's locale for scheduled jobs whose
+// caller does not know the recipient's.
+func (r *Repository) WithDefaultLocale(locale string) *Repository {
+	if r != nil {
+		r.defaultLocale = strings.ToLower(strings.TrimSpace(locale))
+	}
+	return r
+}
 
 type contactRecord struct {
 	OrderID uuid.UUID

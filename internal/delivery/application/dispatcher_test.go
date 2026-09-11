@@ -7,6 +7,7 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
 	"github.com/google/uuid"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -218,3 +219,56 @@ func TestTheDefinitenessOfAFailureIsRecordedForTheNextAttempt(t *testing.T) {
 		})
 	}
 }
+
+func TestRunDrainsTheBacklogInsteadOfOneJobPerTick(t *testing.T) {
+	// On the default five-second tick, one job per pass was twelve dispatches
+	// an hour: a backlog from any outage took days to clear.
+	jobs := &queuedJobs{remaining: 7}
+	ctx, cancel := context.WithCancel(context.Background())
+	dispatcher := NewDispatcher(jobs, mustRegistry(t, &dispatchCarrier{}), time.Minute)
+
+	done := make(chan struct{})
+	go func() {
+		dispatcher.Run(ctx, time.Hour)
+		close(done)
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for jobs.left() > 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	if left := jobs.left(); left != 0 {
+		t.Fatalf("%d jobs left after one tick, want the backlog drained", left)
+	}
+}
+
+type queuedJobs struct {
+	mu        sync.Mutex
+	remaining int
+}
+
+func (q *queuedJobs) left() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.remaining
+}
+
+func (q *queuedJobs) Claim(context.Context, time.Time) (*domain.DispatchJob, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.remaining == 0 {
+		return nil, nil
+	}
+	q.remaining--
+	return &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: mustMoney(100, "EUR"), Attempts: 1}, nil
+}
+func (*queuedJobs) Complete(context.Context, domain.DispatchJob, domain.ShipmentResult) error {
+	return nil
+}
+func (*queuedJobs) Retry(context.Context, domain.DispatchJob, error, time.Time, bool) error {
+	return nil
+}
+func (*queuedJobs) Fail(context.Context, domain.DispatchJob, error) error { return nil }
+func (*queuedJobs) Dead(context.Context, domain.DispatchJob, error) error { return nil }

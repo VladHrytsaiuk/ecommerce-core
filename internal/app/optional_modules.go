@@ -305,10 +305,10 @@ func buildNotifications(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB
 	if err != nil {
 		return notificationsRuntime{}, fmt.Errorf("configure notifications email sender: %w", err)
 	}
-	repository := notificationsPostgres.NewRepository(db)
+	repository := notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale)
 	renderer := notificationsApp.NewTemplateRenderer(repository, storeConfig.DefaultLocale)
 	return notificationsRuntime{
-		Worker:   notificationsApp.NewDurableWorker(repository, renderer, sender),
+		Worker:   notificationsApp.NewDurableWorker(repository, renderer, sender).WithLogger(logger.Log),
 		Handlers: []eventsApp.Consumer{notificationsApp.NewOrderPaidEventHandler(repository, cipher, renderer, sender)},
 	}, nil
 }
@@ -321,7 +321,7 @@ type abandonedCartRuntime struct {
 	ContactCapture checkoutDomain.ContactCaptureService
 }
 
-func buildAbandonedCart(cfg *config.Config, db *gorm.DB, consent *consentApp.Service, cartRepositoryFor func() *cartApp.Service) (abandonedCartRuntime, error) {
+func buildAbandonedCart(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, consent *consentApp.Service, cartRepositoryFor func() *cartApp.Service) (abandonedCartRuntime, error) {
 	quietHours, err := abandonedApp.ParseQuietHours(cfg.AbandonedCartQuietHours)
 	if err != nil {
 		return abandonedCartRuntime{}, fmt.Errorf("configure abandoned-cart quiet hours: %w", err)
@@ -339,7 +339,7 @@ func buildAbandonedCart(cfg *config.Config, db *gorm.DB, consent *consentApp.Ser
 		QuietHours:              quietHours,
 	}
 	return abandonedCartRuntime{
-		Worker: abandonedApp.NewWorker(campaigns, carts, abandonedReaders.NewConsentReader(db), notificationsPostgres.NewRepository(db), adminPostgres.NewTransactionManager(db), policy),
+		Worker: abandonedApp.NewWorker(campaigns, carts, abandonedReaders.NewConsentReader(db), notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale), adminPostgres.NewTransactionManager(db), policy).WithLogger(logger.Log),
 		OutboxWorker: eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), abandonedApp.ConsumerCampaignProducer, time.Minute, logger.Log,
 			producer, abandonedApp.NewTopicConsumer(eventsDomain.TopicCheckoutEmailCaptured, producer)).WithTracer(observability.NewOutboxTracer()),
 		ContactCapture: checkoutApp.NewContactCaptureService(
@@ -402,9 +402,9 @@ type availabilityRuntime struct {
 	Worker  *eventsApp.OutboxWorker
 }
 
-func buildAvailability(db *gorm.DB) availabilityRuntime {
+func buildAvailability(storeConfig StoreConfig, db *gorm.DB) availabilityRuntime {
 	repository := availabilityPostgres.NewRepository(db)
-	handler := availabilityApp.NewHandler(repository, notificationsPostgres.NewRepository(db), func(ctx context.Context, fn func(context.Context) error) error {
+	handler := availabilityApp.NewHandler(repository, notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale), func(ctx context.Context, fn func(context.Context) error) error {
 		return adminPostgres.NewTransactionManager(db).WithinTransaction(ctx, fn)
 	})
 	return availabilityRuntime{
@@ -416,12 +416,12 @@ func buildAvailability(db *gorm.DB) availabilityRuntime {
 
 // buildSupport wires public ticket intake. Its spam protector takes the shared
 // limiter rather than a private one, so the quota holds across replicas.
-func buildSupport(db *gorm.DB, limiter ratelimit.Service) *supportApp.Service {
+func buildSupport(storeConfig StoreConfig, db *gorm.DB, limiter ratelimit.Service) *supportApp.Service {
 	return supportApp.NewService(
 		supportPostgres.NewRepository(db),
 		supportApp.NewSpamProtector(limiter),
 		supportIdentity.NewEmailReader(db),
-	).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), notificationsPostgres.NewRepository(db))
+	).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale))
 }
 
 // buildConsent wires GDPR consent and privacy requests.

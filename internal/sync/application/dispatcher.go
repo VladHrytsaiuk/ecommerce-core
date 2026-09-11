@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"time"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/worker"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/sync/domain"
 )
 
@@ -32,6 +33,16 @@ type Dispatcher struct {
 	retryDelay  time.Duration
 	lease       time.Duration
 	maxAttempts int
+	logger      worker.Logger
+}
+
+// WithLogger reports a failing drain. Without it an unreachable ERP or
+// database is indistinguishable from an empty export queue.
+func (d *Dispatcher) WithLogger(logger worker.Logger) *Dispatcher {
+	if d != nil && logger != nil {
+		d.logger = logger
+	}
+	return d
 }
 
 func NewDispatcher(outbox domain.OutboxStore, exporter domain.OrderExporter, retryDelay, lease time.Duration, maxAttempts int) *Dispatcher {
@@ -136,17 +147,5 @@ func (d *Dispatcher) retryAfter(attempts int) time.Duration {
 }
 
 func (d *Dispatcher) Run(ctx context.Context, interval time.Duration) {
-	if interval <= 0 {
-		interval = 5 * time.Second
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		_ = d.drain(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
+	worker.Loop(ctx, interval, 5*time.Second, d.logger, "sync dispatcher", d.drain)
 }

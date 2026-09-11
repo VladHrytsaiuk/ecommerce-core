@@ -4,6 +4,7 @@ import (
 	"context"
 	cart "github.com/VladHrytsaiuk/ecommerce-core/internal/abandoned_cart/domain"
 	notifications "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/worker"
 	"github.com/google/uuid"
 	"time"
 )
@@ -23,32 +24,49 @@ type Worker struct {
 	tx        cart.TransactionManager
 	policy    Policy
 	now       func() time.Time
+	logger    worker.Logger
+}
+
+// WithLogger reports a failing pass. A recovery campaign that stops running
+// produces no error anyone sees — only revenue that quietly does not arrive.
+func (w *Worker) WithLogger(logger worker.Logger) *Worker {
+	if w != nil && logger != nil {
+		w.logger = logger
+	}
+	return w
 }
 
 func NewWorker(r cart.Repository, c cart.CartRecoveryReader, co cart.MarketingConsentReader, n notifications.NotificationScheduler, tx cart.TransactionManager, p Policy) *Worker {
-	return &Worker{r, c, co, n, tx, p, func() time.Time { return time.Now().UTC() }}
+	return &Worker{repo: r, carts: c, consent: co, scheduler: n, tx: tx, policy: p, now: func() time.Time { return time.Now().UTC() }}
 }
+
+// Run drains the due campaigns each tick. One campaign per tick meant the
+// queue was paced by the ticker rather than by how much work was waiting.
 func (w *Worker) Run(ctx context.Context, interval time.Duration) {
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	for {
-		if c, e := w.repo.ClaimDue(ctx, w.now()); e == nil && c != nil {
-			if e = w.process(ctx, c); e != nil {
-				// Claiming and processing are deliberately separate transactions.
-				// On shutdown the processing tx rolls back, so use a short detached
-				// context to release the lease immediately instead of waiting for its
-				// expiry. The update is conditional on status=processing.
-				finalizeCtx, cancel := finalizationContext(ctx)
-				_ = w.repo.Requeue(finalizeCtx, c.ID)
-				cancel()
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
+	worker.LoopDraining(ctx, interval, time.Minute, w.logger, "abandoned cart worker", w.claimAndProcess)
+}
+
+func (w *Worker) claimAndProcess(ctx context.Context) (bool, error) {
+	campaign, err := w.repo.ClaimDue(ctx, w.now())
+	if err != nil || campaign == nil {
+		return false, err
 	}
+	if err := w.process(ctx, campaign); err != nil {
+		// Claiming and processing are deliberately separate transactions. On
+		// shutdown the processing tx rolls back, so use a short detached
+		// context to release the lease immediately instead of waiting for its
+		// expiry. The update is conditional on status=processing.
+		finalizeCtx, cancel := finalizationContext(ctx)
+		requeueErr := w.repo.Requeue(finalizeCtx, campaign.ID)
+		cancel()
+		if requeueErr != nil {
+			return true, requeueErr
+		}
+		// The campaign is durably back in the queue, so this pass is healthy
+		// and the rest of the backlog must not wait for the next tick.
+		return true, nil
+	}
+	return true, nil
 }
 
 func finalizationContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -92,7 +110,9 @@ func (w *Worker) process(ctx context.Context, c *cart.Campaign) error {
 		if e := w.repo.Update(tc, c); e != nil {
 			return e
 		}
-		if e := w.scheduler.ScheduleEmail(tc, "abandoned_cart", c.ContactEmail, struct {
+		// A recovery campaign records the contact email and nothing about
+		// the shopper's language, so the store's locale is used.
+		if e := w.scheduler.ScheduleEmail(tc, "abandoned_cart", "", c.ContactEmail, struct {
 			CartID uuid.UUID `json:"cart_id"`
 			Step   int       `json:"step"`
 		}{c.CartID, c.Step}); e != nil {
