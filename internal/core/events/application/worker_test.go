@@ -15,7 +15,7 @@ import (
 func TestOutboxWorkerClaimsAndCompletesOneDelivery(t *testing.T) {
 	eventID := uuid.New()
 	store := &fakeDeliveryStore{delivery: &events.Delivery{EventID: eventID, Topic: events.TopicOrderPaid, Consumer: events.ConsumerNotifications}}
-	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil)
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{})
 
 	if err := worker.DispatchOnce(context.Background()); err != nil {
 		t.Fatalf("DispatchOnce() error = %v", err)
@@ -62,7 +62,7 @@ func TestOutboxWorkerBoundsFinalizationAfterParentCancellation(t *testing.T) {
 	store := &fakeDeliveryStore{delivery: &events.Delivery{EventID: eventID, Topic: events.TopicOrderPaid, Consumer: events.ConsumerNotifications}}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil).DispatchOnce(ctx); err != nil {
+	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{}).DispatchOnce(ctx); err != nil {
 		t.Fatalf("DispatchOnce() error = %v", err)
 	}
 	if !store.completeHasDeadline || store.completeContextErr != nil {
@@ -83,6 +83,50 @@ func TestOutboxWorkerDispatchesEveryHandlerForATopic(t *testing.T) {
 	}
 }
 
+func TestOutboxWorkerNeverAcknowledgesADeliveryItCannotHandle(t *testing.T) {
+	// The worker used to range over the handlers for a topic and, finding
+	// none, fall straight through to Complete. The delivery went to 'done'
+	// without any handler ever seeing it: not failed, not dead, processed.
+	// A routing mistake therefore erased events silently, and the worst case
+	// was real — the notifications worker was built with no handlers at all
+	// whenever the module was disabled.
+	eventID := uuid.New()
+	store := &queuedDeliveryStore{pending: []events.Delivery{
+		{EventID: eventID, Consumer: "notifications", Topic: events.TopicOrderPaid, Payload: []byte(`{"version":1}`)},
+	}}
+	worker := NewOutboxWorker(store, "notifications", time.Minute, nil)
+
+	// The delivery is rescheduled, which the drain treats as a healthy queue
+	// and a caller sees as errDeliveryRescheduled rather than a store fault.
+	if err := worker.DispatchOnce(context.Background()); !errors.Is(err, errDeliveryRescheduled) {
+		t.Fatalf("DispatchOnce() error = %v, want the delivery rescheduled", err)
+	}
+	if len(store.completed) != 0 {
+		t.Fatalf("completed = %v; an unhandled delivery was acknowledged and its event is gone", store.completed)
+	}
+	if len(store.rescheduled) != 1 || store.rescheduled[0] != eventID {
+		t.Fatalf("rescheduled = %v, want the delivery kept for someone to notice", store.rescheduled)
+	}
+}
+
+func TestOutboxWorkerStillHandlesTopicsItDoesRegister(t *testing.T) {
+	// The guard must key on registration, not on the handler slice being
+	// non-empty for some other topic: a worker with one handler must still
+	// process that handler's topic normally.
+	eventID := uuid.New()
+	store := &queuedDeliveryStore{pending: []events.Delivery{
+		{EventID: eventID, Consumer: "notifications", Topic: events.TopicOrderPaid, Payload: []byte(`{"version":1}`)},
+	}}
+	worker := NewOutboxWorker(store, "notifications", time.Minute, nil, &countingConsumer{})
+
+	if err := worker.DispatchOnce(context.Background()); err != nil {
+		t.Fatalf("DispatchOnce() error = %v", err)
+	}
+	if len(store.completed) != 1 || store.completed[0] != eventID {
+		t.Fatalf("completed = %v, want the handled delivery acknowledged", store.completed)
+	}
+}
+
 func TestOutboxWorkerUsesInjectedTracerForDelivery(t *testing.T) {
 	eventID := uuid.New()
 	store := &fakeDeliveryStore{delivery: &events.Delivery{
@@ -90,7 +134,7 @@ func TestOutboxWorkerUsesInjectedTracerForDelivery(t *testing.T) {
 		TraceParent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
 	}}
 	tracer := &recordingTracer{}
-	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil).WithTracer(tracer)
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{}).WithTracer(tracer)
 
 	if err := worker.DispatchOnce(context.Background()); err != nil {
 		t.Fatalf("DispatchOnce() error = %v", err)
@@ -315,7 +359,7 @@ func TestOutboxWorkerPassesClaimLeaseToCompletion(t *testing.T) {
 		Consumer: events.ConsumerNotifications, LockedAt: lockedAt,
 	}}
 
-	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil).DispatchOnce(context.Background()); err != nil {
+	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{}).DispatchOnce(context.Background()); err != nil {
 		t.Fatalf("DispatchOnce() error = %v", err)
 	}
 	// Without the token the store can only match on status, which a re-claim
@@ -333,7 +377,7 @@ func TestOutboxWorkerTreatsLostLeaseAsNormalOutcome(t *testing.T) {
 
 	// The delivery now belongs to whichever worker re-claimed it, so surfacing
 	// an error here would alert on the worker that behaved correctly.
-	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil).DispatchOnce(context.Background()); err != nil {
+	if err := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{}).DispatchOnce(context.Background()); err != nil {
 		t.Fatalf("DispatchOnce() error = %v, want a lost lease handled as a normal outcome", err)
 	}
 }

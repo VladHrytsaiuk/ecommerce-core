@@ -306,6 +306,13 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	identityProfileService, customerProfileService := identity.Profiles, identity.CustomerProfile
 	outboxHandlers := make([]eventsApp.Consumer, 0, 1)
 	var notificationWorker *notificationsApp.DurableWorker
+	// Built only when the module is enabled. A worker with no handlers is not
+	// harmless: it claims this consumer's deliveries and, until the handler
+	// check above existed, acknowledged them. A deployment that turned
+	// notifications off with a non-empty queue erased its pending order
+	// confirmations. It is also a database round trip every five seconds for a
+	// module that is not present.
+	var notificationsOutboxWorker *eventsApp.OutboxWorker
 	if notificationsEnabled {
 		notifications, notificationsErr := buildNotifications(cfg, storeConfig, db)
 		if notificationsErr != nil {
@@ -313,6 +320,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		}
 		notificationWorker = notifications.Worker
 		outboxHandlers = append(outboxHandlers, notifications.Handlers...)
+		notificationsOutboxWorker = eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...).WithTracer(observability.NewOutboxTracer())
 	}
 	var promosAdminFacade *adminApp.PromosAdminFacade
 	var catalogAdminFacade *adminApp.CatalogAdminFacade
@@ -496,7 +504,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		DeliveryLocations:         deliveryApp.NewLocationService(deliveryCarriers, cacheService),
 		DeliveryDispatcher:        deliveryApp.NewDispatcher(deliveryPostgres.NewJobStore(db), deliveryCarriers, time.Minute).WithLogger(logger.Log),
 		DeliveryTracker:           deliveryTracker,
-		OutboxWorker:              eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerNotifications, time.Minute, logger.Log, outboxHandlers...).WithTracer(observability.NewOutboxTracer()),
+		OutboxWorker:              notificationsOutboxWorker,
 		AdminAuditOutboxWorker:    adminAuditOutboxWorker,
 		SearchOutboxWorker:        searchOutboxWorker,
 		MediaOutboxWorker:         mediaOutboxWorker,
@@ -579,17 +587,38 @@ func orderWorkflowEventRoutes(notificationsEnabled, reportsEnabled, returnsEnabl
 	return routes
 }
 
+// newCartRepository routes the cart's two topics per topic rather than fanning
+// both out to every interested consumer.
+//
+// A plain NewPublisher is blind to the topic: it writes a delivery row for each
+// listed consumer on every event the repository publishes. That gave the
+// reports projection a cart.updated delivery it has no handler for, and the
+// campaign producer a carts.created one — both of which the outbox worker then
+// acknowledged without doing anything. Only reports cares about a cart being
+// created; only the campaign producer cares about it changing.
 func newCartRepository(db *gorm.DB, reportsEnabled, abandonedCartEnabled bool) *cartPostgres.Repository {
 	repository := cartPostgres.NewRepository(db)
-	consumers := make([]string, 0, 2)
-	if reportsEnabled {
-		consumers = append(consumers, eventsDomain.ConsumerReportsProjection)
-	}
-	if abandonedCartEnabled {
-		consumers = append(consumers, abandonedApp.ConsumerCampaignProducer)
-	}
-	if len(consumers) > 0 {
-		repository.WithEventPublisher(eventsPostgres.NewPublisher(consumers...))
+	if routes := cartEventRoutes(reportsEnabled, abandonedCartEnabled); len(routes) > 0 {
+		// An unrouted topic still records its event; it simply produces no
+		// delivery, which is the correct outcome for an event nobody consumes.
+		repository.WithEventPublisher(eventsPostgres.NewTopicPublisher(routes))
 	}
 	return repository
+}
+
+// cartEventRoutes is the subscription policy for the cart's two topics, kept
+// beside orderWorkflowEventRoutes and for the same reason: a consumer must
+// only be sent a topic it has a handler for.
+//
+// Reports counts carts as they are created; the recovery campaign reacts to
+// them changing. Neither has a handler for the other's topic.
+func cartEventRoutes(reportsEnabled, abandonedCartEnabled bool) map[string][]string {
+	routes := make(map[string][]string, 2)
+	if reportsEnabled {
+		routes[eventsDomain.TopicCartCreated] = append(routes[eventsDomain.TopicCartCreated], eventsDomain.ConsumerReportsProjection)
+	}
+	if abandonedCartEnabled {
+		routes[eventsDomain.TopicCartUpdated] = append(routes[eventsDomain.TopicCartUpdated], abandonedApp.ConsumerCampaignProducer)
+	}
+	return routes
 }

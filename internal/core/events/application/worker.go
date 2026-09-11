@@ -121,7 +121,17 @@ func (w *OutboxWorker) dispatchOnce(ctx context.Context) (bool, error) {
 	if w.logger != nil {
 		w.logger.Infow("event outbox delivery claimed", "event_id", event.EventID, "topic", event.Topic, "consumer", event.Consumer, "attempt", event.Attempts)
 	}
-	for _, handler := range w.handlers[event.Topic] {
+	handlers, registered := w.handlers[event.Topic]
+	if !registered {
+		// This consumer was given a delivery for a topic it cannot handle,
+		// which is a routing mistake rather than a processed event. Falling
+		// through to Complete would mark it done and erase an event nobody
+		// ever looked at — silently, and without leaving a failed row for
+		// anyone to notice. Failing it keeps the event in domain_events and
+		// makes the mismatch visible in event_deliveries.
+		return true, w.failDelivery(ctx, event, fmt.Errorf("consumer %q has no handler for topic %q", w.consumer, event.Topic))
+	}
+	for _, handler := range handlers {
 		if err := invokeSafely(ctx, handler, *event); err != nil {
 			return true, w.failDelivery(ctx, event, err)
 		}
