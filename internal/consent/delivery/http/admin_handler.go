@@ -1,8 +1,11 @@
 package http
 
 import (
+	"errors"
+
 	admin "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
 	consent "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/application"
+	domain "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	shared "github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	"github.com/gin-gonic/gin"
@@ -73,6 +76,13 @@ func RegisterV1AdminRoutes(g *gin.RouterGroup, a admin.Authorizer, s *consent.Se
 		}
 		x, err := s.ApprovePrivacyRequest(c, id)
 		if err != nil {
+			if errors.Is(err, domain.ErrErasureUnsupported) {
+				// The approval was rolled back, so the request is still
+				// pending. An administrator must not be able to close it as
+				// done when nothing was erased.
+				e.Abort(c, apiresponse.NotImplemented(err, "This deployment has no erasure implementation configured, so the request cannot be approved."))
+				return
+			}
 			e.Abort(c, err)
 			return
 		}

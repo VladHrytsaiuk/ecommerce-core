@@ -136,13 +136,13 @@ func withdrawConsent(s *consent.Service, e *apiresponse.ErrorRenderer) gin.Handl
 
 // submitPrivacyRequest godoc
 // @Summary Submit a GDPR privacy request
-// @Description Accepted for asynchronous handling; an administrator approves it before anything is exported or erased.
+// @Description Accepted for asynchronous handling; an administrator approves it before anything is exported or erased. Erasure returns 501 where the deployment has no erasure implementation configured.
 // @Tags Consent v1
 // @Accept json
 // @Produce json
 // @Param payload body privacyRequestPayload true "Request type"
 // @Success 202 {object} apiresponse.SuccessResponse
-// @Failure 400,401,422 {object} apiresponse.ProblemDetails
+// @Failure 400,401,422,501 {object} apiresponse.ProblemDetails
 // @Router /api/v1/customers/me/privacy-requests [post]
 func submitPrivacyRequest(s *consent.Service, e *apiresponse.ErrorRenderer) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -165,6 +165,12 @@ func submitPrivacyRequest(s *consent.Service, e *apiresponse.ErrorRenderer) gin.
 }
 
 func abort(e *apiresponse.ErrorRenderer, c *gin.Context, err error) {
+	if errors.Is(err, domain.ErrErasureUnsupported) {
+		// Not a validation failure: the request is well formed, and this store
+		// simply cannot carry it out. Saying so is the point.
+		e.Abort(c, apiresponse.NotImplemented(err, "This store cannot carry out erasure requests. Contact support for how your data is handled."))
+		return
+	}
 	if errors.Is(err, domain.ErrDocumentInactive) || errors.Is(err, domain.ErrInvalid) || errors.Is(err, domain.ErrTermsWithdrawalBlocked) {
 		e.Abort(c, apiresponse.ValidationFailed(err))
 		return

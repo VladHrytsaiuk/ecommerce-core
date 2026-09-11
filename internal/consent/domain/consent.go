@@ -33,7 +33,26 @@ var (
 	ErrDocumentInactive         = errors.New("legal document is not active")
 	ErrTermsWithdrawalBlocked   = errors.New("terms consent cannot be withdrawn while orders are active")
 	ErrInvalidPrivacyTransition = errors.New("invalid privacy request transition")
+	// ErrErasureUnsupported is returned when a deployment has no ErasureExecutor.
+	// Accepting the request anyway is worse than refusing it: the customer is
+	// told their data will be deleted and it never is.
+	ErrErasureUnsupported = errors.New("erasure is not available in this deployment")
 )
+
+// ErasureExecutor deletes or anonymizes everything the core holds about one
+// customer. The core deliberately ships no implementation.
+//
+// What must be erased, what must be retained, and for how long are not
+// properties of this software — they follow from the store's jurisdiction,
+// its tax and accounting obligations, and whatever it has told its customers.
+// An order retained for a statutory period and a marketing profile deleted on
+// request are both correct, and only the deployment knows which is which.
+//
+// Erase runs inside the approval transaction, so a failure leaves the request
+// unapproved rather than half-erased.
+type ErasureExecutor interface {
+	Erase(ctx context.Context, customerID uuid.UUID) error
+}
 
 type OrderActivityReader interface {
 	HasActiveOrders(context.Context, uuid.UUID) (bool, error)
@@ -55,6 +74,11 @@ type TransactionManager interface {
 	WithinTransaction(context.Context, func(context.Context) error) error
 }
 
+// TopicErasureRequested records an erasure that an administrator approved and
+// the deployment's ErasureExecutor carried out, in the same transaction as
+// both. It is an audit record of work done, not a work item: nothing consumes
+// it, and nothing is waiting to. Approval is refused outright where no
+// executor is configured, so this event never stands for a promise unkept.
 const TopicErasureRequested = "privacy.erasure_requested.v1"
 
 type ErasureRequestedEvent struct {

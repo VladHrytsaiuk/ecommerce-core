@@ -15,7 +15,23 @@ type Service struct {
 	now       func() time.Time
 	tx        consent.TransactionManager
 	publisher events.TransactionalEventPublisher
+	eraser    consent.ErasureExecutor
 }
+
+// WithErasure supplies the deployment's implementation of the right to
+// erasure. Without it this service refuses erasure requests instead of
+// accepting them into a queue nothing drains.
+func (s *Service) WithErasure(executor consent.ErasureExecutor) *Service {
+	if s != nil && executor != nil {
+		s.eraser = executor
+	}
+	return s
+}
+
+// SupportsErasure reports whether this deployment can carry an erasure request
+// out. Delivery uses it to describe the capability rather than discover it
+// from a failed request.
+func (s *Service) SupportsErasure() bool { return s != nil && s.eraser != nil }
 
 func (s *Service) WithAdminWorkflow(tx consent.TransactionManager, p events.TransactionalEventPublisher) *Service {
 	s.tx, s.publisher = tx, p
@@ -36,6 +52,15 @@ func (s *Service) PublishDocument(c context.Context, id uuid.UUID) (*consent.Leg
 func (s *Service) ListPrivacyRequests(c context.Context, p, l int) ([]consent.PrivacyRequest, int64, error) {
 	return s.repo.ListPrivacyRequests(c, l, (p-1)*l)
 }
+
+// ApprovePrivacyRequest marks the request approved and, for an erasure,
+// performs it — in one transaction with the audit event.
+//
+// It used to only publish the event. Nothing consumed that topic, so an
+// administrator approved a deletion, the customer was told it was approved,
+// and the data stayed exactly where it was. Approving an erasure this
+// deployment cannot perform is now refused, which leaves the request pending
+// and visible instead of closing it with a lie.
 func (s *Service) ApprovePrivacyRequest(c context.Context, id uuid.UUID) (*consent.PrivacyRequest, error) {
 	var x *consent.PrivacyRequest
 	e := s.tx.WithinTransaction(c, func(tc context.Context) error {
@@ -44,9 +69,19 @@ func (s *Service) ApprovePrivacyRequest(c context.Context, id uuid.UUID) (*conse
 		if e != nil || x.RequestType != "erasure" {
 			return e
 		}
+		if s.eraser == nil {
+			// Rolls the approval back: the request stays pending.
+			return consent.ErrErasureUnsupported
+		}
+		if e := s.eraser.Erase(tc, x.CustomerID); e != nil {
+			return e
+		}
 		return s.publisher.Publish(tc, consent.ErasureRequestedEvent{EventID: x.ID, CustomerID: x.CustomerID, At: s.now()})
 	})
-	return x, e
+	if e != nil {
+		return nil, e
+	}
+	return x, nil
 }
 
 func NewService(r consent.Repository, o consent.OrderActivityReader) *Service {
@@ -122,6 +157,12 @@ func (s *Service) WithdrawMarketingByEmail(c context.Context, email string) erro
 func (s *Service) PrivacyRequest(c context.Context, id uuid.UUID, t string) error {
 	if t != "export" && t != "erasure" {
 		return consent.ErrInvalid
+	}
+	// Refused at intake, not only at approval: a customer who asks to be
+	// deleted should be told now that this store cannot do it, rather than
+	// wait for an approval that can never honestly come.
+	if t == "erasure" && s.eraser == nil {
+		return consent.ErrErasureUnsupported
 	}
 	return s.repo.CreatePrivacyRequest(c, consent.PrivacyRequest{ID: uuid.New(), CustomerID: id, RequestType: t, Status: "pending", CreatedAt: s.now()})
 }

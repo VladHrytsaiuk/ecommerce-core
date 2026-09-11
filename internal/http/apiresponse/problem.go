@@ -26,6 +26,7 @@ const (
 	CodePayloadTooLarge   Code = "PAYLOAD_TOO_LARGE"
 	CodeSearchUnavailable Code = "SEARCH_UNAVAILABLE"
 	CodeInternal          Code = "INTERNAL_ERROR"
+	CodeNotImplemented    Code = "NOT_IMPLEMENTED"
 )
 
 // InvalidParam describes one safe, client-actionable validation failure.
@@ -97,6 +98,13 @@ func SearchUnavailable(cause error) *PublicError {
 
 func RateLimited(cause error) *PublicError {
 	return &PublicError{Cause: cause, Status: http.StatusTooManyRequests, Code: CodeRateLimited, Title: "Rate limit exceeded", Detail: "Too many requests. Please try again later."}
+}
+
+// NotImplemented reports a capability this deployment does not provide. It is
+// distinct from a validation failure: the request is well formed and would be
+// honoured by a deployment that had the capability configured.
+func NotImplemented(cause error, detail string) *PublicError {
+	return &PublicError{Cause: cause, Status: http.StatusNotImplemented, Code: CodeNotImplemented, Title: "Not implemented", Detail: detail}
 }
 
 func PayloadTooLarge(cause error) *PublicError {

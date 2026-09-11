@@ -38,7 +38,10 @@ not business logic embedded in the order flow.
 - **Customer support** — optional `support` provides bounded public ticket
   intake with IP/email anti-spam controls and JWT-scoped customer follow-ups.
 - **Consent and GDPR** — optional `consent` owns versioned legal-document
-  references, customer-consent history, and privacy-request intake.
+  references, customer-consent history, and privacy-request intake. Erasure is
+  a port, not an implementation: what a store must delete and what it must
+  retain follows from its jurisdiction and its own commitments, so the core
+  refuses erasure requests until a deployment supplies an `ErasureExecutor`.
 
 ## Architecture and Roadmap
 

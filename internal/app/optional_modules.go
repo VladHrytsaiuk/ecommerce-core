@@ -425,6 +425,13 @@ func buildSupport(db *gorm.DB, limiter ratelimit.Service) *supportApp.Service {
 }
 
 // buildConsent wires GDPR consent and privacy requests.
+//
+// No ErasureExecutor is supplied, so this deployment refuses erasure requests
+// at intake and refuses to approve any that predate the refusal. That is
+// deliberate: what a store must delete and what it must retain follows from
+// its jurisdiction and its own commitments, not from this core. A deployment
+// that has made those decisions attaches its implementation here with
+// .WithErasure(...) and the requests start being accepted.
 func buildConsent(db *gorm.DB) *consentApp.Service {
 	return consentApp.NewService(
 		consentPostgres.NewRepository(db),
