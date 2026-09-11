@@ -106,7 +106,7 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 	if err := validateEnabledAdapters(cfg, storeConfig); err != nil {
 		return StoreConfig{}, err
 	}
-	if contains(storeConfig.EnabledModules, "search") {
+	if storeConfig.Modules().Has(ModuleSearch) {
 		if strings.TrimSpace(cfg.SearchURL) == "" || strings.TrimSpace(cfg.SearchMasterKey) == "" {
 			return StoreConfig{}, fmt.Errorf("SEARCH_URL and SEARCH_MASTER_KEY are required when search is enabled")
 		}
@@ -114,7 +114,7 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 			return StoreConfig{}, fmt.Errorf("SEARCH_INDEX_PREFIX must contain lowercase letters, digits, underscores, or hyphens")
 		}
 	}
-	if contains(storeConfig.EnabledModules, "reports") {
+	if storeConfig.Modules().Has(ModuleReports) {
 		reportsTimezone := strings.TrimSpace(cfg.ReportsTimezone)
 		if reportsTimezone == "" {
 			reportsTimezone = "UTC"
@@ -123,7 +123,7 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 			return StoreConfig{}, fmt.Errorf("REPORTS_TIMEZONE must be a valid IANA timezone: %w", err)
 		}
 	}
-	if contains(storeConfig.EnabledModules, "media") {
+	if storeConfig.Modules().Has(ModuleMedia) {
 		switch cfg.MediaProvider {
 		case "cloudinary":
 			if strings.TrimSpace(cfg.MediaCloudinaryURL) == "" {
@@ -147,7 +147,7 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 			return StoreConfig{}, fmt.Errorf("MEDIA_PROVIDER must be s3, minio, r2, or cloudinary when media is enabled")
 		}
 	}
-	if contains(storeConfig.EnabledModules, "video") {
+	if storeConfig.Modules().Has(ModuleVideo) {
 		if strings.ToLower(strings.TrimSpace(cfg.VideoProvider)) != "cloudflare" {
 			return StoreConfig{}, fmt.Errorf("VIDEO_PROVIDER must be cloudflare when video is enabled")
 		}
@@ -281,7 +281,7 @@ func (c StoreConfig) Validate() error {
 	if c.InventoryMode != "internal" {
 		return fmt.Errorf("INVENTORY_MODE %q is not implemented yet", c.InventoryMode)
 	}
-	if !contains(c.EnabledModules, "inventory") {
+	if !c.Modules().Has(ModuleInventory) {
 		return fmt.Errorf("ENABLED_MODULES must include inventory because checkout reservations require it")
 	}
 	// Every module-to-module dependency is checked here, in one pass, so a
@@ -298,13 +298,13 @@ func (c StoreConfig) Validate() error {
 	if c.OAuthAttemptTTL <= 0 || c.OAuthAttemptTTL > time.Hour {
 		return fmt.Errorf("OAUTH_ATTEMPT_TTL must be between 1ns and 1h")
 	}
-	if contains(c.EnabledModules, "user_profiles") && c.ProfilePolicy == nil {
+	if c.Modules().Has(ModuleUserProfiles) && c.ProfilePolicy == nil {
 		return fmt.Errorf("PROFILE_POLICY_JSON is required when user_profiles is enabled")
 	}
-	if !contains(c.EnabledModules, "user_profiles") && c.ProfilePolicy != nil {
+	if !c.Modules().Has(ModuleUserProfiles) && c.ProfilePolicy != nil {
 		return fmt.Errorf("PROFILE_POLICY_JSON requires ENABLED_MODULES to include user_profiles")
 	}
-	if len(c.CheckoutRequiredProfileFields) > 0 && !contains(c.EnabledModules, "customers") {
+	if len(c.CheckoutRequiredProfileFields) > 0 && !c.Modules().Has(ModuleCustomers) {
 		return fmt.Errorf("CHECKOUT_REQUIRED_PROFILE_FIELDS requires ENABLED_MODULES to include customers")
 	}
 	if hasDuplicates(c.CheckoutRequiredProfileFields) {
@@ -315,25 +315,16 @@ func (c StoreConfig) Validate() error {
 			return fmt.Errorf("CHECKOUT_REQUIRED_PROFILE_FIELDS contains invalid field %q", field)
 		}
 	}
-	if contains(c.EnabledModules, "comparison") && (c.ComparisonMaxItems < 1 || c.ComparisonMaxItems > 100) {
+	if c.Modules().Has(ModuleComparison) && (c.ComparisonMaxItems < 1 || c.ComparisonMaxItems > 100) {
 		return fmt.Errorf("COMPARISON_MAX_ITEMS must be between 1 and 100 when comparison is enabled")
 	}
-	if contains(c.EnabledModules, "returns") && (c.ReturnWindowDays < 1 || c.ReturnWindowDays > 3650) {
+	if c.Modules().Has(ModuleReturns) && (c.ReturnWindowDays < 1 || c.ReturnWindowDays > 3650) {
 		return fmt.Errorf("RETURN_WINDOW must be between 1 and 3650 days when returns is enabled")
 	}
-	if contains(c.EnabledModules, "availability_notifications") && (!contains(c.EnabledModules, "inventory") || !contains(c.EnabledModules, "notifications")) {
-		return fmt.Errorf("availability_notifications requires ENABLED_MODULES to include inventory and notifications")
-	}
-	if contains(c.EnabledModules, "abandoned_cart") && (!contains(c.EnabledModules, "checkout") || !contains(c.EnabledModules, "notifications") || !contains(c.EnabledModules, "consent")) {
-		return fmt.Errorf("abandoned_cart requires ENABLED_MODULES to include checkout, notifications and consent")
-	}
-	if contains(c.EnabledModules, "support") && (!contains(c.EnabledModules, "notifications") || !contains(c.EnabledModules, "admin")) {
-		return fmt.Errorf("support requires ENABLED_MODULES to include notifications and admin")
-	}
-	if contains(c.EnabledModules, "returns") {
-		if !contains(c.EnabledModules, "orders") || !contains(c.EnabledModules, "admin") {
-			return fmt.Errorf("returns requires ENABLED_MODULES to include orders and admin")
-		}
+	// Module-to-module dependencies live in moduleRequirements and are checked
+	// together by Modules().Validate above. Only requirements on configuration
+	// beyond the module list remain here.
+	if c.Modules().Has(ModuleReturns) {
 		if len(c.PaymentProviders) == 0 {
 			return fmt.Errorf("returns requires an enabled payment provider for controlled refunds")
 		}

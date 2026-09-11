@@ -43,9 +43,10 @@ const (
 // point each module happened to be constructed, so a misconfiguration was only
 // reported once execution reached that spot — and only the first one found.
 var moduleRequirements = map[Module][]Module{
-	ModuleAvailability:  {ModuleNotifications},
+	ModuleAvailability:  {ModuleInventory, ModuleNotifications},
 	ModuleAbandonedCart: {ModuleCheckout, ModuleNotifications, ModuleConsent},
 	ModuleSupport:       {ModuleNotifications, ModuleAdmin},
+	ModuleReturns:       {ModuleOrders, ModuleAdmin},
 	ModuleReports:       {ModuleAdmin},
 	ModuleMedia:         {ModuleAdmin},
 	ModuleVideo:         {ModuleAdmin},
@@ -54,6 +55,7 @@ var moduleRequirements = map[Module][]Module{
 // requirementReasons explains why a dependency exists, so a failed boot tells
 // an operator what to do rather than only what is missing.
 var requirementReasons = map[Module]string{
+	ModuleReturns: "audited refund authorization",
 	ModuleReports: "permission-gated dashboard routes",
 	ModuleMedia:   "permission-gated uploads",
 	ModuleVideo:   "permission-gated uploads",

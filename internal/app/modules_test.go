@@ -41,8 +41,9 @@ func TestModuleSetExplainsWhyADependencyExists(t *testing.T) {
 
 func TestModuleSetAcceptsASatisfiedConfiguration(t *testing.T) {
 	modules := NewModuleSet([]string{
-		"admin", "notifications", "consent", "checkout",
-		"support", "reports", "media", "video", "abandoned_cart", "availability_notifications",
+		"admin", "notifications", "consent", "checkout", "inventory", "orders",
+		"support", "reports", "media", "video", "abandoned_cart",
+		"availability_notifications", "returns",
 	})
 	if err := modules.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want a fully satisfied set to pass", err)
@@ -53,5 +54,29 @@ func TestModuleSetIgnoresDependenciesOfDisabledModules(t *testing.T) {
 	// admin alone must not drag in the modules that depend on it.
 	if err := NewModuleSet([]string{"admin"}).Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want no requirement from a disabled dependent", err)
+	}
+}
+
+func TestModuleSetCoversEveryDependencyThatUsedToBeInline(t *testing.T) {
+	// These rules were previously scattered across NewStoreConfig, Validate and
+	// Bootstrap. Pinning them here is what stops one from being dropped during
+	// a later move without anything noticing.
+	for module, required := range map[string][]string{
+		"availability_notifications": {"inventory", "notifications"},
+		"abandoned_cart":             {"checkout", "notifications", "consent"},
+		"support":                    {"notifications", "admin"},
+		"returns":                    {"orders", "admin"},
+		"reports":                    {"admin"},
+		"media":                      {"admin"},
+		"video":                      {"admin"},
+	} {
+		t.Run(module, func(t *testing.T) {
+			for _, dependency := range required {
+				err := NewModuleSet([]string{module}).Validate()
+				if err == nil || !strings.Contains(err.Error(), dependency) {
+					t.Fatalf("Validate() error = %v, want %s to require %s", err, module, dependency)
+				}
+			}
+		})
 	}
 }

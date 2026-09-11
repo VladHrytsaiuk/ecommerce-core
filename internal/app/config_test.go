@@ -125,7 +125,9 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 		{
 			name: "returns module requires a positive return window",
 			mutate: func(cfg *config.Config) {
-				cfg.EnabledModules = []string{"inventory", "returns"}
+				// Its module dependencies are satisfied so the window itself is
+				// what fails; otherwise the dependency check reports first.
+				cfg.EnabledModules = []string{"inventory", "returns", "orders", "admin"}
 				cfg.ReturnWindowDays = 0
 			},
 			want: "RETURN_WINDOW",

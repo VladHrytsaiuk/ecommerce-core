@@ -71,7 +71,6 @@ import (
 	ordersPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/repository/postgres"
 	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
 	paymentsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/repository/postgres"
-	platformCache "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/cache"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/encryption"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
@@ -79,7 +78,6 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/observability"
 	eventsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/events"
 	workflowPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/orderworkflow"
-	platformRedis "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/redis"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 	promosApp "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/application"
 	promosPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/promos/repository/postgres"
@@ -104,8 +102,6 @@ import (
 	seoDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/domain"
 	seoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/repository/postgres"
 	seoService "github.com/VladHrytsaiuk/ecommerce-core/internal/seo/service"
-	sharedCache "github.com/VladHrytsaiuk/ecommerce-core/internal/shared/cache"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/ratelimit"
 	supportIdentity "github.com/VladHrytsaiuk/ecommerce-core/internal/support/adapter/identity"
 	supportApp "github.com/VladHrytsaiuk/ecommerce-core/internal/support/application"
 	supportPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/support/repository/postgres"
@@ -242,44 +238,18 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		return nil, err
 	}
 
-	// Redis is opt-in. When disabled, cache misses and local, per-process login
-	// limiting preserve a fully functional constrained-environment deployment.
-	telemetryShutdown, err := observability.Init(context.Background(), observability.Config{
-		Enabled:     cfg.OTelEnabled,
-		Endpoint:    cfg.OTelEndpoint,
-		ServiceName: "ecommerce-core",
-		Environment: cfg.Env,
-	})
+	platform, err := newPlatformRuntime(cfg, storeConfig)
 	if err != nil {
-		return nil, fmt.Errorf("configure observability: %w", err)
+		return nil, err
 	}
+	// Every failure below returns without committing, which releases the Redis
+	// pool and the trace exporter rather than leaking them into a process that
+	// is exiting. Success transfers ownership to the Application.
+	defer platform.rollback()
+	cacheService := platform.Cache
+	loginLimiter := platform.LoginLimiter
 
-	cacheService := sharedCache.Service(sharedCache.NewNoOpService())
-	loginLimiter := ratelimit.Service(ratelimit.NewLocalService())
-	var resourceClosers []io.Closer
-	var redisClient *platformRedis.Client
-	bootstrapComplete := false
-	defer func() {
-		if !bootstrapComplete {
-			for _, closer := range resourceClosers {
-				_ = closer.Close()
-			}
-		}
-		if !bootstrapComplete && telemetryShutdown != nil {
-			_ = telemetryShutdown(context.Background())
-		}
-	}()
-	if cfg.RedisEnabled {
-		var redisErr error
-		redisClient, redisErr = platformRedis.Connect(context.Background(), cfg.RedisURL)
-		if redisErr != nil {
-			return nil, fmt.Errorf("configure Redis: %w", redisErr)
-		}
-		resourceClosers = append(resourceClosers, redisClient)
-		cacheService = platformCache.NewRedisAdapter(redisClient.Raw(), storeConfig.Code+":")
-		loginLimiter = platformRedis.NewFixedWindowLimiter(redisClient.Raw())
-	}
-	adminEnabled := contains(storeConfig.EnabledModules, "admin")
+	adminEnabled := modules.Has(ModuleAdmin)
 	var adminAuthorizer adminDomain.Authorizer
 	if adminEnabled {
 		authorizer, authorizerErr := adminApp.NewAuthorizer(adminPostgres.NewRepository(db), cacheService, 0)
@@ -322,14 +292,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	productOptionsService := catalogApp.NewProductOptionsService(catalogPostgres.NewOptionsRepository(db), storeConfig.Currency)
 	inventoryRepository := inventoryPostgres.NewRepository(db)
 	inventoryService := inventoryApp.NewService(inventoryMode(storeConfig.InventoryMode), inventoryRepository)
-	notificationsEnabled := contains(storeConfig.EnabledModules, "notifications")
-	availabilityEnabled := contains(storeConfig.EnabledModules, "availability_notifications")
-	abandonedCartEnabled := contains(storeConfig.EnabledModules, "abandoned_cart")
-	supportEnabled := contains(storeConfig.EnabledModules, "support")
-	consentEnabled := contains(storeConfig.EnabledModules, "consent")
-	reportsEnabled := contains(storeConfig.EnabledModules, "reports")
-	returnsEnabled := contains(storeConfig.EnabledModules, "returns")
-	videoEnabled := contains(storeConfig.EnabledModules, "video")
+	notificationsEnabled := modules.Has(ModuleNotifications)
+	availabilityEnabled := modules.Has(ModuleAvailability)
+	abandonedCartEnabled := modules.Has(ModuleAbandonedCart)
+	supportEnabled := modules.Has(ModuleSupport)
+	consentEnabled := modules.Has(ModuleConsent)
+	reportsEnabled := modules.Has(ModuleReports)
+	returnsEnabled := modules.Has(ModuleReturns)
+	videoEnabled := modules.Has(ModuleVideo)
 	workflowEventRoutes := orderWorkflowEventRoutes(notificationsEnabled, reportsEnabled, returnsEnabled)
 	var availabilityService *availabilityApp.Service
 	var availabilityOutboxWorker *eventsApp.OutboxWorker
@@ -356,7 +326,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// outside core so core/application code does not depend on an Orders or
 	// Inventory repository implementation.
 	workflowEventPublisher := eventsPostgres.NewTopicPublisher(workflowEventRoutes)
-	workflowRepository := workflowPostgres.NewRepository(db, contains(storeConfig.EnabledModules, "sync")).
+	workflowRepository := workflowPostgres.NewRepository(db, modules.Has(ModuleSync)).
 		WithEventPublisher(workflowEventPublisher).
 		// The status lifecycle is already durably recorded in
 		// order_status_history. Persist its public event separately until a
@@ -364,7 +334,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		// unrelated status deliveries.
 		WithStatusEventPublisher(workflowEventPublisher)
 	var operationalWorkflowPolicy *ordersApp.WorkflowService
-	if contains(storeConfig.EnabledModules, "orders") {
+	if modules.Has(ModuleOrders) {
 		operationalWorkflowPolicy, err = ordersApp.NewWorkflowService(ordersPostgres.NewWorkflowRepository(db))
 		if err != nil {
 			return nil, fmt.Errorf("configure order workflow policy: %w", err)
@@ -377,7 +347,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	var priceCalculator checkoutDomain.PriceCalculator = basePriceCalculator
 	var promosRepository *promosPostgres.Repository
-	if contains(storeConfig.EnabledModules, "promos") {
+	if modules.Has(ModulePromos) {
 		promosRepository = promosPostgres.NewRepository(db)
 		workflowRepository.WithTransactionHook(promosApp.NewWorkflowHook(promosRepository))
 		priceCalculator = promosApp.NewPromoCalculatorDecorator(priceCalculator, promosRepository)
@@ -392,29 +362,29 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	paymentWebhookService := paymentsApp.NewWebhookService(paymentGateways, paymentsPostgres.NewWebhookEventStore(db), orderWorkflowService)
 	var enabledWishlist wishlistDomain.Service
-	if contains(storeConfig.EnabledModules, "wishlist") {
+	if modules.Has(ModuleWishlist) {
 		enabledWishlist = wishlistService.New(wishlistPostgres.NewRepository(db))
 	}
 	var enabledComparison comparisonDomain.Service
-	if contains(storeConfig.EnabledModules, "comparison") {
+	if modules.Has(ModuleComparison) {
 		enabledComparison = comparisonService.New(comparisonPostgres.NewRepository(db), storeConfig.ComparisonMaxItems)
 	}
 	productService := catalogApp.NewProductService(catalogPostgres.NewProductRepository(db), storeConfig.SupportedLocales)
-	searchEnabled := contains(storeConfig.EnabledModules, "search")
+	searchEnabled := modules.Has(ModuleSearch)
 	var enabledSEO seoDomain.Service
-	if contains(storeConfig.EnabledModules, "seo") {
+	if modules.Has(ModuleSEO) {
 		repository := seoPostgres.NewRepository(db)
 		enabledSEO = seoService.New(repository)
 		productService.WithSEOReader(repository)
 	}
 	var enabledBadges badgesDomain.Service
-	if contains(storeConfig.EnabledModules, "badges") {
+	if modules.Has(ModuleBadges) {
 		repository := badgesPostgres.NewRepository(db)
 		enabledBadges = badgesService.New(repository)
 		productService.WithBadgeReader(repository)
 	}
 	var enabledReviews reviewsDomain.Service
-	if contains(storeConfig.EnabledModules, "reviews") {
+	if modules.Has(ModuleReviews) {
 		repository := reviewsPostgres.NewRepository(db)
 		enabledReviews = reviewsService.New(repository)
 		productService.WithRatingReader(repository)
@@ -446,10 +416,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	var identityProfileService identityDomain.ProfileService
 	var customerProfileService identityDomain.CustomerProfileService
-	if contains(storeConfig.EnabledModules, "customers") {
+	if modules.Has(ModuleCustomers) {
 		customerProfileService = identityApplication.NewCustomerProfileService(identityPostgres.NewCustomerProfileRepository(db))
 	}
-	if contains(storeConfig.EnabledModules, "user_profiles") && storeConfig.ProfilePolicy != nil {
+	if modules.Has(ModuleUserProfiles) && storeConfig.ProfilePolicy != nil {
 		identityProfileService = identityService.NewProfileService(*storeConfig.ProfilePolicy, identityPostgres.NewProfileRepository(db))
 	}
 	outboxHandlers := make([]eventsApp.Consumer, 0, 1)
@@ -530,7 +500,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		if err != nil {
 			return nil, fmt.Errorf("configure search index: %w", err)
 		}
-		resourceClosers = append(resourceClosers, index)
+		platform.adopt(index)
 		handler, err := searchApp.NewProductChangedHandler(searchCatalog.NewSnapshotProvider(productService), index)
 		if err != nil {
 			return nil, fmt.Errorf("configure search indexer: %w", err)
@@ -552,7 +522,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			}
 		}
 	}
-	if contains(storeConfig.EnabledModules, "media") {
+	if modules.Has(ModuleMedia) {
 		store, mediaBucket, err := newMediaObjectStore(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("configure media object store: %w", err)
@@ -713,11 +683,11 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			return sqlDB.PingContext(ctx)
 		},
 	}}
-	if redisClient != nil {
+	if platform.Redis != nil {
 		readinessChecks = append(readinessChecks, management.ReadinessCheck{
 			Name: "redis",
 			Check: func(ctx context.Context) error {
-				return redisClient.Raw().Ping(ctx).Err()
+				return platform.Redis.Raw().Ping(ctx).Err()
 			},
 		})
 	}
@@ -786,10 +756,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		TaxPolicy:                 taxPolicy,
 		HTTP:                      httpDependencies,
 		Management:                management.NewServer(cfg.ManagementAddr, readinessChecks...),
-		resourceCloser:            closeAll(resourceClosers),
-		telemetryShutdown:         telemetryShutdown,
+		resourceCloser:            platform.closer(),
+		telemetryShutdown:         platform.telemetryShutdown,
 	}
-	bootstrapComplete = true
+	platform.commit()
 	return application, nil
 }
 
