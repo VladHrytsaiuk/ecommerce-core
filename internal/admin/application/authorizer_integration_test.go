@@ -5,9 +5,12 @@ package application_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -164,3 +167,108 @@ func (c *integrationMemoryCache) DeleteByPrefix(context.Context, string) error {
 
 var _ adminDomain.AccessRepository = (*countingRepository)(nil)
 var _ cache.Service = (*integrationMemoryCache)(nil)
+
+// TestSuperAdminHoldsEveryGuardedPermission applies the admin migrations in
+// order and checks that a super_admin can actually pass every permission gate
+// the routes declare.
+//
+// The unit-level guard reads the SQL text and proves each permission is
+// inserted somewhere. This proves the grants land too: four permissions were
+// missing entirely, and a fifth could just as easily be created and never
+// granted to any role, which fails the same way at request time.
+func TestSuperAdminHoldsEveryGuardedPermission(t *testing.T) {
+	testcontainers.SkipIfProviderIsNotHealthy(t)
+	ctx := context.Background()
+	container, err := postgresContainer.Run(ctx, "postgres:16-alpine",
+		postgresContainer.WithDatabase("rbac_seed_test"),
+		postgresContainer.WithUsername("admin"),
+		postgresContainer.WithPassword("admin"),
+		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(30*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAdminMigrations(db); err != nil {
+		t.Fatal(err)
+	}
+
+	var ungranted []string
+	if err := db.Raw(`
+		SELECT p.code FROM permissions p
+		WHERE NOT EXISTS (
+			SELECT 1 FROM role_permissions rp
+			JOIN roles r ON r.id = rp.role_id
+			WHERE rp.permission_id = p.id AND r.code = 'super_admin'
+		)
+		ORDER BY p.code`).Scan(&ungranted).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(ungranted) > 0 {
+		t.Fatalf("super_admin holds no grant for %v; every check of those denies", ungranted)
+	}
+
+	for _, code := range []string{"legal:write", "privacy:write", "support:read", "support:write", "video:write"} {
+		var seeded int64
+		if err := db.Raw(`SELECT COUNT(*) FROM permissions WHERE code = ?`, code).Scan(&seeded).Error; err != nil {
+			t.Fatal(err)
+		}
+		if seeded != 1 {
+			t.Fatalf("permission %q rows = %d, want exactly one", code, seeded)
+		}
+	}
+}
+
+// applyAdminMigrations runs the whole admin directory in order, so a later
+// migration that alters what an earlier one seeded is reflected here.
+func applyAdminMigrations(db *gorm.DB) error {
+	if err := db.Exec("CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE TABLE IF NOT EXISTS users (id UUID PRIMARY KEY);").Error; err != nil {
+		return err
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return errors.New("locate admin migrations")
+	}
+	root := filepath.Join(filepath.Dir(file), "../../..")
+	// The audit-log migration references the core outbox, which this focused
+	// fixture does not otherwise need.
+	outbox, err := os.ReadFile(filepath.Join(root, "migrations/core/000005_add_event_outbox_and_order_contacts.up.sql"))
+	if err != nil {
+		return err
+	}
+	if index := strings.Index(string(outbox), "-- Order contact"); index >= 0 {
+		outbox = outbox[:index]
+	}
+	if err := db.Exec(string(outbox)).Error; err != nil {
+		return fmt.Errorf("apply core outbox: %w", err)
+	}
+	dir := filepath.Join(root, "migrations/modules/admin")
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		return readErr
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".up.sql") {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return err
+		}
+		if err := db.Exec(string(raw)).Error; err != nil {
+			return fmt.Errorf("apply %s: %w", name, err)
+		}
+	}
+	return nil
+}
