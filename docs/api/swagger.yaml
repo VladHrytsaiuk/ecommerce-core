@@ -493,9 +493,30 @@ definitions:
         maxLength: 2000
         type: string
     type: object
+  internal_video_delivery_http.attachPlacementRequest:
+    properties:
+      is_visible:
+        type: boolean
+      position:
+        type: integer
+      role:
+        type: string
+      video_asset_id:
+        type: string
+    required:
+    - role
+    - video_asset_id
+    type: object
   internal_video_delivery_http.createDirectUploadRequest:
     properties:
       max_duration_seconds:
+        type: integer
+    type: object
+  internal_video_delivery_http.updatePlacementRequest:
+    properties:
+      is_visible:
+        type: boolean
+      position:
         type: integer
     type: object
 info:
@@ -1260,6 +1281,194 @@ paths:
           schema:
             $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
       summary: Create a sellable product variant (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/products/{productID}/videos:
+    get:
+      description: Includes hidden placements and assets that are not ready, which
+        the storefront route deliberately omits.
+      parameters:
+      - description: Product UUID
+        in: path
+        name: productID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: List every video placed on a product (v1 admin)
+      tags:
+      - Admin v1
+    post:
+      consumes:
+      - application/json
+      description: Refuses an asset that has not finished encoding, so a placement
+        can never point at a draft or failed upload.
+      parameters:
+      - description: Product UUID
+        in: path
+        name: productID
+        required: true
+        type: string
+      - description: Placement
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_video_delivery_http.attachPlacementRequest'
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Place a ready video on a product (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/products/{productID}/videos/{placementID}:
+    delete:
+      description: Removes the placement only. The underlying asset is retained and
+        reclaimed separately by the orphan reconciler.
+      parameters:
+      - description: Product UUID
+        in: path
+        name: productID
+        required: true
+        type: string
+      - description: Placement UUID
+        in: path
+        name: placementID
+        required: true
+        type: string
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Remove a video from a product (v1 admin)
+      tags:
+      - Admin v1
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Product UUID
+        in: path
+        name: productID
+        required: true
+        type: string
+      - description: Placement UUID
+        in: path
+        name: placementID
+        required: true
+        type: string
+      - description: New position and visibility
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_video_delivery_http.updatePlacementRequest'
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Reorder or hide a product video placement (v1 admin)
       tags:
       - Admin v1
   /api/v1/admin/promos:

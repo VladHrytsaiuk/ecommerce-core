@@ -98,17 +98,66 @@ type AssetRepository interface {
 	RestoreCleanup(context.Context, uuid.UUID, AssetStatus) error
 }
 
+// Placement roles are a closed vocabulary mirrored by the product_videos CHECK
+// constraint. Storefronts lay each role out differently, so an unknown value
+// must be refused rather than rendered somewhere arbitrary.
+const (
+	RolePreview  = "preview"
+	RoleHowToUse = "how_to_use"
+)
+
+var (
+	ErrInvalidPlacement   = errors.New("invalid product video placement")
+	ErrPlacementNotFound  = errors.New("product video placement not found")
+	ErrAssetNotPlayable   = errors.New("video asset is not ready for placement")
+	ErrPositionTaken      = errors.New("product video position is already occupied")
+	ErrPlacementDuplicate = errors.New("video asset is already placed on this product")
+)
+
+func ValidRole(role string) bool {
+	return role == RolePreview || role == RoleHowToUse
+}
+
 type ProductVideo struct {
 	ID        uuid.UUID
 	ProductID uuid.UUID
 	AssetID   uuid.UUID
 	Role      string
 	Position  int
+	IsVisible bool
 	Asset     Asset
+}
+
+// Placement is the administrator's intent for one product video slot.
+type Placement struct {
+	ProductID uuid.UUID
+	AssetID   uuid.UUID
+	Role      string
+	Position  int
+	IsVisible bool
+}
+
+func (p Placement) Validate() error {
+	if p.ProductID == uuid.Nil || p.AssetID == uuid.Nil || !ValidRole(p.Role) || p.Position < 0 {
+		return ErrInvalidPlacement
+	}
+	return nil
 }
 
 type StorefrontReader interface {
 	ListReadyProductVideos(context.Context, uuid.UUID) ([]ProductVideo, error)
+}
+
+// PlacementRepository owns the product_videos table. Attach refuses an asset
+// that is not ready: a draft or failed encoding attached to a product would
+// otherwise sit invisible until someone noticed the storefront gap.
+type PlacementRepository interface {
+	Attach(context.Context, Placement) (ProductVideo, error)
+	Detach(ctx context.Context, productID, placementID uuid.UUID) error
+	UpdatePlacement(ctx context.Context, productID, placementID uuid.UUID, position int, isVisible bool) (ProductVideo, error)
+	// ListProductVideos returns every placement including hidden ones and
+	// assets that are not ready, which is what an administrator needs to see.
+	ListProductVideos(context.Context, uuid.UUID) ([]ProductVideo, error)
 }
 
 const TopicVideoReady = "media.video.ready.v1"

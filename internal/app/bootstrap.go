@@ -160,6 +160,7 @@ type Application struct {
 	SearchService             searchDomain.SearchService
 	MediaUploadService        *mediaApp.UploadService
 	VideoUploadService        *videoApp.DirectUploadService
+	VideoPlacementFacade      *videoApp.PlacementAdminFacade
 	VideoWebhookService       *videoApp.WebhookService
 	VideoOrphanCleanup        *videoApp.OrphanCleanupWorker
 	VideoStorefrontReader     videoDomain.StorefrontReader
@@ -575,6 +576,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		}
 	}
 	var videoUploadService *videoApp.DirectUploadService
+	var videoPlacementFacade *videoApp.PlacementAdminFacade
 	var videoWebhookService *videoApp.WebhookService
 	var videoOrphanCleanup *videoApp.OrphanCleanupWorker
 	var videoStorefrontReader videoDomain.StorefrontReader
@@ -600,6 +602,12 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		videoOrphanCleanup, providerErr = videoApp.NewOrphanCleanupWorker(videoRepository, provider, logger.Log)
 		if providerErr != nil {
 			return nil, fmt.Errorf("configure video orphan cleanup: %w", providerErr)
+		}
+		// Product video administration publishes to the Admin audit consumer,
+		// which is why the video module requires admin to be enabled.
+		videoPlacementFacade, providerErr = videoApp.NewPlacementAdminFacade(adminAuthorizer, videoRepository, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
+		if providerErr != nil {
+			return nil, fmt.Errorf("configure video placement administration: %w", providerErr)
 		}
 	}
 	if returnsEnabled {
@@ -746,6 +754,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		SearchService:             searchService,
 		MediaUploadService:        mediaUploadService,
 		VideoUploadService:        videoUploadService,
+		VideoPlacementFacade:      videoPlacementFacade,
 		VideoWebhookService:       videoWebhookService,
 		VideoOrphanCleanup:        videoOrphanCleanup,
 		VideoStorefrontReader:     videoStorefrontReader,

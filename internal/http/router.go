@@ -106,6 +106,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	}
 	if application.VideoUploadService != nil {
 		videoHTTP.RegisterV1Routes(v1Admin, application.AdminAuthorizer, application.VideoUploadService, application.HTTP.ErrorRenderer)
+		videoHTTP.RegisterV1PlacementRoutes(v1Admin, application.AdminAuthorizer, application.VideoPlacementFacade, application.HTTP.ErrorRenderer)
 	}
 	v1Orders := v1.Group("/orders")
 	v1Orders.Use(application.HTTP.RequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))
