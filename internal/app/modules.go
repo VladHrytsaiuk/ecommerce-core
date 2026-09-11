@@ -38,6 +38,23 @@ const (
 	ModuleWishlist      Module = "wishlist"
 )
 
+// allModules is every name ENABLED_MODULES accepts. It exists because
+// moduleRequirements only lists modules that depend on another one, so it
+// cannot answer "is this a real module?" — and a name absent from it was
+// previously not examined at all.
+//
+// It must list every Module constant above; TestAllModulesListsEveryConstant
+// reads this file and fails if one is missing, so adding a constant without
+// adding it here cannot silently start rejecting a valid configuration.
+var allModules = []Module{
+	ModuleAbandonedCart, ModuleAdmin, ModuleAvailability, ModuleBadges,
+	ModuleCheckout, ModuleComparison, ModuleConsent, ModuleCustomers,
+	ModuleInventory, ModuleMedia, ModuleNotifications, ModuleOrders,
+	ModulePromos, ModuleReports, ModuleReturns, ModuleReviews, ModuleSearch,
+	ModuleSEO, ModuleSupport, ModuleSync, ModuleUserProfiles, ModuleVideo,
+	ModuleWishlist,
+}
+
 // moduleRequirements is the single declarative source of truth for
 // module-to-module dependencies. These rules previously lived inline at the
 // point each module happened to be constructed, so a misconfiguration was only
@@ -84,6 +101,23 @@ func (m ModuleSet) Has(module Module) bool {
 // Validate reports every unmet module dependency at once. Failing on the first
 // one made fixing a multi-module misconfiguration an iterative guessing game.
 func (m ModuleSet) Validate() error {
+	// An unrecognized name is checked first and on its own. ENABLED_MODULES=serach
+	// used to pass validation and boot a service with search quietly switched
+	// off, which is the exact failure the typed vocabulary was introduced to
+	// prevent. Reporting it alongside dependency problems would be misleading:
+	// a typo makes every rule that mentions that module unanswerable.
+	unknown := make([]string, 0)
+	for module := range m {
+		if !module.known() {
+			unknown = append(unknown, string(module))
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		return fmt.Errorf("ENABLED_MODULES contains unknown module(s): %s; valid modules are %s",
+			strings.Join(unknown, ", "), strings.Join(moduleNames(), ", "))
+	}
+
 	dependents := make([]Module, 0, len(moduleRequirements))
 	for module := range moduleRequirements {
 		if m.Has(module) {
@@ -113,4 +147,25 @@ func (m ModuleSet) Validate() error {
 		return fmt.Errorf("ENABLED_MODULES is inconsistent: %s", strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// known reports whether this is a module the core implements.
+func (m Module) known() bool {
+	for _, module := range allModules {
+		if module == m {
+			return true
+		}
+	}
+	return false
+}
+
+// moduleNames lists the valid modules for an error message. An operator who
+// mistyped one needs to see the spelling that would have worked.
+func moduleNames() []string {
+	names := make([]string, 0, len(allModules))
+	for _, module := range allModules {
+		names = append(names, string(module))
+	}
+	sort.Strings(names)
+	return names
 }

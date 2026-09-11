@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -78,5 +80,56 @@ func TestModuleSetCoversEveryDependencyThatUsedToBeInline(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestModuleSetRejectsAnUnknownModule(t *testing.T) {
+	// The typed vocabulary exists to make a misspelling fail at startup.
+	// Validate previously only walked moduleRequirements, so a name absent
+	// from that map was never examined: ENABLED_MODULES=serach booted a
+	// service with search silently switched off.
+	err := NewModuleSet([]string{"admin", "serach"}).Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want a misspelled module to fail at startup")
+	}
+	if !strings.Contains(err.Error(), "serach") {
+		t.Fatalf("Validate() error = %v, want the misspelled name reported", err)
+	}
+	// An operator who mistyped needs the spelling that would have worked.
+	if !strings.Contains(err.Error(), "search") {
+		t.Fatalf("Validate() error = %v, want the valid module names listed", err)
+	}
+}
+
+func TestModuleSetAcceptsEveryModuleItImplements(t *testing.T) {
+	// Guards the other direction: the unknown-name check must not reject a
+	// module the core actually has. A dependency error here is fine — this
+	// asserts only that no name is reported as unrecognized.
+	for _, module := range allModules {
+		if err := NewModuleSet([]string{string(module)}).Validate(); err != nil && strings.Contains(err.Error(), "unknown module") {
+			t.Fatalf("Validate() rejected %q as unknown", module)
+		}
+	}
+}
+
+func TestAllModulesListsEveryConstant(t *testing.T) {
+	// allModules is maintained by hand next to the constants. If the two drift,
+	// a valid configuration starts failing at startup, so the drift is caught
+	// here rather than in a deployment.
+	source, err := os.ReadFile("modules.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	declared := regexp.MustCompile(`(?m)^\tModule\w+\s+Module\s*=\s*"([^"]+)"`).FindAllStringSubmatch(string(source), -1)
+	if len(declared) == 0 {
+		t.Fatal("no Module constants found; the pattern no longer matches the declarations")
+	}
+	for _, match := range declared {
+		if !Module(match[1]).known() {
+			t.Fatalf("module constant %q is missing from allModules", match[1])
+		}
+	}
+	if len(declared) != len(allModules) {
+		t.Fatalf("allModules has %d entries for %d constants", len(allModules), len(declared))
 	}
 }
