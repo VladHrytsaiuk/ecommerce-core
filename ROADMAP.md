@@ -444,6 +444,34 @@ through a Video-owned join, so draft and failed assets cannot leak into the
 storefront. Product-video administration and custom-player playback URLs are
 intentionally deferred to the next step.
 
+## Maintenance — clean-slate cutover completed
+
+The pre-rewrite halves of the rewritten modules have been deleted now that
+their successors carry all traffic: `order` and `payment` (superseded by
+`orders`, `payments` and `core/orderworkflow`), `user` (`identity`), `discount`
+(`promos`), `feedback` (`support`), `integration` (`adapters/*`), `shipment`
+and `shipping` (`delivery`), plus `document`, `redirect` and `sitemap`, which
+nothing replaced and nothing referenced. The legacy cart and wishlist handlers
+that sat behind `//go:build legacy && ignore` went with them, along with
+`platform/{email,sms,storage,notification}` and `internal/audit`, all of which
+had been superseded by `adapters/*` and the Admin module's transactional audit.
+
+`cmd/admin` was rewritten against the live schema; it previously wrote columns
+and a role table that no migration creates, so bootstrapping the first
+administrator could not work.
+
+Open follow-ups:
+
+- Most live delivery packages carry no Swagger annotations. The published
+  contract previously looked complete only because the deleted legacy handlers
+  were annotated, so it described routes that were never registered.
+- `Bootstrap` remains a single 560-line function with a 66-field `Application`.
+  Module dependencies are now declared once in `internal/app/modules.go`, but
+  the Composition Root itself has not been split into phases.
+- Access-token revocation is bounded by `ACCESS_TOKEN_DURATION` (max 1h) rather
+  than closed. Carrying the RBAC `authorization_version` in the token would
+  close it, at the cost of making Identity depend on Admin state.
+
 ## Global rules
 
 - Do not fork for a store.

@@ -170,6 +170,9 @@ middleware. It must not instantiate an SDK or contain provider selection.
 
 ### 4.1 Example store configuration
 
+This illustrates the target shape. `INVENTORY_MODE=external_1c` and `sync` are
+both part of the intended design but are refused at startup today; see 5.2.
+
 ```env
 STORE_CODE=cosmetics-es
 STORE_NAME=Cosmetica ES
@@ -339,6 +342,14 @@ for forbidden stock mutations. This is enforced in the Inventory application
 service, not merely hidden in an admin screen.
 
 ### 5.2 Sync module
+
+**Status: ports and schema only; not assembled.** The order workflow already
+appends an `order.created` envelope to `sync_outbox` when `sync` is enabled,
+and `migrations/modules/sync` provisions the table, but Bootstrap constructs no
+dispatcher to drain it. Enabling `sync` therefore fails at startup rather than
+accumulating export rows that nothing consumes. Wiring the dispatcher into the
+Composition Root is what lifts that restriction; the contracts below are the
+target and have not changed.
 
 The Sync module provides ports for two directions:
 
