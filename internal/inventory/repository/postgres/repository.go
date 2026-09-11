@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -221,9 +222,19 @@ func (r *Repository) ReleaseExpiredUnattached(ctx context.Context, now time.Time
 	for _, reservation := range due {
 		released, err := r.releaseOne(ctx, reservation.ID)
 		if err != nil {
-			// Another replica is settling this row, or it changed underneath
-			// us. Neither is a reason to abandon the remaining reservations.
-			continue
+			// A row another replica already holds under SKIP LOCKED, or one
+			// whose status changed underneath us, reads back as not found.
+			// Neither is a reason to abandon the remaining reservations.
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			// Anything else — a lost connection, a cancelled context, a failed
+			// statement — is breakage. Reporting zero released and no error
+			// here is indistinguishable from a quiet night, so the sweep would
+			// stay broken while reservations went on holding stock. The
+			// releases already committed still count: each has its own
+			// transaction.
+			return count, fmt.Errorf("release expired reservation %s: %w", reservation.ID, err)
 		}
 		if released {
 			count++

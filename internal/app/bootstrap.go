@@ -480,7 +480,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		OrderWorkflowService:      orderWorkflowService,
 		InventoryService:          inventoryService,
 		InventoryAvailability:     inventoryRepository,
-		InventoryCleanup:          inventoryApp.NewCleanup(inventoryRepository),
+		InventoryCleanup:          inventoryApp.NewCleanup(inventoryRepository).WithLogger(logger.Log),
 		OrderService:              ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		IdentityAuthService:       identityAuthService,
 		IdentityProfileService:    identityProfileService,
