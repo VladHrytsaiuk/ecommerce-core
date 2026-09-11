@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
@@ -20,15 +21,33 @@ type DispatchJob struct {
 	DeclaredValue  money.Money
 	// Attempts includes the claim which returned this job.
 	Attempts int
+	// LockToken identifies this claim. Every terminal write presents it, so a
+	// worker whose lease was reclaimed while it was still running cannot
+	// overwrite the shipment a newer claim produced.
+	LockToken uuid.UUID
+	// LastFailureWasDefinite reports that the previous attempt is known to have
+	// created nothing. It defaults to false, so an unrecorded or unknown
+	// failure is treated as possibly having reached the carrier.
+	LastFailureWasDefinite bool
 }
 
+// JobStore takes the whole claimed job rather than its id so a caller cannot
+// write a terminal state without the token that authorizes it.
 type JobStore interface {
 	Claim(context.Context, time.Time) (*DispatchJob, error)
-	Complete(context.Context, uuid.UUID, ShipmentResult) error
-	Retry(context.Context, uuid.UUID, error, time.Time) error
-	Fail(context.Context, uuid.UUID, error) error
-	Dead(context.Context, uuid.UUID, error) error
+	Complete(context.Context, DispatchJob, ShipmentResult) error
+	// Retry schedules another attempt. The final argument records whether
+	// this failure is known to have created no shipment.
+	Retry(context.Context, DispatchJob, error, time.Time, bool) error
+	Fail(context.Context, DispatchJob, error) error
+	Dead(context.Context, DispatchJob, error) error
 }
+
+// ErrLeaseLost reports that a job was reclaimed by another worker before this
+// one finished. The work this worker did is not lost silently: the newer claim
+// owns the job, and a carrier that can reconcile will find whatever was
+// created. Callers must not retry against the same claim.
+var ErrLeaseLost = errors.New("delivery job lease was lost to another worker")
 
 type TrackingDelivery struct {
 	ID, OrderID    uuid.UUID

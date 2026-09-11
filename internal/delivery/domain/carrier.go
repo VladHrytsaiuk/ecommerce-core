@@ -15,6 +15,16 @@ var (
 	ErrLocationProviderUnavailable = errors.New("delivery location provider is not enabled")
 	ErrInvalidLocationQuery        = errors.New("invalid delivery location query")
 	ErrProviderUnavailable         = errors.New("delivery provider is temporarily unavailable")
+	// ErrShipmentNotSent marks a CreateShipment failure the carrier adapter is
+	// certain produced no shipment: a request rejected locally before it was
+	// sent, or one the provider answered with a definite refusal.
+	//
+	// The distinction matters because it decides whether re-dispatching is
+	// safe. A timeout is indistinguishable from a success whose response was
+	// lost, so retrying it against a provider with no lookup can print a
+	// second label for the same order; a rejected request cannot have. An
+	// adapter that wraps this error is promising nothing was created.
+	ErrShipmentNotSent = errors.New("delivery shipment was not created")
 )
 
 // Carrier is implemented by a delivery adapter. It must not decide checkout,
@@ -30,6 +40,13 @@ type Carrier interface {
 // ambiguous CreateShipment result using the stable idempotency reference sent
 // to the provider. It deliberately remains separate from Carrier so existing
 // providers do not pretend to support lookup semantics they do not have.
+//
+// A carrier that does not implement it cannot be asked "did my last attempt
+// work?", so the dispatcher refuses to re-dispatch a job whose previous
+// attempt failed ambiguously and parks it for manual reconciliation instead.
+// DHL Express is in this position: MyDHL exposes no lookup by the
+// Message-Reference the adapter sends, so there is nothing honest to
+// implement here for it.
 type ShipmentFinder interface {
 	FindShipment(context.Context, string) (*ShipmentResult, error)
 }

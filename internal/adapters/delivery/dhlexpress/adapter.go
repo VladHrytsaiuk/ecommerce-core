@@ -122,19 +122,25 @@ func (a *Adapter) Quote(ctx context.Context, request deliveryDomain.ShipmentQuot
 	return nil, fmt.Errorf("DHL Express product %q is unavailable for this shipment", a.config.ProductCode)
 }
 
+// CreateShipment is not idempotent at DHL and MyDHL exposes no lookup by the
+// Message-Reference this adapter sends, so a failure here cannot be resolved
+// by asking. Everything rejected before the request goes out is marked
+// ErrShipmentNotSent, which lets the dispatcher retry it; anything after that
+// point is ambiguous and parks the job for manual reconciliation rather than
+// risking a second waybill.
 func (a *Adapter) CreateShipment(ctx context.Context, request deliveryDomain.CreateShipmentRequest) (deliveryDomain.ShipmentResult, error) {
 	if request.OrderID == uuid.Nil || strings.TrimSpace(request.IdempotencyKey) == "" {
-		return deliveryDomain.ShipmentResult{}, fmt.Errorf("DHL Express shipment requires order id and idempotency key")
+		return deliveryDomain.ShipmentResult{}, fmt.Errorf("DHL Express shipment requires order id and idempotency key: %w", deliveryDomain.ErrShipmentNotSent)
 	}
 	if err := a.validateDomesticDestination(request.Destination); err != nil {
-		return deliveryDomain.ShipmentResult{}, err
+		return deliveryDomain.ShipmentResult{}, fmt.Errorf("%w: %w", err, deliveryDomain.ErrShipmentNotSent)
 	}
 	if err := request.DeclaredValue.Validate(); err != nil {
-		return deliveryDomain.ShipmentResult{}, fmt.Errorf("DHL Express declared value: %w", err)
+		return deliveryDomain.ShipmentResult{}, fmt.Errorf("DHL Express declared value: %w: %w", err, deliveryDomain.ErrShipmentNotSent)
 	}
 	packages, err := a.packages(request.Items)
 	if err != nil {
-		return deliveryDomain.ShipmentResult{}, err
+		return deliveryDomain.ShipmentResult{}, fmt.Errorf("%w: %w", err, deliveryDomain.ErrShipmentNotSent)
 	}
 	var response shipmentResponse
 	if err := a.doJSON(ctx, http.MethodPost, "/shipments", a.shipmentRequest(request, packages), &response, request.IdempotencyKey); err != nil {
@@ -339,10 +345,17 @@ func dhlError(status int, raw []byte) error {
 		Detail string `json:"detail"`
 		Title  string `json:"title"`
 	}
+	err := fmt.Errorf("DHL Express status %d", status)
 	if json.Unmarshal(raw, &response) == nil && (response.Detail != "" || response.Title != "") {
-		return fmt.Errorf("DHL Express status %d: %s %s", status, response.Title, response.Detail)
+		err = fmt.Errorf("DHL Express status %d: %s %s", status, response.Title, response.Detail)
 	}
-	return fmt.Errorf("DHL Express status %d", status)
+	// DHL answered and refused the request, so nothing was created. A 5xx or a
+	// timeout carries no such promise: the shipment may exist. 429 is excluded
+	// because a rate limiter can reject a request the service already began.
+	if status >= http.StatusBadRequest && status < http.StatusInternalServerError && status != http.StatusTooManyRequests {
+		return fmt.Errorf("%w: %w", err, deliveryDomain.ErrShipmentNotSent)
+	}
+	return err
 }
 
 func mapStatus(status string) string {

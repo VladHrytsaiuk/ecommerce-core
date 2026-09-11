@@ -3,8 +3,10 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
 	"github.com/google/uuid"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,7 +15,7 @@ func TestDispatcherCompletesClaimedJobAfterCarrierCall(t *testing.T) {
 	amount := mustMoney(100, "EUR")
 	job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: amount}
 	jobs := &fakeJobs{job: job}
-	d := NewDispatcher(jobs, mustRegistry(t, dispatchCarrier{}), time.Minute)
+	d := NewDispatcher(jobs, mustRegistry(t, &dispatchCarrier{}), time.Minute)
 	if err := d.DispatchOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +27,7 @@ func TestDispatcherSchedulesRetryAfterCarrierError(t *testing.T) {
 	amount := mustMoney(100, "EUR")
 	job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: amount}
 	jobs := &fakeJobs{job: job}
-	d := NewDispatcher(jobs, mustRegistry(t, dispatchCarrier{err: errors.New("down")}), time.Minute)
+	d := NewDispatcher(jobs, mustRegistry(t, &dispatchCarrier{err: errors.New("down")}), time.Minute)
 	if err := d.DispatchOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +39,7 @@ func TestDispatcherSchedulesRetryAfterCarrierError(t *testing.T) {
 func TestDispatcherMovesExhaustedJobToDead(t *testing.T) {
 	job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: mustMoney(100, "EUR"), Attempts: MaxAttempts}
 	jobs := &fakeJobs{job: job}
-	d := NewDispatcher(jobs, mustRegistry(t, dispatchCarrier{err: errors.New("down")}), time.Minute)
+	d := NewDispatcher(jobs, mustRegistry(t, &dispatchCarrier{err: errors.New("down")}), time.Minute)
 	if err := d.DispatchOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +67,8 @@ func TestDispatcherReconcilesExistingShipmentBeforeCreate(t *testing.T) {
 type fakeJobs struct {
 	job                      *domain.DispatchJob
 	completed, retried, dead uuid.UUID
+	retryDefinite            bool
+	deadCause                error
 }
 
 func (f *fakeJobs) Claim(context.Context, time.Time) (*domain.DispatchJob, error) {
@@ -72,27 +76,36 @@ func (f *fakeJobs) Claim(context.Context, time.Time) (*domain.DispatchJob, error
 	f.job = nil
 	return j, nil
 }
-func (f *fakeJobs) Complete(_ context.Context, id uuid.UUID, _ domain.ShipmentResult) error {
-	f.completed = id
+func (f *fakeJobs) Complete(_ context.Context, job domain.DispatchJob, _ domain.ShipmentResult) error {
+	f.completed = job.ID
 	return nil
 }
-func (f *fakeJobs) Retry(_ context.Context, id uuid.UUID, _ error, _ time.Time) error {
-	f.retried = id
+func (f *fakeJobs) Retry(_ context.Context, job domain.DispatchJob, _ error, _ time.Time, definite bool) error {
+	f.retried, f.retryDefinite = job.ID, definite
 	return nil
 }
-func (*fakeJobs) Fail(context.Context, uuid.UUID, error) error          { return nil }
-func (f *fakeJobs) Dead(_ context.Context, id uuid.UUID, _ error) error { f.dead = id; return nil }
+func (*fakeJobs) Fail(context.Context, domain.DispatchJob, error) error { return nil }
+func (f *fakeJobs) Dead(_ context.Context, job domain.DispatchJob, cause error) error {
+	f.dead, f.deadCause = job.ID, cause
+	return nil
+}
 
-type dispatchCarrier struct{ err error }
+// dispatchCarrier deliberately does not implement ShipmentFinder: it stands in
+// for DHL Express, which cannot be asked whether a previous attempt worked.
+type dispatchCarrier struct {
+	err         error
+	createCalls int
+}
 
-func (dispatchCarrier) Code() string { return "fake" }
-func (f dispatchCarrier) Quote(context.Context, domain.ShipmentQuoteRequest) ([]domain.ShippingOption, error) {
+func (*dispatchCarrier) Code() string { return "fake" }
+func (*dispatchCarrier) Quote(context.Context, domain.ShipmentQuoteRequest) ([]domain.ShippingOption, error) {
 	return nil, nil
 }
-func (f dispatchCarrier) CreateShipment(context.Context, domain.CreateShipmentRequest) (domain.ShipmentResult, error) {
+func (f *dispatchCarrier) CreateShipment(context.Context, domain.CreateShipmentRequest) (domain.ShipmentResult, error) {
+	f.createCalls++
 	return domain.ShipmentResult{TrackingNumber: "T"}, f.err
 }
-func (dispatchCarrier) Track(context.Context, domain.TrackingRequest) (domain.TrackingResult, error) {
+func (*dispatchCarrier) Track(context.Context, domain.TrackingRequest) (domain.TrackingResult, error) {
 	return domain.TrackingResult{}, nil
 }
 
@@ -122,4 +135,86 @@ func mustRegistry(t *testing.T, c domain.Carrier) *Registry {
 		t.Fatal(e)
 	}
 	return r
+}
+
+func TestAmbiguousReattemptIsParkedWhenTheCarrierCannotBeAsked(t *testing.T) {
+	// The duplicate waybill this guards against: the previous attempt timed
+	// out, which is indistinguishable from a success whose response was lost,
+	// and DHL has no lookup by the reference the adapter sends. Dispatching
+	// again would print a second label for the same order.
+	job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: mustMoney(100, "EUR"), Attempts: 2}
+	jobs := &fakeJobs{job: job}
+	carrier := &dispatchCarrier{}
+
+	if err := NewDispatcher(jobs, mustRegistry(t, carrier), time.Minute).DispatchOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if carrier.createCalls != 0 {
+		t.Fatalf("createCalls = %d; a second shipment was issued for an order that may already have one", carrier.createCalls)
+	}
+	if jobs.dead != job.ID {
+		t.Fatalf("dead = %v, want the job parked for reconciliation", jobs.dead)
+	}
+	if jobs.deadCause == nil || !strings.Contains(jobs.deadCause.Error(), "reconcile manually") {
+		t.Fatalf("dead cause = %v, want it to say what an operator must do", jobs.deadCause)
+	}
+}
+
+func TestAReattemptAfterADefiniteFailureStillDispatches(t *testing.T) {
+	// A request the carrier rejected outright created nothing, so there is no
+	// duplicate to fear and parking the job would be needless manual work.
+	job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: mustMoney(100, "EUR"), Attempts: 2, LastFailureWasDefinite: true}
+	jobs := &fakeJobs{job: job}
+	carrier := &dispatchCarrier{}
+
+	if err := NewDispatcher(jobs, mustRegistry(t, carrier), time.Minute).DispatchOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if carrier.createCalls != 1 || jobs.completed != job.ID {
+		t.Fatalf("createCalls = %d, completed = %v", carrier.createCalls, jobs.completed)
+	}
+}
+
+func TestAReattemptDispatchesWhenTheCarrierCanBeAsked(t *testing.T) {
+	// Nova Poshta can be queried, so an ambiguous previous attempt is resolved
+	// by looking rather than by parking the job.
+	job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "reconciling", IdempotencyKey: uuid.New(), DeclaredValue: mustMoney(100, "EUR"), Attempts: 3}
+	jobs := &fakeJobs{job: job}
+	carrier := &reconcilingCarrier{}
+	registry, err := NewRegistry([]string{"reconciling"}, "reconciling", carrier)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewDispatcher(jobs, registry, time.Minute).DispatchOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if carrier.createCalls != 1 || jobs.dead != uuid.Nil {
+		t.Fatalf("createCalls = %d, dead = %v", carrier.createCalls, jobs.dead)
+	}
+}
+
+func TestTheDefinitenessOfAFailureIsRecordedForTheNextAttempt(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		cause error
+		want  bool
+	}{
+		"rejected by the carrier": {cause: fmt.Errorf("bad postcode: %w", domain.ErrShipmentNotSent), want: true},
+		"timed out":               {cause: errors.New("context deadline exceeded"), want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			job := &domain.DispatchJob{ID: uuid.New(), OrderID: uuid.New(), Provider: "fake", IdempotencyKey: uuid.New(), DeclaredValue: mustMoney(100, "EUR"), Attempts: 1}
+			jobs := &fakeJobs{job: job}
+
+			if err := NewDispatcher(jobs, mustRegistry(t, &dispatchCarrier{err: testCase.cause}), time.Minute).DispatchOnce(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if jobs.retried != job.ID {
+				t.Fatalf("retried = %v, want the job rescheduled", jobs.retried)
+			}
+			if jobs.retryDefinite != testCase.want {
+				t.Fatalf("recorded definite = %t, want %t", jobs.retryDefinite, testCase.want)
+			}
+		})
+	}
 }
