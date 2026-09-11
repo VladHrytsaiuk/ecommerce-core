@@ -31,6 +31,8 @@ jobs:
           git diff --exit-code -- docs/api
       - name: Verify active clean architecture
         run: bash scripts/check-clean-architecture.sh
+      - name: Verify every package is reachable
+        run: bash scripts/check-package-reachability.sh
       - name: Verify formatting
         run: |
           unformatted=$(gofmt -l ./cmd ./internal)

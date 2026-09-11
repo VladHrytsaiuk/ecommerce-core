@@ -7,48 +7,82 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
+	"golang.org/x/time/rate"
 )
 
-func TestOTPSendRateLimitMiddleware(t *testing.T) {
+func TestRateLimitMiddlewareLimitsPerClientAddress(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RateLimitMiddleware(NewIPRateLimiter(rate.Every(time.Hour), 1)))
+	router.GET("/test", func(context *gin.Context) { context.Status(http.StatusOK) })
 
-	t.Run("limit exceeded", func(t *testing.T) {
-		r := gin.New()
-		// Limit: 1 request per 1 second
-		limiter := NewOTPSendRateLimiter(1, 1*time.Second)
-		r.Use(limiter.Middleware())
-		r.POST("/test", func(c *gin.Context) {
-			c.Status(http.StatusOK)
-		})
+	if code := requestFrom(router, "192.0.2.1:1234"); code != http.StatusOK {
+		t.Fatalf("first request = %d, want %d", code, http.StatusOK)
+	}
+	if code := requestFrom(router, "192.0.2.1:1234"); code != http.StatusTooManyRequests {
+		t.Fatalf("second request from the same address = %d, want %d", code, http.StatusTooManyRequests)
+	}
+	// The budget is per client, so one noisy address must not lock out others.
+	if code := requestFrom(router, "192.0.2.2:1234"); code != http.StatusOK {
+		t.Fatalf("request from a second address = %d, want %d", code, http.StatusOK)
+	}
+}
 
-		// First request should pass
-		req1, _ := http.NewRequest(http.MethodPost, "/test", nil)
-		req1.RemoteAddr = "192.168.1.1:1234"
-		w1 := httptest.NewRecorder()
-		r.ServeHTTP(w1, req1)
-		assert.Equal(t, http.StatusOK, w1.Code)
+func TestGetLimiterForgetsAddressesItHasNotSeenInAWhile(t *testing.T) {
+	// Without this the map grows for the life of the process: one entry per
+	// address ever seen, which on a public endpoint is unbounded. The cleanup
+	// is amortized into GetLimiter rather than run by a goroutine, so there is
+	// no background worker to leak when the limiter is discarded.
+	limiter := NewIPRateLimiter(rate.Every(time.Second), 1)
+	limiter.GetLimiter("192.0.2.1")
+	limiter.GetLimiter("192.0.2.2")
 
-		// Second request should fail (Too Many Requests)
-		req2, _ := http.NewRequest(http.MethodPost, "/test", nil)
-		req2.RemoteAddr = "192.168.1.1:1234"
-		w2 := httptest.NewRecorder()
-		r.ServeHTTP(w2, req2)
-		assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	// Age one address past the retention window and force the next call to
+	// sweep by moving the last cleanup back.
+	limiter.mu.Lock()
+	limiter.visitors["192.0.2.1"].lastSeen = time.Now().Add(-11 * time.Minute)
+	limiter.lastCleanup = time.Now().Add(-2 * time.Minute)
+	limiter.mu.Unlock()
 
-		// Request from different IP should pass
-		req3, _ := http.NewRequest(http.MethodPost, "/test", nil)
-		req3.RemoteAddr = "192.168.1.2:1234"
-		w3 := httptest.NewRecorder()
-		r.ServeHTTP(w3, req3)
-		assert.Equal(t, http.StatusOK, w3.Code)
+	limiter.GetLimiter("192.0.2.3")
 
-		// Wait for interval and try again
-		time.Sleep(1100 * time.Millisecond)
-		req4, _ := http.NewRequest(http.MethodPost, "/test", nil)
-		req4.RemoteAddr = "192.168.1.1:1234"
-		w4 := httptest.NewRecorder()
-		r.ServeHTTP(w4, req4)
-		assert.Equal(t, http.StatusOK, w4.Code)
-	})
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if _, stale := limiter.visitors["192.0.2.1"]; stale {
+		t.Fatal("an address unseen for eleven minutes is still held")
+	}
+	if _, recent := limiter.visitors["192.0.2.2"]; !recent {
+		t.Fatal("a recently seen address was evicted; its budget would reset")
+	}
+}
+
+func TestGetLimiterDoesNotSweepOnEveryCall(t *testing.T) {
+	// The sweep walks the whole map, so running it per request would make the
+	// limiter cost grow with the number of clients it has seen.
+	limiter := NewIPRateLimiter(rate.Every(time.Second), 1)
+	limiter.GetLimiter("192.0.2.1")
+
+	limiter.mu.Lock()
+	limiter.visitors["192.0.2.1"].lastSeen = time.Now().Add(-11 * time.Minute)
+	firstCleanup := limiter.lastCleanup
+	limiter.mu.Unlock()
+
+	limiter.GetLimiter("192.0.2.2")
+
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if limiter.lastCleanup != firstCleanup {
+		t.Fatal("the sweep ran again within a minute of the previous one")
+	}
+	if _, held := limiter.visitors["192.0.2.1"]; !held {
+		t.Fatal("a stale address was evicted outside a sweep")
+	}
+}
+
+func requestFrom(router *gin.Engine, address string) int {
+	request := httptest.NewRequest(http.MethodGet, "/test", nil)
+	request.RemoteAddr = address
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	return response.Code
 }
