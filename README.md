@@ -251,12 +251,17 @@ across the guest and user group are retained deterministically.
 ### Optional reviews and ratings
 
 Add `reviews` to `ENABLED_MODULES` to enable moderated product reviews. A JWT
-customer creates one pending review per product with `POST /api/reviews/{id}`;
-only approved reviews appear through `GET /api/reviews/{id}`. Admins approve,
-reject, or delete via `/api/admin/reviews/{id}/status` and
-`DELETE /api/admin/reviews/{id}`. The module owns its rating projection, while
-Catalog reads it through a port and exposes `rating` on product responses when
-the module is enabled.
+customer creates one pending review per product with
+`POST /api/v1/catalog/products/{product_id}/reviews`; only approved reviews
+appear through `GET /api/v1/catalog/products/{product_id}/reviews`.
+
+Moderation is an audited admin action, not a route on this module:
+`PATCH /api/v1/admin/reviews/{review_id}/status` and
+`DELETE /api/v1/admin/reviews/{review_id}` go through the content admin facade,
+which writes the change and its audit entry in one transaction.
+
+The module owns its rating projection, while Catalog reads it through a port
+and exposes `rating` on product responses when the module is enabled.
 
 ### Optional SEO and product badges
 

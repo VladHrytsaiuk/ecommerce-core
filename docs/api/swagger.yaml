@@ -46,6 +46,7 @@ definitions:
     - PAYLOAD_TOO_LARGE
     - SEARCH_UNAVAILABLE
     - INTERNAL_ERROR
+    - NOT_IMPLEMENTED
     type: string
     x-enum-varnames:
     - CodeInvalidPayload
@@ -58,6 +59,7 @@ definitions:
     - CodePayloadTooLarge
     - CodeSearchUnavailable
     - CodeInternal
+    - CodeNotImplemented
   github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.InvalidParam:
     properties:
       code:
@@ -575,6 +577,13 @@ definitions:
       reason:
         maxLength: 2000
         type: string
+    type: object
+  internal_reviews_delivery_http.createRequest:
+    properties:
+      comment:
+        type: string
+      rating:
+        type: integer
     type: object
   internal_support_delivery_http.createTicketRequest:
     properties:
@@ -2708,6 +2717,75 @@ paths:
       summary: List ready public videos for a product
       tags:
       - Catalog v1
+  /api/v1/catalog/products/{product_id}/reviews:
+    get:
+      description: Returns only reviews an administrator has approved. Pending and
+        rejected reviews are never exposed, including to their own author.
+      parameters:
+      - description: Product UUID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: List approved reviews for a product
+      tags:
+      - Catalog v1
+    post:
+      consumes:
+      - application/json
+      description: Requires authentication; the review is attributed to the caller
+        and starts pending moderation. A customer may review a product once.
+      parameters:
+      - description: Product UUID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      - description: Rating and comment
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_reviews_delivery_http.createRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      security:
+      - bearerAuth: []
+      summary: Submit a product review
+      tags:
+      - Catalog v1
   /api/v1/catalog/variants/{id}/subscribe:
     post:
       consumes:
@@ -3030,7 +3108,8 @@ paths:
       consumes:
       - application/json
       description: Accepted for asynchronous handling; an administrator approves it
-        before anything is exported or erased.
+        before anything is exported or erased. Erasure returns 501 where the deployment
+        has no erasure implementation configured.
       parameters:
       - description: Request type
         in: body
@@ -3055,6 +3134,10 @@ paths:
             $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
         "422":
           description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "501":
+          description: Not Implemented
           schema:
             $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
       summary: Submit a GDPR privacy request

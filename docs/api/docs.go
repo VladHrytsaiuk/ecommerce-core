@@ -2662,6 +2662,109 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/catalog/products/{product_id}/reviews": {
+            "get": {
+                "description": "Returns only reviews an administrator has approved. Pending and rejected reviews are never exposed, including to their own author.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog v1"
+                ],
+                "summary": "List approved reviews for a product",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product UUID",
+                        "name": "product_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "description": "Requires authentication; the review is attributed to the caller and starts pending moderation. A customer may review a product once.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Catalog v1"
+                ],
+                "summary": "Submit a product review",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product UUID",
+                        "name": "product_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Rating and comment",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_reviews_delivery_http.createRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/catalog/variants/{id}/subscribe": {
             "post": {
                 "description": "Open to guests, who must supply an email, and to authenticated customers, whose address is resolved server-side. Re-subscribing returns 200 with the existing subscription rather than creating a duplicate.",
@@ -3412,7 +3515,7 @@ const docTemplate = `{
         },
         "/api/v1/customers/me/privacy-requests": {
             "post": {
-                "description": "Accepted for asynchronous handling; an administrator approves it before anything is exported or erased.",
+                "description": "Accepted for asynchronous handling; an administrator approves it before anything is exported or erased. Erasure returns 501 where the deployment has no erasure implementation configured.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3455,6 +3558,12 @@ const docTemplate = `{
                     },
                     "422": {
                         "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
                         "schema": {
                             "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
                         }
@@ -4463,7 +4572,8 @@ const docTemplate = `{
                 "RATE_LIMITED",
                 "PAYLOAD_TOO_LARGE",
                 "SEARCH_UNAVAILABLE",
-                "INTERNAL_ERROR"
+                "INTERNAL_ERROR",
+                "NOT_IMPLEMENTED"
             ],
             "x-enum-varnames": [
                 "CodeInvalidPayload",
@@ -4475,7 +4585,8 @@ const docTemplate = `{
                 "CodeRateLimited",
                 "CodePayloadTooLarge",
                 "CodeSearchUnavailable",
-                "CodeInternal"
+                "CodeInternal",
+                "CodeNotImplemented"
             ]
         },
         "github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.InvalidParam": {
@@ -5226,6 +5337,17 @@ const docTemplate = `{
                 "reason": {
                     "type": "string",
                     "maxLength": 2000
+                }
+            }
+        },
+        "internal_reviews_delivery_http.createRequest": {
+            "type": "object",
+            "properties": {
+                "comment": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
                 }
             }
         },

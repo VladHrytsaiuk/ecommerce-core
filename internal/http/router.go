@@ -20,6 +20,7 @@ import (
 	paymentsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/delivery/http"
 	reportsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/reports/delivery/http"
 	returnsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/returns/delivery/http"
+	reviewsHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/reviews/delivery/http"
 	searchHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/search/delivery/http"
 	supportHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/support/delivery/http"
 	videoHTTP "github.com/VladHrytsaiuk/ecommerce-core/internal/video/delivery/http"
@@ -81,6 +82,11 @@ func InitRouter(application *app.Application) *gin.Engine {
 		videoHTTP.RegisterStorefrontRoutes(v1.Group("/catalog/products"), application.VideoStorefront, application.HTTP.ErrorRenderer)
 	}
 	availabilityHTTP.RegisterV1Routes(v1, application.AvailabilityService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth)
+	// Reviews had admin moderation and a Catalog rating projection but no way
+	// for a customer to write or read one, so the module was enabled and
+	// unusable. Moderation stays with ContentAdminFacade; only the public
+	// surface is registered here.
+	reviewsHTTP.RegisterV1Routes(v1, application.ReviewsService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
 	supportHTTP.RegisterV1Routes(v1, application.SupportService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth, middleware.AuthMiddleware(application.TokenMaker))
 	consentHTTP.RegisterV1Routes(v1, application.ConsentService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
 	if application.SearchService != nil {
