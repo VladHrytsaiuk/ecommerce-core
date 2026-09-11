@@ -157,6 +157,11 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		if len(cfg.CloudflareStreamAllowedOrigins) == 0 {
 			return StoreConfig{}, fmt.Errorf("CLOUDFLARE_STREAM_ALLOWED_ORIGINS is required when video is enabled")
 		}
+		// Without these the storefront could only be handed a permanent public
+		// Stream URL, which no longer expires once copied out of the page.
+		if strings.TrimSpace(cfg.CloudflareStreamCustomerCode) == "" || strings.TrimSpace(cfg.CloudflareStreamSigningKeyID) == "" || strings.TrimSpace(cfg.CloudflareStreamSigningKeyPEM) == "" {
+			return StoreConfig{}, fmt.Errorf("CLOUDFLARE_STREAM_CUSTOMER_CODE, CLOUDFLARE_STREAM_SIGNING_KEY_ID and CLOUDFLARE_STREAM_SIGNING_KEY_PEM are required when video is enabled")
+		}
 	}
 	return storeConfig, nil
 }

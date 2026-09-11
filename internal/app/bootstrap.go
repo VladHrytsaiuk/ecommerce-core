@@ -111,7 +111,6 @@ import (
 	supportPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/support/repository/postgres"
 	videoCloudflare "github.com/VladHrytsaiuk/ecommerce-core/internal/video/adapter/cloudflare"
 	videoApp "github.com/VladHrytsaiuk/ecommerce-core/internal/video/application"
-	videoDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/video/domain"
 	videoPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/video/repository/postgres"
 	wishlistDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/domain"
 	wishlistPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/wishlist/repository/postgres"
@@ -163,7 +162,7 @@ type Application struct {
 	VideoPlacementFacade      *videoApp.PlacementAdminFacade
 	VideoWebhookService       *videoApp.WebhookService
 	VideoOrphanCleanup        *videoApp.OrphanCleanupWorker
-	VideoStorefrontReader     videoDomain.StorefrontReader
+	VideoStorefront           *videoApp.StorefrontService
 	ReportsQueryService       reportsDomain.QueryService
 	ReportsRebuilder          *reportsApp.ReportsRebuilder
 	ReturnService             *returnsApp.ReturnService
@@ -579,7 +578,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var videoPlacementFacade *videoApp.PlacementAdminFacade
 	var videoWebhookService *videoApp.WebhookService
 	var videoOrphanCleanup *videoApp.OrphanCleanupWorker
-	var videoStorefrontReader videoDomain.StorefrontReader
+	var videoStorefront *videoApp.StorefrontService
 	if videoEnabled {
 		provider, providerErr := videoCloudflare.New(videoCloudflare.Config{
 			AccountID: cfg.CloudflareStreamAccountID, APIToken: cfg.CloudflareStreamAPIToken,
@@ -590,7 +589,18 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			return nil, fmt.Errorf("configure Cloudflare Stream video provider: %w", providerErr)
 		}
 		videoRepository := videoPostgres.NewRepository(db)
-		videoStorefrontReader = videoRepository
+		playbackSigner, signerErr := videoCloudflare.NewPlaybackSigner(videoCloudflare.SigningConfig{
+			CustomerCode:  cfg.CloudflareStreamCustomerCode,
+			KeyID:         cfg.CloudflareStreamSigningKeyID,
+			PrivateKeyPEM: cfg.CloudflareStreamSigningKeyPEM,
+		})
+		if signerErr != nil {
+			return nil, fmt.Errorf("configure Cloudflare Stream playback signing: %w", signerErr)
+		}
+		videoStorefront, signerErr = videoApp.NewStorefrontService(videoRepository, playbackSigner, cfg.VideoPlaybackTTL)
+		if signerErr != nil {
+			return nil, fmt.Errorf("configure video storefront playback: %w", signerErr)
+		}
 		videoUploadService, providerErr = videoApp.NewDirectUploadService(videoRepository, provider, cfg.VideoProvider)
 		if providerErr != nil {
 			return nil, fmt.Errorf("configure video direct uploads: %w", providerErr)
@@ -757,7 +767,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		VideoPlacementFacade:      videoPlacementFacade,
 		VideoWebhookService:       videoWebhookService,
 		VideoOrphanCleanup:        videoOrphanCleanup,
-		VideoStorefrontReader:     videoStorefrontReader,
+		VideoStorefront:           videoStorefront,
 		ReportsQueryService:       reportsQueryService,
 		ReportsRebuilder:          reportsRebuilder,
 		ReturnService:             returnService,

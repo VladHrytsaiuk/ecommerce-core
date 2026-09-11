@@ -96,6 +96,13 @@ type Config struct {
 	CloudflareStreamAPIToken       string
 	CloudflareStreamWebhookSecret  string
 	CloudflareStreamAllowedOrigins []string
+	// Signed playback keeps a Stream video private: the storefront receives a
+	// short-lived token rather than a permanent provider URL, so a copied link
+	// stops working instead of becoming an open mirror of paid content.
+	CloudflareStreamCustomerCode  string
+	CloudflareStreamSigningKeyID  string
+	CloudflareStreamSigningKeyPEM string
+	VideoPlaybackTTL              time.Duration
 
 	// SendGrid (Email)
 	SendGridAPIKey string
@@ -349,6 +356,16 @@ func Load() *Config {
 	cloudflareStreamAPIToken := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_API_TOKEN"))
 	cloudflareStreamWebhookSecret := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_WEBHOOK_SECRET"))
 	cloudflareStreamAllowedOrigins := getEnvList("CLOUDFLARE_STREAM_ALLOWED_ORIGINS", nil)
+	cloudflareStreamCustomerCode := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_CUSTOMER_CODE"))
+	cloudflareStreamSigningKeyID := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_SIGNING_KEY_ID"))
+	cloudflareStreamSigningKeyPEM := strings.TrimSpace(os.Getenv("CLOUDFLARE_STREAM_SIGNING_KEY_PEM"))
+	videoPlaybackTTL := getEnvDuration("VIDEO_PLAYBACK_TTL", 4*time.Hour)
+	// A playback token is the only thing standing between a storefront visitor
+	// and an unrestricted copy of the video, so its lifetime is bounded here
+	// rather than trusted to the deployment.
+	if videoPlaybackTTL < time.Minute || videoPlaybackTTL > 24*time.Hour {
+		log.Fatal("Fatal: VIDEO_PLAYBACK_TTL must be between 1m and 24h")
+	}
 	if redisEnabled && redisURL == "" {
 		log.Fatal("Fatal: REDIS_URL is required when REDIS_ENABLED=true")
 	}
@@ -648,6 +665,10 @@ func Load() *Config {
 		CloudflareStreamAPIToken:             cloudflareStreamAPIToken,
 		CloudflareStreamWebhookSecret:        cloudflareStreamWebhookSecret,
 		CloudflareStreamAllowedOrigins:       cloudflareStreamAllowedOrigins,
+		CloudflareStreamCustomerCode:         cloudflareStreamCustomerCode,
+		CloudflareStreamSigningKeyID:         cloudflareStreamSigningKeyID,
+		CloudflareStreamSigningKeyPEM:        cloudflareStreamSigningKeyPEM,
+		VideoPlaybackTTL:                     videoPlaybackTTL,
 		SendGridAPIKey:                       sendGridAPIKey,
 		EmailFrom:                            emailFrom,
 		NovaPoshtaAPIKey:                     novaPoshtaAPIKey,

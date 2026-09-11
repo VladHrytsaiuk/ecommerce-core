@@ -267,6 +267,14 @@ func TestNewStoreConfigValidatesOptionalVideo(t *testing.T) {
 	cfg.CloudflareStreamAPIToken = "token"
 	cfg.CloudflareStreamWebhookSecret = "secret"
 	cfg.CloudflareStreamAllowedOrigins = []string{"https://store.example.test"}
+	// Without signing material the storefront could only be handed a permanent
+	// public Stream URL, so the module refuses to start rather than serving one.
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "SIGNING_KEY") {
+		t.Fatalf("NewStoreConfig() error = %v, want playback signing configuration", err)
+	}
+	cfg.CloudflareStreamCustomerCode = "abc123"
+	cfg.CloudflareStreamSigningKeyID = "key-1"
+	cfg.CloudflareStreamSigningKeyPEM = "-----BEGIN RSA PRIVATE KEY-----\nstub\n-----END RSA PRIVATE KEY-----"
 	if _, err := NewStoreConfig(cfg); err != nil {
 		t.Fatalf("NewStoreConfig() error = %v, want valid video configuration", err)
 	}

@@ -441,8 +441,22 @@ body with a replay window, and processed through a short `FOR UPDATE`
 transaction; success adds a `media.video.ready.v1` Outbox event in that same
 transaction. The public product-video route reads only visible, ready records
 through a Video-owned join, so draft and failed assets cannot leak into the
-storefront. Product-video administration and custom-player playback URLs are
-intentionally deferred to the next step.
+storefront.
+
+**Step 3 complete.** Product-video administration places a ready asset on a
+product with a role, position and visibility, through an Admin Facade that
+writes its audit event in the same transaction as the mutation. Attach locks
+the asset row and refuses anything that is not ready; detach and reorder scope
+their predicate to the product, so a placement cannot be changed from under a
+different one. `video:write` is seeded by the Admin module's RBAC migrations —
+it was checked but never created, which had made the whole video admin API
+deny every request.
+
+Storefront playback is signed. The public route returns a short-lived RS256
+token scoped to one asset and deadline, minted from a Stream signing key, in
+place of the provider identifier; a copied link expires instead of becoming a
+permanent public mirror. A video whose token cannot be minted is omitted from
+the response rather than failing the whole product's media.
 
 ## Maintenance — clean-slate cutover completed
 

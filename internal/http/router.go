@@ -77,8 +77,8 @@ func InitRouter(application *app.Application) *gin.Engine {
 	v1Catalog := v1.Group("/catalog/:lang")
 	v1Catalog.Use(application.HTTP.RequestBodyLimit, application.HTTP.LocaleMiddleware)
 	catalogHTTP.RegisterV1Routes(v1Catalog, application.CatalogProductService, application.HTTP.ErrorRenderer, application.InventoryAvailability)
-	if application.VideoStorefrontReader != nil {
-		videoHTTP.RegisterStorefrontRoutes(v1.Group("/catalog/products"), application.VideoStorefrontReader, application.HTTP.ErrorRenderer)
+	if application.VideoStorefront != nil {
+		videoHTTP.RegisterStorefrontRoutes(v1.Group("/catalog/products"), application.VideoStorefront, application.HTTP.ErrorRenderer)
 	}
 	availabilityHTTP.RegisterV1Routes(v1, application.AvailabilityService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth)
 	supportHTTP.RegisterV1Routes(v1, application.SupportService, application.HTTP.ErrorRenderer, application.HTTP.OptionalAuth, middleware.AuthMiddleware(application.TokenMaker))

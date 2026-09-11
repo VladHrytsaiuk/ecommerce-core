@@ -148,6 +148,31 @@ type StorefrontReader interface {
 	ListReadyProductVideos(context.Context, uuid.UUID) ([]ProductVideo, error)
 }
 
+// Playback is a short-lived, provider-neutral grant to stream one asset. The
+// URLs embed a token rather than the provider's asset identifier, so a link
+// copied out of the page stops working instead of becoming a permanent public
+// mirror of the video.
+type Playback struct {
+	HLSURL    string
+	DASHURL   string
+	ExpiresAt time.Time
+}
+
+// PlayableVideo is the storefront projection: a placement together with the
+// grant that lets this viewer play it.
+type PlayableVideo struct {
+	ProductVideo
+	Playback Playback
+}
+
+var ErrPlaybackUnavailable = errors.New("video playback could not be signed")
+
+// PlaybackSigner mints those grants. It is separate from VideoProvider because
+// signing needs a private key that upload and webhook verification do not.
+type PlaybackSigner interface {
+	SignPlayback(ctx context.Context, externalID string, expiresAt time.Time) (Playback, error)
+}
+
 // PlacementRepository owns the product_videos table. Attach refuses an asset
 // that is not ready: a draft or failed encoding attached to a product would
 // otherwise sit invisible until someone noticed the storefront gap.

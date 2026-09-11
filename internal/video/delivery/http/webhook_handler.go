@@ -64,11 +64,11 @@ func receiveCloudflareWebhook(service *videoApp.WebhookService, renderer *apires
 	}
 }
 
-func RegisterStorefrontRoutes(group *gin.RouterGroup, reader video.StorefrontReader, renderer *apiresponse.ErrorRenderer) {
-	if group == nil || reader == nil || renderer == nil {
+func RegisterStorefrontRoutes(group *gin.RouterGroup, service *videoApp.StorefrontService, renderer *apiresponse.ErrorRenderer) {
+	if group == nil || service == nil || renderer == nil {
 		return
 	}
-	group.GET("/:id/videos", listProductVideos(reader, renderer))
+	group.GET("/:id/videos", listProductVideos(service, renderer))
 }
 
 // listProductVideos godoc
@@ -79,24 +79,31 @@ func RegisterStorefrontRoutes(group *gin.RouterGroup, reader video.StorefrontRea
 // @Success 200 {object} apiresponse.SuccessResponse
 // @Failure 400,500 {object} apiresponse.ProblemDetails
 // @Router /api/v1/catalog/products/{id}/videos [get]
-func listProductVideos(reader video.StorefrontReader, renderer *apiresponse.ErrorRenderer) gin.HandlerFunc {
+func listProductVideos(service *videoApp.StorefrontService, renderer *apiresponse.ErrorRenderer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		productID, err := uuid.Parse(c.Param("id"))
 		if err != nil || productID == uuid.Nil {
 			renderer.Abort(c, apiresponse.InvalidPayload(errors.New("invalid product ID")))
 			return
 		}
-		videos, err := reader.ListReadyProductVideos(c.Request.Context(), productID)
+		videos, err := service.ListPlayableProductVideos(c.Request.Context(), productID)
 		if err != nil {
 			renderer.Abort(c, err)
 			return
 		}
 		response := make([]gin.H, 0, len(videos))
 		for _, item := range videos {
-			// Provider and external IDs remain strictly server-side. Public clients
-			// need our product-video ID and safe display metadata only; a future
-			// signed playback URL belongs here, not a Cloudflare identifier.
-			response = append(response, gin.H{"id": item.ID, "role": item.Role, "position": item.Position, "duration_seconds": item.Asset.DurationSeconds, "poster_url": item.Asset.PosterURL})
+			// Provider and external IDs remain strictly server-side: the client
+			// gets a token scoped to this asset and deadline, never a Cloudflare
+			// identifier it could reuse indefinitely.
+			response = append(response, gin.H{
+				"id": item.ID, "role": item.Role, "position": item.Position,
+				"duration_seconds": item.Asset.DurationSeconds, "poster_url": item.Asset.PosterURL,
+				"playback": gin.H{
+					"hls": item.Playback.HLSURL, "dash": item.Playback.DASHURL,
+					"expires_at": item.Playback.ExpiresAt,
+				},
+			})
 		}
 		apiresponse.Success(c, stdhttp.StatusOK, response)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -198,4 +199,72 @@ func (p *auditPublisher) Publish(ctx context.Context, event events.DomainEvent) 
 	p.keys = append(p.keys, event.IdempotencyKey())
 	p.insideTransaction, _ = ctx.Value(transactionMarker{}).(bool)
 	return nil
+}
+
+func TestStorefrontSkipsAVideoItCannotSign(t *testing.T) {
+	readable := video.ProductVideo{ID: uuid.New(), Asset: video.Asset{ExternalID: "ok", Status: video.AssetReady}}
+	unsignable := video.ProductVideo{ID: uuid.New(), Asset: video.Asset{ExternalID: "broken", Status: video.AssetReady}}
+	service, err := NewStorefrontService(
+		staticStorefront{videos: []video.ProductVideo{readable, unsignable}},
+		selectiveSigner{failFor: "broken"},
+		time.Hour,
+	)
+	if err != nil {
+		t.Fatalf("NewStorefrontService() error = %v", err)
+	}
+
+	playable, err := service.ListPlayableProductVideos(context.Background(), uuid.New())
+	if err != nil {
+		t.Fatalf("ListPlayableProductVideos() error = %v", err)
+	}
+	// One unplayable video must degrade that video, not hide the product's
+	// whole media section behind an error.
+	if len(playable) != 1 || playable[0].ID != readable.ID {
+		t.Fatalf("playable = %+v, want only the signable video", playable)
+	}
+}
+
+func TestStorefrontGrantsExpireAfterTheConfiguredTTL(t *testing.T) {
+	service, err := NewStorefrontService(
+		staticStorefront{videos: []video.ProductVideo{{ID: uuid.New(), Asset: video.Asset{ExternalID: "ok", Status: video.AssetReady}}}},
+		selectiveSigner{},
+		15*time.Minute,
+	)
+	if err != nil {
+		t.Fatalf("NewStorefrontService() error = %v", err)
+	}
+	issuedAt := time.Date(2026, 3, 4, 10, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return issuedAt }
+
+	playable, err := service.ListPlayableProductVideos(context.Background(), uuid.New())
+	if err != nil || len(playable) != 1 {
+		t.Fatalf("ListPlayableProductVideos() = (%d videos, %v)", len(playable), err)
+	}
+	if !playable[0].Playback.ExpiresAt.Equal(issuedAt.Add(15 * time.Minute)) {
+		t.Fatalf("grant expiry = %s, want the configured TTL from issue time", playable[0].Playback.ExpiresAt)
+	}
+}
+
+func TestNewStorefrontServiceRejectsAnUnboundedTTL(t *testing.T) {
+	// A non-positive TTL would mint grants that never usefully expire.
+	for _, ttl := range []time.Duration{0, -time.Minute} {
+		if _, err := NewStorefrontService(staticStorefront{}, selectiveSigner{}, ttl); err == nil {
+			t.Fatalf("NewStorefrontService(ttl=%s) error = nil, want refusal", ttl)
+		}
+	}
+}
+
+type staticStorefront struct{ videos []video.ProductVideo }
+
+func (s staticStorefront) ListReadyProductVideos(context.Context, uuid.UUID) ([]video.ProductVideo, error) {
+	return s.videos, nil
+}
+
+type selectiveSigner struct{ failFor string }
+
+func (s selectiveSigner) SignPlayback(_ context.Context, externalID string, expiresAt time.Time) (video.Playback, error) {
+	if externalID == s.failFor {
+		return video.Playback{}, video.ErrPlaybackUnavailable
+	}
+	return video.Playback{HLSURL: "https://stream.example.test/token/manifest/video.m3u8", ExpiresAt: expiresAt}, nil
 }
