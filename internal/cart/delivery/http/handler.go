@@ -24,9 +24,29 @@ type itemRequest struct {
 	Quantity  int       `json:"quantity" binding:"required,gt=0"`
 }
 
+// Get godoc
+// @Summary Read the current cart
+// @Description Resolves the authenticated customer, or the anonymous buyer's cart_session cookie, issuing one when absent.
+// @Tags Cart
+// @Produce json
+// @Param lang path string true "Locale code"
+// @Success 200 {object} domain.Cart
+// @Failure 400 {object} map[string]string
+// @Router /api/{lang}/cart [get]
 func (h *Handler) Get(c *gin.Context) {
 	h.respond(c, func(owner domain.Owner) (*domain.Cart, error) { return h.service.GetOrCreate(c, owner) })
 }
+
+// Add godoc
+// @Summary Add a variant to the cart
+// @Tags Cart
+// @Accept json
+// @Produce json
+// @Param lang path string true "Locale code"
+// @Param payload body itemRequest true "Cart item"
+// @Success 200 {object} domain.Cart
+// @Failure 400,422 {object} map[string]string
+// @Router /api/{lang}/cart/items [post]
 func (h *Handler) Add(c *gin.Context) {
 	var request itemRequest
 	if c.ShouldBindJSON(&request) != nil {
@@ -37,6 +57,18 @@ func (h *Handler) Add(c *gin.Context) {
 		return h.service.Add(c, owner, domain.Item{VariantID: request.VariantID, Quantity: request.Quantity})
 	})
 }
+
+// SetQuantity godoc
+// @Summary Replace the quantity of one cart line
+// @Tags Cart
+// @Accept json
+// @Produce json
+// @Param lang path string true "Locale code"
+// @Param variantID path string true "Product variant UUID"
+// @Param payload body itemRequest true "New quantity"
+// @Success 200 {object} domain.Cart
+// @Failure 400,404,422 {object} map[string]string
+// @Router /api/{lang}/cart/items/{variantID} [patch]
 func (h *Handler) SetQuantity(c *gin.Context) {
 	var request itemRequest
 	if c.ShouldBindJSON(&request) != nil {
@@ -53,6 +85,16 @@ func (h *Handler) SetQuantity(c *gin.Context) {
 		return h.service.SetQuantity(c, owner, domain.Item{VariantID: request.VariantID, Quantity: request.Quantity})
 	})
 }
+
+// Remove godoc
+// @Summary Remove a variant from the cart
+// @Tags Cart
+// @Produce json
+// @Param lang path string true "Locale code"
+// @Param variantID path string true "Product variant UUID"
+// @Success 200 {object} domain.Cart
+// @Failure 400,404 {object} map[string]string
+// @Router /api/{lang}/cart/items/{variantID} [delete]
 func (h *Handler) Remove(c *gin.Context) {
 	variantID, err := uuid.Parse(c.Param("variantID"))
 	if err != nil {

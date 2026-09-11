@@ -34,6 +34,14 @@ func NewHandler(service comparisonDomain.Service, secureCookies bool) *Handler {
 	return &Handler{service: service, secureCookies: secureCookies}
 }
 
+// List godoc
+// @Summary List the current buyer's comparison lists
+// @Description One list per category, scoped to the authenticated customer or the anonymous cart_session cookie.
+// @Tags Comparison
+// @Produce json
+// @Success 200 {object} map[string][]listResponse
+// @Failure 400 {object} map[string]string
+// @Router /api/comparison [get]
 func (handler *Handler) List(context *gin.Context) {
 	owner, err := handler.owner(context)
 	if err != nil {
@@ -60,6 +68,15 @@ func listsResponse(lists []comparisonDomain.List) []listResponse {
 	return response
 }
 
+// Add godoc
+// @Summary Add a product variant to its category comparison list
+// @Description Rejected once the list reaches COMPARISON_MAX_ITEMS.
+// @Tags Comparison
+// @Produce json
+// @Param variant_id path string true "Product variant UUID"
+// @Success 204 "No Content"
+// @Failure 400,404,409,422 {object} map[string]string
+// @Router /api/comparison/{variant_id} [post]
 func (handler *Handler) Add(context *gin.Context) {
 	owner, err := handler.owner(context)
 	if err != nil {
@@ -78,6 +95,14 @@ func (handler *Handler) Add(context *gin.Context) {
 	context.Status(stdhttp.StatusNoContent)
 }
 
+// Remove godoc
+// @Summary Remove a product variant from its comparison list
+// @Tags Comparison
+// @Produce json
+// @Param variant_id path string true "Product variant UUID"
+// @Success 204 "No Content"
+// @Failure 400,404 {object} map[string]string
+// @Router /api/comparison/{variant_id} [delete]
 func (handler *Handler) Remove(context *gin.Context) {
 	owner, err := handler.owner(context)
 	if err != nil {

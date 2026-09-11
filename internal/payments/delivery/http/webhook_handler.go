@@ -21,6 +21,16 @@ func NewWebhookHandler(service *paymentsApp.WebhookService) *WebhookHandler {
 	return &WebhookHandler{service: service}
 }
 
+// Handle godoc
+// @Summary Provider payment callback
+// @Description Verified by the provider adapter against the untouched request body, then applied once through the atomic order workflow. Unauthenticated by design: the signature is the credential.
+// @Tags Payments
+// @Accept plain
+// @Produce json
+// @Param provider path string true "Enabled payment provider code"
+// @Success 204 "No Content"
+// @Failure 400,401,404,413,500 {object} map[string]string
+// @Router /api/webhooks/payments/{provider} [post]
 func (h *WebhookHandler) Handle(c *gin.Context) {
 	// Keep the original byte sequence intact: gateway signature schemes (notably
 	// Monobank's ECDSA X-Sign) sign the raw HTTP body, not a re-marshaled JSON

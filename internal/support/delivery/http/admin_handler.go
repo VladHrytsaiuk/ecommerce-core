@@ -37,6 +37,14 @@ func RegisterV1AdminRoutes(group *gin.RouterGroup, authorizer adminDomain.Author
 	g.POST("/:id/messages", shared.RequirePermissionV1(authorizer, PermissionSupportWrite, renderer), h.reply)
 	g.PATCH("/:id/status", shared.RequirePermissionV1(authorizer, PermissionSupportWrite, renderer), h.transition)
 }
+
+// list godoc
+// @Summary List support tickets (v1 admin)
+// @Tags Admin v1
+// @Produce json
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 401,403 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/support/tickets [get]
 func (h *adminHandler) list(c *gin.Context) {
 	page, limit := pageLimit(c)
 	tickets, total, err := h.service.ListTickets(c.Request.Context(), c.Query("status"), page, limit)
@@ -46,6 +54,15 @@ func (h *adminHandler) list(c *gin.Context) {
 	}
 	h.data(c, stdhttp.StatusOK, gin.H{"tickets": tickets, "total": total, "page": page, "limit": limit})
 }
+
+// get godoc
+// @Summary Read one support ticket with its messages (v1 admin)
+// @Tags Admin v1
+// @Produce json
+// @Param id path string true "Ticket UUID"
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/support/tickets/{id} [get]
 func (h *adminHandler) get(c *gin.Context) {
 	id, ok := h.id(c)
 	if !ok {
@@ -58,6 +75,16 @@ func (h *adminHandler) get(c *gin.Context) {
 	}
 	h.data(c, stdhttp.StatusOK, gin.H{"ticket": ticket, "messages": messages})
 }
+
+// reply godoc
+// @Summary Reply to a support ticket (v1 admin)
+// @Tags Admin v1
+// @Accept json
+// @Produce json
+// @Param id path string true "Ticket UUID"
+// @Success 201 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/support/tickets/{id}/messages [post]
 func (h *adminHandler) reply(c *gin.Context) {
 	id, ok := h.id(c)
 	if !ok {
@@ -80,6 +107,16 @@ func (h *adminHandler) reply(c *gin.Context) {
 	}
 	h.data(c, stdhttp.StatusCreated, ticket)
 }
+
+// transition godoc
+// @Summary Change a support ticket's status (v1 admin)
+// @Tags Admin v1
+// @Accept json
+// @Produce json
+// @Param id path string true "Ticket UUID"
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/support/tickets/{id}/status [patch]
 func (h *adminHandler) transition(c *gin.Context) {
 	id, ok := h.id(c)
 	if !ok {

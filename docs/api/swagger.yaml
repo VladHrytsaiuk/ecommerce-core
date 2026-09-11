@@ -1,5 +1,39 @@
 basePath: /
 definitions:
+  github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Cart:
+    properties:
+      appliedPromoCode:
+        type: string
+      discountAmount:
+        format: int64
+        type: integer
+      id:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Item'
+        type: array
+      owner:
+        $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Owner'
+      status:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Item:
+    properties:
+      quantity:
+        type: integer
+      variantID:
+        type: string
+    type: object
+  github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Owner:
+    properties:
+      customerID:
+        type: string
+      sessionID:
+        type: string
+    type: object
   github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.Code:
     enum:
     - INVALID_PAYLOAD
@@ -295,6 +329,16 @@ definitions:
     required:
     - to_status_code
     type: object
+  internal_cart_delivery_http.itemRequest:
+    properties:
+      quantity:
+        type: integer
+      variant_id:
+        type: string
+    required:
+    - quantity
+    - variant_id
+    type: object
   internal_checkout_delivery_http.DeliveryDetails:
     properties:
       city:
@@ -341,6 +385,26 @@ definitions:
         type: string
       marketing_opt_in:
         type: boolean
+    type: object
+  internal_comparison_delivery_http.itemResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      product_variant_id:
+        type: string
+    type: object
+  internal_comparison_delivery_http.listResponse:
+    properties:
+      category_id:
+        type: string
+      id:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/internal_comparison_delivery_http.itemResponse'
+        type: array
     type: object
   internal_identity_delivery_http.customerAddressRequest:
     properties:
@@ -440,6 +504,245 @@ info:
   title: AquaWheel Store API
   version: "1.0"
 paths:
+  /api/{lang}/cart:
+    get:
+      description: Resolves the authenticated customer, or the anonymous buyer's cart_session
+        cookie, issuing one when absent.
+      parameters:
+      - description: Locale code
+        in: path
+        name: lang
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Cart'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Read the current cart
+      tags:
+      - Cart
+  /api/{lang}/cart/items:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Locale code
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Cart item
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_cart_delivery_http.itemRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Cart'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add a variant to the cart
+      tags:
+      - Cart
+  /api/{lang}/cart/items/{variantID}:
+    delete:
+      parameters:
+      - description: Locale code
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Product variant UUID
+        in: path
+        name: variantID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Cart'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove a variant from the cart
+      tags:
+      - Cart
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Locale code
+        in: path
+        name: lang
+        required: true
+        type: string
+      - description: Product variant UUID
+        in: path
+        name: variantID
+        required: true
+        type: string
+      - description: New quantity
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_cart_delivery_http.itemRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_cart_domain.Cart'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Replace the quantity of one cart line
+      tags:
+      - Cart
+  /api/comparison:
+    get:
+      description: One list per category, scoped to the authenticated customer or
+        the anonymous cart_session cookie.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/internal_comparison_delivery_http.listResponse'
+              type: array
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List the current buyer's comparison lists
+      tags:
+      - Comparison
+  /api/comparison/{variant_id}:
+    delete:
+      parameters:
+      - description: Product variant UUID
+        in: path
+        name: variant_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove a product variant from its comparison list
+      tags:
+      - Comparison
+    post:
+      description: Rejected once the list reaches COMPARISON_MAX_ITEMS.
+      parameters:
+      - description: Product variant UUID
+        in: path
+        name: variant_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add a product variant to its category comparison list
+      tags:
+      - Comparison
   /api/v1/admin/catalog/categories:
     post:
       consumes:
@@ -1277,6 +1580,140 @@ paths:
       summary: Receive a return and schedule controlled settlement (v1 admin)
       tags:
       - Admin v1
+  /api/v1/admin/support/tickets:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: List support tickets (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/support/tickets/{id}:
+    get:
+      parameters:
+      - description: Ticket UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Read one support ticket with its messages (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/support/tickets/{id}/messages:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Ticket UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Reply to a support ticket (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/support/tickets/{id}/status:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Ticket UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Change a support ticket's status (v1 admin)
+      tags:
+      - Admin v1
   /api/v1/admin/videos/upload-url:
     post:
       consumes:
@@ -1969,6 +2406,142 @@ paths:
       summary: Receive a Cloudflare Stream encoding webhook
       tags:
       - Video webhooks
+  /api/webhooks/payments/{provider}:
+    post:
+      consumes:
+      - text/plain
+      description: 'Verified by the provider adapter against the untouched request
+        body, then applied once through the atomic order workflow. Unauthenticated
+        by design: the signature is the credential.'
+      parameters:
+      - description: Enabled payment provider code
+        in: path
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "413":
+          description: Request Entity Too Large
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Provider payment callback
+      tags:
+      - Payments
+  /api/wishlist:
+    get:
+      description: Scoped to the authenticated customer, or to the anonymous cart_session
+        cookie.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                type: string
+              type: array
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List the current buyer's wishlist
+      tags:
+      - Wishlist
+  /api/wishlist/{variant_id}:
+    delete:
+      parameters:
+      - description: Product variant UUID
+        in: path
+        name: variant_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Remove a product variant from the wishlist
+      tags:
+      - Wishlist
+    post:
+      parameters:
+      - description: Product variant UUID
+        in: path
+        name: variant_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Add a product variant to the wishlist
+      tags:
+      - Wishlist
 securityDefinitions:
   bearerAuth:
     description: 'Введіть токен у форматі: Bearer {your_token}'

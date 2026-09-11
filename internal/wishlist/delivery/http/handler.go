@@ -22,6 +22,14 @@ func NewHandler(service wishlistDomain.Service, secureCookies bool) *Handler {
 	return &Handler{service: service, secureCookies: secureCookies}
 }
 
+// List godoc
+// @Summary List the current buyer's wishlist
+// @Description Scoped to the authenticated customer, or to the anonymous cart_session cookie.
+// @Tags Wishlist
+// @Produce json
+// @Success 200 {object} map[string][]string
+// @Failure 400 {object} map[string]string
+// @Router /api/wishlist [get]
 func (h *Handler) List(c *gin.Context) {
 	owner, err := h.owner(c)
 	if err != nil {
@@ -36,6 +44,14 @@ func (h *Handler) List(c *gin.Context) {
 	c.JSON(stdhttp.StatusOK, gin.H{"items": wishlist.Items})
 }
 
+// Add godoc
+// @Summary Add a product variant to the wishlist
+// @Tags Wishlist
+// @Produce json
+// @Param variant_id path string true "Product variant UUID"
+// @Success 204 "No Content"
+// @Failure 400,404,422 {object} map[string]string
+// @Router /api/wishlist/{variant_id} [post]
 func (h *Handler) Add(c *gin.Context) {
 	owner, err := h.owner(c)
 	if err != nil {
@@ -54,6 +70,14 @@ func (h *Handler) Add(c *gin.Context) {
 	c.Status(stdhttp.StatusNoContent)
 }
 
+// Remove godoc
+// @Summary Remove a product variant from the wishlist
+// @Tags Wishlist
+// @Produce json
+// @Param variant_id path string true "Product variant UUID"
+// @Success 204 "No Content"
+// @Failure 400,404 {object} map[string]string
+// @Router /api/wishlist/{variant_id} [delete]
 func (h *Handler) Remove(c *gin.Context) {
 	owner, err := h.owner(c)
 	if err != nil {
