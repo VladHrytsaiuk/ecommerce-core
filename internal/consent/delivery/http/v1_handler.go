@@ -2,30 +2,70 @@ package http
 
 import (
 	"errors"
+	std "net/http"
+
+	"github.com/gin-gonic/gin"
+
 	consent "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/application"
 	domain "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	shared "github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	std "net/http"
 )
+
+type grantConsentRequest struct {
+	Type    string `json:"document_type"`
+	Version string `json:"version"`
+}
+
+type privacyRequestPayload struct {
+	Type string `json:"request_type"`
+}
 
 func RegisterV1Routes(v1 *gin.RouterGroup, s *consent.Service, auth gin.HandlerFunc, e *apiresponse.ErrorRenderer) {
 	if v1 == nil || s == nil || e == nil {
 		return
 	}
-	v1.GET("/legal/documents/active", func(c *gin.Context) {
+	v1.GET("/legal/documents/active", listActiveDocuments(s, e))
+
+	g := v1.Group("/customers/me/consents")
+	g.Use(auth)
+	g.GET("", listConsents(s, e))
+	g.POST("", grantConsent(s, e))
+	g.DELETE("/:type", withdrawConsent(s, e))
+
+	p := v1.Group("/customers/me/privacy-requests")
+	p.Use(auth)
+	p.POST("", submitPrivacyRequest(s, e))
+}
+
+// listActiveDocuments godoc
+// @Summary List the currently published legal documents
+// @Description Public: a visitor must be able to read the terms before consenting to them.
+// @Tags Consent v1
+// @Produce json
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 500 {object} apiresponse.ProblemDetails
+// @Router /api/v1/legal/documents/active [get]
+func listActiveDocuments(s *consent.Service, e *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		v, err := s.ActiveDocuments(c)
 		if err != nil {
 			e.Abort(c, err)
 			return
 		}
 		apiresponse.Success(c, std.StatusOK, v)
-	})
-	g := v1.Group("/customers/me/consents")
-	g.Use(auth)
-	g.GET("", func(c *gin.Context) {
+	}
+}
+
+// listConsents godoc
+// @Summary Read the authenticated customer's consent history
+// @Tags Consent v1
+// @Produce json
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 401 {object} apiresponse.ProblemDetails
+// @Router /api/v1/customers/me/consents [get]
+func listConsents(s *consent.Service, e *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		id, ok := shared.AuthenticatedUserID(c)
 		if !ok {
 			e.Abort(c, apiresponse.Unauthenticated(nil))
@@ -37,17 +77,27 @@ func RegisterV1Routes(v1 *gin.RouterGroup, s *consent.Service, auth gin.HandlerF
 			return
 		}
 		apiresponse.Success(c, std.StatusOK, v)
-	})
-	g.POST("", func(c *gin.Context) {
+	}
+}
+
+// grantConsent godoc
+// @Summary Record consent to a specific document version
+// @Description The version is part of the record: consent is to the text that was published, not to the document in general.
+// @Tags Consent v1
+// @Accept json
+// @Produce json
+// @Param payload body grantConsentRequest true "Document type and version"
+// @Success 204 "No Content"
+// @Failure 400,401,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/customers/me/consents [post]
+func grantConsent(s *consent.Service, e *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		id, ok := shared.AuthenticatedUserID(c)
 		if !ok {
 			e.Abort(c, apiresponse.Unauthenticated(nil))
 			return
 		}
-		var r struct {
-			Type    string `json:"document_type"`
-			Version string `json:"version"`
-		}
+		var r grantConsentRequest
 		if err := c.ShouldBindJSON(&r); err != nil {
 			e.Abort(c, apiresponse.InvalidPayload(err))
 			return
@@ -57,8 +107,20 @@ func RegisterV1Routes(v1 *gin.RouterGroup, s *consent.Service, auth gin.HandlerF
 			return
 		}
 		apiresponse.NoContent(c)
-	})
-	g.DELETE("/:type", func(c *gin.Context) {
+	}
+}
+
+// withdrawConsent godoc
+// @Summary Withdraw a previously granted consent
+// @Description Withdrawing the terms a customer is served under is refused; the account has to be closed instead.
+// @Tags Consent v1
+// @Produce json
+// @Param type path string true "Document type"
+// @Success 204 "No Content"
+// @Failure 400,401,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/customers/me/consents/{type} [delete]
+func withdrawConsent(s *consent.Service, e *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		id, ok := shared.AuthenticatedUserID(c)
 		if !ok {
 			e.Abort(c, apiresponse.Unauthenticated(nil))
@@ -69,18 +131,27 @@ func RegisterV1Routes(v1 *gin.RouterGroup, s *consent.Service, auth gin.HandlerF
 			return
 		}
 		apiresponse.NoContent(c)
-	})
-	p := v1.Group("/customers/me/privacy-requests")
-	p.Use(auth)
-	p.POST("", func(c *gin.Context) {
+	}
+}
+
+// submitPrivacyRequest godoc
+// @Summary Submit a GDPR privacy request
+// @Description Accepted for asynchronous handling; an administrator approves it before anything is exported or erased.
+// @Tags Consent v1
+// @Accept json
+// @Produce json
+// @Param payload body privacyRequestPayload true "Request type"
+// @Success 202 {object} apiresponse.SuccessResponse
+// @Failure 400,401,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/customers/me/privacy-requests [post]
+func submitPrivacyRequest(s *consent.Service, e *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		id, ok := shared.AuthenticatedUserID(c)
 		if !ok {
 			e.Abort(c, apiresponse.Unauthenticated(nil))
 			return
 		}
-		var r struct {
-			Type string `json:"request_type"`
-		}
+		var r privacyRequestPayload
 		if err := c.ShouldBindJSON(&r); err != nil {
 			e.Abort(c, apiresponse.InvalidPayload(err))
 			return
@@ -90,8 +161,9 @@ func RegisterV1Routes(v1 *gin.RouterGroup, s *consent.Service, auth gin.HandlerF
 			return
 		}
 		apiresponse.Success(c, std.StatusAccepted, gin.H{"status": "pending"})
-	})
+	}
 }
+
 func abort(e *apiresponse.ErrorRenderer, c *gin.Context, err error) {
 	if errors.Is(err, domain.ErrDocumentInactive) || errors.Is(err, domain.ErrInvalid) || errors.Is(err, domain.ErrTermsWithdrawalBlocked) {
 		e.Abort(c, apiresponse.ValidationFailed(err))
@@ -99,5 +171,3 @@ func abort(e *apiresponse.ErrorRenderer, c *gin.Context, err error) {
 	}
 	e.Abort(c, err)
 }
-
-var _ = uuid.Nil

@@ -32,7 +32,28 @@ func RegisterV1Routes(v1 *gin.RouterGroup, service *support.Service, renderer *a
 	if optionalAuth != nil {
 		g.Use(optionalAuth)
 	}
-	g.POST("", func(c *gin.Context) {
+	g.POST("", createTicket(service, renderer))
+	// An authenticated subject is required for follow-up messages. This avoids
+	// an IDOR on guest tickets until a signed, single-purpose guest token exists.
+	messages := g.Group("/:id/messages")
+	if auth != nil {
+		messages.Use(auth)
+	}
+	messages.POST("", addCustomerMessage(service, renderer))
+}
+
+// createTicket godoc
+// @Summary Open a support ticket
+// @Description Public intake, protected by a distributed per-IP and per-email quota. A guest supplies an email; for an authenticated customer it is resolved server-side.
+// @Tags Support v1
+// @Accept json
+// @Produce json
+// @Param payload body createTicketRequest true "Ticket"
+// @Success 201 {object} apiresponse.SuccessResponse
+// @Failure 400,422,429 {object} apiresponse.ProblemDetails
+// @Router /api/v1/support/tickets [post]
+func createTicket(service *support.Service, renderer *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		c.Request.Body = stdhttp.MaxBytesReader(c.Writer, c.Request.Body, maxSupportRequestBytes)
 		var request createTicketRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
@@ -49,14 +70,22 @@ func RegisterV1Routes(v1 *gin.RouterGroup, service *support.Service, renderer *a
 			return
 		}
 		apiresponse.Success(c, stdhttp.StatusCreated, gin.H{"id": ticket.ID, "status": ticket.Status, "created_at": ticket.CreatedAt})
-	})
-	// An authenticated subject is required for follow-up messages. This avoids
-	// an IDOR on guest tickets until a signed, single-purpose guest token exists.
-	messages := g.Group("/:id/messages")
-	if auth != nil {
-		messages.Use(auth)
 	}
-	messages.POST("", func(c *gin.Context) {
+}
+
+// addCustomerMessage godoc
+// @Summary Reply to your own support ticket
+// @Description Requires authentication: ticket ownership is checked against the authenticated subject, so a guest ticket cannot be read or extended by guessing its ID.
+// @Tags Support v1
+// @Accept json
+// @Produce json
+// @Param id path string true "Ticket UUID"
+// @Param payload body messageRequest true "Message"
+// @Success 201 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/support/tickets/{id}/messages [post]
+func addCustomerMessage(service *support.Service, renderer *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		c.Request.Body = stdhttp.MaxBytesReader(c.Writer, c.Request.Body, maxSupportRequestBytes)
 		customerID, ok := shared.AuthenticatedUserID(c)
 		if !ok {
@@ -78,7 +107,7 @@ func RegisterV1Routes(v1 *gin.RouterGroup, service *support.Service, renderer *a
 			return
 		}
 		apiresponse.Success(c, stdhttp.StatusCreated, gin.H{"ticket_id": ticketID})
-	})
+	}
 }
 func abort(renderer *apiresponse.ErrorRenderer, c *gin.Context, err error) {
 	if errors.Is(err, supportDomain.ErrTicketNotFound) {

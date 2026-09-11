@@ -2,13 +2,15 @@ package http
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
 	availability "github.com/VladHrytsaiuk/ecommerce-core/internal/availability_notifications/application"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"net/http"
-	"strings"
 )
 
 type request struct {
@@ -23,7 +25,23 @@ func RegisterV1Routes(v1 *gin.RouterGroup, s *availability.Service, renderer *ap
 	if optionalAuth != nil {
 		g.Use(optionalAuth)
 	}
-	g.POST("", func(c *gin.Context) {
+	g.POST("", subscribeToVariant(s, renderer))
+}
+
+// subscribeToVariant godoc
+// @Summary Subscribe to a back-in-stock notification
+// @Description Open to guests, who must supply an email, and to authenticated customers, whose address is resolved server-side. Re-subscribing returns 200 with the existing subscription rather than creating a duplicate.
+// @Tags Catalog v1
+// @Accept json
+// @Produce json
+// @Param id path string true "Product variant UUID"
+// @Param payload body request false "Guest email; ignored for an authenticated customer"
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Success 201 {object} apiresponse.SuccessResponse
+// @Failure 400,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/catalog/variants/{id}/subscribe [post]
+func subscribeToVariant(s *availability.Service, renderer *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		id, e := uuid.Parse(c.Param("id"))
 		var in request
 		if e != nil || c.ShouldBindJSON(&in) != nil {
@@ -48,6 +66,7 @@ func RegisterV1Routes(v1 *gin.RouterGroup, s *availability.Service, renderer *ap
 			status = http.StatusOK
 		}
 		apiresponse.Success(c, status, gin.H{"id": out.ID, "variant_id": out.VariantID, "status": out.Status})
-	})
+	}
 }
+
 func availabilityDomainError() error { return fmt.Errorf("email is required") }
