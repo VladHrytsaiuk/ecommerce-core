@@ -75,15 +75,20 @@ type fakeRepository struct {
 	created        *ordersDomain.Order
 	reservationIDs []uuid.UUID
 	cancelled      uuid.UUID
+	cancellation   workflowDomain.AdminCancellation
 	paid           workflowDomain.PaymentConfirmation
 	registered     workflowDomain.PaymentAttempt
+	attempt        workflowDomain.CheckoutAttemptRequest
+	transition     workflowDomain.OperationalStatusTransition
+	createErr      error
 }
 
 func (r *fakeRepository) CurrentStatusForUpdate(_ context.Context, _ uuid.UUID) (string, error) {
 	return ordersDomain.StatusPaid, nil
 }
 
-func (r *fakeRepository) TransitionOperational(_ context.Context, _ workflowDomain.OperationalStatusTransition) error {
+func (r *fakeRepository) TransitionOperational(_ context.Context, transition workflowDomain.OperationalStatusTransition) error {
+	r.transition = transition
 	return nil
 }
 
@@ -105,14 +110,19 @@ func (r *fakeRepository) RegisterPayment(_ context.Context, attempt workflowDoma
 }
 
 func (r *fakeRepository) CreatePending(_ context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
 	r.created = order
 	r.reservationIDs = reservationIDs
 	return nil
 }
-func (r *fakeRepository) CreatePendingCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, _ workflowDomain.CheckoutAttemptRequest) error {
+func (r *fakeRepository) CreatePendingCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt workflowDomain.CheckoutAttemptRequest) error {
+	r.attempt = attempt
 	return r.CreatePending(ctx, order, reservationIDs)
 }
-func (r *fakeRepository) CreatePaidCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, _ workflowDomain.CheckoutAttemptRequest) error {
+func (r *fakeRepository) CreatePaidCheckout(ctx context.Context, order *ordersDomain.Order, reservationIDs []uuid.UUID, attempt workflowDomain.CheckoutAttemptRequest) error {
+	r.attempt = attempt
 	return r.CreatePending(ctx, order, reservationIDs)
 }
 func (*fakeRepository) ExpirePendingCheckout(context.Context, time.Time) (bool, error) {
@@ -124,6 +134,7 @@ func (r *fakeRepository) CancelPending(_ context.Context, orderID uuid.UUID) err
 }
 func (r *fakeRepository) CancelPendingWithActor(_ context.Context, cancellation workflowDomain.AdminCancellation) error {
 	r.cancelled = cancellation.OrderID
+	r.cancellation = cancellation
 	return nil
 }
 func (r *fakeRepository) MarkPaid(_ context.Context, confirmation workflowDomain.PaymentConfirmation) error {
