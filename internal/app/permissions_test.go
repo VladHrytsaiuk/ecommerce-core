@@ -32,12 +32,18 @@ func TestEveryGuardedPermissionIsSeeded(t *testing.T) {
 	}
 }
 
-// declaredPermissionCodes finds the constants routes guard on. They are spread
-// across facades and module delivery packages rather than gathered in one
-// place, which is part of why the omissions were easy to miss.
+// declaredPermissionCodes finds the permissions routes guard on.
+//
+// Two forms are in use and both have to be read. Most are constants, but some
+// routes pass the code inline — orders:workflow:read is written that way — and
+// an earlier version of this test saw only the constants. It also matched only
+// two colon-separated segments, so a three-segment code was invisible on both
+// sides at once: absent from the declared set and absent from the seeded set,
+// cancelling out into a green test that checked nothing about it.
 func declaredPermissionCodes(t *testing.T, dir string) map[string]string {
 	t.Helper()
-	pattern := regexp.MustCompile(`Permission[A-Za-z]*\s*=\s*"([a-z_]+:[a-z_]+)"`)
+	pattern := regexp.MustCompile(`Permission[A-Za-z]*\s*=\s*"([a-z_]+(?::[a-z_]+)+)"` +
+		`|RequirePermission[A-Za-z0-9]*\([^,]+,\s*"([a-z_]+(?::[a-z_]+)+)"`)
 	codes := make(map[string]string)
 	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -48,7 +54,12 @@ func declaredPermissionCodes(t *testing.T, dir string) map[string]string {
 			return err
 		}
 		for _, match := range pattern.FindAllStringSubmatch(string(source), -1) {
-			codes[match[1]] = filepath.Base(path)
+			// One alternative matched, so exactly one group is non-empty.
+			for _, code := range match[1:] {
+				if code != "" {
+					codes[code] = filepath.Base(path)
+				}
+			}
 		}
 		return nil
 	}); err != nil {
@@ -65,7 +76,7 @@ func declaredPermissionCodes(t *testing.T, dir string) map[string]string {
 func seededPermissionCodes(t *testing.T, dir string) map[string]struct{} {
 	t.Helper()
 	insert := regexp.MustCompile(`(?is)INSERT\s+INTO\s+permissions\b.*?;`)
-	code := regexp.MustCompile(`'([a-z_]+:[a-z_]+)'`)
+	code := regexp.MustCompile(`'([a-z_]+(?::[a-z_]+)+)'`)
 	codes := make(map[string]struct{})
 	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".up.sql") {
