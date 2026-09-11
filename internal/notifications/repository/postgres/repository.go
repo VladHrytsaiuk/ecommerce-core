@@ -42,6 +42,7 @@ type jobRecord struct {
 	PayloadCiphertext string
 	Status            string
 	Provider          string
+	Dispatcher        string
 	ProviderMessageID *string
 	Attempts          int
 	LockedAt          *time.Time
@@ -109,7 +110,7 @@ func (r *Repository) CreateOrderPaidJob(ctx context.Context, job notificationsDo
 	if strings.TrimSpace(job.PayloadCiphertext) == "" {
 		return nil, false, fmt.Errorf("notification job payload ciphertext is required")
 	}
-	record := jobRecord{ID: uuid.New(), EventID: job.EventID, OrderID: job.OrderID, DedupeKey: job.DedupeKey, Channel: "email", Locale: job.Locale, TemplateKey: notificationsDomain.OrderPaidTemplate, PayloadCiphertext: job.PayloadCiphertext, Status: "pending", Provider: job.Provider}
+	record := jobRecord{ID: uuid.New(), EventID: job.EventID, OrderID: job.OrderID, DedupeKey: job.DedupeKey, Channel: "email", Locale: job.Locale, TemplateKey: notificationsDomain.OrderPaidTemplate, PayloadCiphertext: job.PayloadCiphertext, Status: "pending", Provider: job.Provider, Dispatcher: "outbox"}
 	result := r.db.WithContext(ctx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "dedupe_key"}}, DoNothing: true}).Create(&record)
 	if result.Error != nil {
 		return nil, false, result.Error
@@ -132,8 +133,9 @@ func (r *Repository) ClaimOrderPaidJob(ctx context.Context, jobID uuid.UUID, now
 	result := r.db.WithContext(ctx).Raw(`UPDATE notification_jobs
 SET status = 'sending', attempts = attempts + 1, locked_at = ?, lock_token = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
+  AND dispatcher = 'outbox'
   AND (status IN ('pending', 'failed') OR (status = 'sending' AND locked_at <= ?))
-RETURNING id, event_id, order_id, dedupe_key, channel, recipient, locale, template_key, payload_ciphertext, status, provider, provider_message_id, attempts, locked_at, lock_token, last_error, sent_at, created_at`, now, token, jobID, now.Add(-lease)).Scan(&record)
+RETURNING id, event_id, order_id, dedupe_key, channel, recipient, locale, template_key, payload_ciphertext, status, provider, dispatcher, provider_message_id, attempts, locked_at, lock_token, last_error, sent_at, created_at`, now, token, jobID, now.Add(-lease)).Scan(&record)
 	if result.Error != nil {
 		return nil, false, result.Error
 	}

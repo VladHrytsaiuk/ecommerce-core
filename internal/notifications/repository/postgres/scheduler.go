@@ -27,11 +27,17 @@ func (r *Repository) ScheduleEmail(ctx context.Context, typ, email string, paylo
 	}
 	dedupe := typ + ":" + email + ":" + string(raw)
 	now := time.Now().UTC()
-	return tx.Exec(`INSERT INTO notification_jobs (id,event_id,order_id,dedupe_key,channel,recipient_email,locale,template_key,payload_ciphertext,status,provider,type,payload,retry_count,next_retry_at,created_at) VALUES (?,?,NULL,?,'email',?,'en',?,'{}','pending','scheduled',?,?,0,?,?) ON CONFLICT (dedupe_key) DO NOTHING`, uuid.New(), uuid.New(), dedupe, email, typ, typ, string(raw), now, now).Error
+	// dispatcher names the worker that owns this row. Without it DurableWorker
+	// also claimed the order-paid receipts, whose render data is encrypted and
+	// whose payload column is NULL, and recorded them dead.
+	return tx.Exec(`INSERT INTO notification_jobs (id,event_id,order_id,dedupe_key,channel,recipient_email,locale,template_key,payload_ciphertext,status,provider,dispatcher,type,payload,retry_count,next_retry_at,created_at) VALUES (?,?,NULL,?,'email',?,'en',?,'{}','pending','scheduled','scheduler',?,?,0,?,?) ON CONFLICT (dedupe_key) DO NOTHING`, uuid.New(), uuid.New(), dedupe, email, typ, typ, string(raw), now, now).Error
 }
 
 var _ notifications.NotificationScheduler = (*Repository)(nil)
 
+// ClaimDue takes the next scheduled job that is due, or one whose lease has
+// expired. It claims only rows this worker owns: the order-paid receipts in
+// the same table belong to the outbox handler, which claims them by id.
 func (r *Repository) ClaimDue(ctx context.Context, now time.Time) (*notifications.DurableJob, error) {
 	var row struct {
 		ID             uuid.UUID
@@ -43,7 +49,7 @@ func (r *Repository) ClaimDue(ctx context.Context, now time.Time) (*notification
 	}
 	token := uuid.New()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return tx.Raw(`WITH c AS (SELECT id FROM notification_jobs WHERE (status IN ('pending','failed') AND next_retry_at<=?) OR (status='sending' AND locked_at<=?) ORDER BY next_retry_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE notification_jobs j SET status='sending',retry_count=j.retry_count+1,locked_at=?,lock_token=?,updated_at=CURRENT_TIMESTAMP FROM c WHERE j.id=c.id RETURNING j.id,j.type,j.recipient_email,j.payload,j.retry_count,j.lock_token`, now, now.Add(-5*time.Minute), now, token).Scan(&row).Error
+		return tx.Raw(`WITH c AS (SELECT id FROM notification_jobs WHERE dispatcher='scheduler' AND ((status IN ('pending','failed') AND next_retry_at<=?) OR (status='sending' AND locked_at<=?)) ORDER BY next_retry_at,id FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE notification_jobs j SET status='sending',retry_count=j.retry_count+1,locked_at=?,lock_token=?,updated_at=CURRENT_TIMESTAMP FROM c WHERE j.id=c.id RETURNING j.id,j.type,j.recipient_email,j.payload,j.retry_count,j.lock_token`, now, now.Add(-5*time.Minute), now, token).Scan(&row).Error
 	})
 	if err != nil {
 		return nil, err
