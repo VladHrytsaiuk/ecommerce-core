@@ -171,6 +171,24 @@ definitions:
     - RefundModeFull
     - RefundModePartial
     - RefundModeStoreCredit
+  internal_admin_delivery_http.badgeRequest:
+    properties:
+      color:
+        type: string
+      slug:
+        type: string
+      translations:
+        items:
+          $ref: '#/definitions/internal_admin_delivery_http.badgeTranslation'
+        type: array
+    type: object
+  internal_admin_delivery_http.badgeTranslation:
+    properties:
+      locale:
+        type: string
+      name:
+        type: string
+    type: object
   internal_admin_delivery_http.cancelOrderRequest:
     properties:
       reason:
@@ -314,6 +332,34 @@ definitions:
     - allowed_triggers
     - from_status_code
     - to_status_code
+    type: object
+  internal_admin_delivery_http.reviewStatusRequest:
+    properties:
+      status:
+        type: string
+    required:
+    - status
+    type: object
+  internal_admin_delivery_http.seoRequest:
+    properties:
+      description:
+        type: string
+      keywords:
+        type: string
+      locale:
+        type: string
+      og_image_ref:
+        type: string
+      resource_id:
+        type: string
+      resource_type:
+        type: string
+      title:
+        type: string
+    required:
+    - locale
+    - resource_id
+    - resource_type
     type: object
   internal_admin_delivery_http.transitionOrderRequest:
     properties:
@@ -796,6 +842,173 @@ paths:
       summary: Add a product variant to its category comparison list
       tags:
       - Comparison
+  /api/v1/admin/badges:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Badge
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_admin_delivery_http.badgeRequest'
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Create a catalog badge (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/badges/{badge_id}:
+    delete:
+      parameters:
+      - description: Badge UUID
+        in: path
+        name: badge_id
+        required: true
+        type: string
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Delete a catalog badge (v1 admin)
+      tags:
+      - Admin v1
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Badge UUID
+        in: path
+        name: badge_id
+        required: true
+        type: string
+      - description: Badge
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_admin_delivery_http.badgeRequest'
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Update a catalog badge (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/badges/{badge_id}/products/{product_id}:
+    put:
+      parameters:
+      - description: Badge UUID
+        in: path
+        name: badge_id
+        required: true
+        type: string
+      - description: Product UUID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Attach or detach a badge on a product (v1 admin)
+      tags:
+      - Admin v1
   /api/v1/admin/catalog/categories:
     post:
       consumes:
@@ -1819,6 +2032,181 @@ paths:
           schema:
             $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
       summary: Receive a return and schedule controlled settlement (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/reviews/{review_id}:
+    delete:
+      parameters:
+      - description: Review UUID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Delete a product review (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/reviews/{review_id}/status:
+    patch:
+      consumes:
+      - application/json
+      description: The resulting status is recorded in the audit trail; moderation
+        is the most contested admin action there is.
+      parameters:
+      - description: Review UUID
+        in: path
+        name: review_id
+        required: true
+        type: string
+      - description: New status
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_admin_delivery_http.reviewStatusRequest'
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Approve or reject a product review (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/seo:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Metadata
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_admin_delivery_http.seoRequest'
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Replace SEO metadata for one resource and locale (v1 admin)
+      tags:
+      - Admin v1
+  /api/v1/admin/seo/{resource_type}/{resource_id}/{locale}:
+    delete:
+      parameters:
+      - description: Resource type
+        in: path
+        name: resource_type
+        required: true
+        type: string
+      - description: Resource UUID
+        in: path
+        name: resource_id
+        required: true
+        type: string
+      - description: Locale code
+        in: path
+        name: locale
+        required: true
+        type: string
+      - description: Reuses the audit identity of a retried request
+        in: header
+        name: Idempotency-Key
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Delete SEO metadata for one resource and locale (v1 admin)
       tags:
       - Admin v1
   /api/v1/admin/support/tickets:

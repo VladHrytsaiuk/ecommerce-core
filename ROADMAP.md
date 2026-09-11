@@ -486,6 +486,10 @@ Open follow-ups:
   module set landed, the Composition Root did not.
 - Sync imports the other direction only as ports: `ImportService` has no
   authenticated ERP delivery route, so nothing invokes it.
+- Product variants can be created but not updated or deleted. Creation already
+  runs through the audited catalog facade; update and delete are absent from
+  the repository and domain ports entirely, so exposing them is new
+  persistence rather than a new facade.
 
 ## Global rules
 

@@ -99,6 +99,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 	reportsHTTP.RegisterV1Routes(v1Admin, application.AdminAuthorizer, application.ReportsQueryService, application.ReportsRebuilder, application.HTTP.ErrorRenderer)
 	supportHTTP.RegisterV1AdminRoutes(v1Admin, application.AdminAuthorizer, application.SupportService, application.HTTP.ErrorRenderer)
 	consentHTTP.RegisterV1AdminRoutes(v1Admin, application.AdminAuthorizer, application.ConsentService, application.HTTP.ErrorRenderer)
+	adminHTTP.RegisterV1ContentRoutes(v1Admin, application.AdminAuthorizer, application.ContentAdminFacade, application.HTTP.ErrorRenderer)
 	if application.MediaUploadService != nil {
 		v1AdminMedia := v1.Group("/admin/media")
 		v1AdminMedia.Use(application.HTTP.MediaRequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))
@@ -113,10 +114,10 @@ func InitRouter(application *app.Application) *gin.Engine {
 	ordersHTTP.RegisterV1Routes(v1Orders, application.OrderService, application.HTTP.ErrorRenderer)
 	admin := api.Group("/admin")
 	admin.Use(middleware.AuthMiddleware(application.TokenMaker))
-	// Reviews, SEO, Badges and Variant mutations are intentionally not exposed
-	// here until each has an Admin Facade that appends an audit event in the
-	// same transaction. Leaving permission-protected but unaudited routes live
-	// would create a forensic bypass.
+	// Reviews, SEO and Badges now reach the audited ContentAdminFacade and are
+	// registered above under /v1/admin. Variant update and delete remain
+	// unexposed because they do not exist yet: only CreateVariant is
+	// implemented, and it already goes through the audited catalog facade.
 	// New Admin facades use data-driven RBAC. Existing legacy admin routes keep
 	// their compatibility middleware until they are migrated individually.
 	if application.PromosAdminFacade != nil {

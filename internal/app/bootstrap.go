@@ -177,6 +177,7 @@ type Application struct {
 	AdminAuthorizer           adminDomain.Authorizer
 	PromosAdminFacade         *adminApp.PromosAdminFacade
 	CatalogAdminFacade        *adminApp.CatalogAdminFacade
+	ContentAdminFacade        *adminApp.ContentAdminFacade
 	OrdersAdminFacade         *adminApp.OrdersAdminFacade
 	TaxPolicy                 tax.Calculator
 	HTTP                      HTTPDependencies
@@ -436,6 +437,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	var promosAdminFacade *adminApp.PromosAdminFacade
 	var catalogAdminFacade *adminApp.CatalogAdminFacade
+	var contentAdminFacade *adminApp.ContentAdminFacade
 	var ordersAdminFacade *adminApp.OrdersAdminFacade
 	var adminAuditOutboxWorker *eventsApp.OutboxWorker
 	var searchOutboxWorker *eventsApp.OutboxWorker
@@ -678,6 +680,14 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 			ordersAdminFacade.WithStatusWorkflow(operationalWorkflowPolicy, orderWorkflowService)
 			ordersAdminFacade.WithWorkflowConfiguration(operationalWorkflowPolicy)
 		}
+		// Badges, reviews and SEO were left unexposed until each mutation could
+		// carry an audit event in its own transaction. The facade supplies that,
+		// and attaches only the modules this deployment enabled.
+		contentAdminFacade, err = adminApp.NewContentAdminFacade(adminAuthorizer, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(eventsDomain.ConsumerAdminAudit))
+		if err != nil {
+			return nil, fmt.Errorf("configure admin content facade: %w", err)
+		}
+		contentAdminFacade.WithBadges(enabledBadges).WithReviews(enabledReviews).WithSEO(enabledSEO)
 	}
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -759,6 +769,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		AdminAuthorizer:           adminAuthorizer,
 		PromosAdminFacade:         promosAdminFacade,
 		CatalogAdminFacade:        catalogAdminFacade,
+		ContentAdminFacade:        contentAdminFacade,
 		OrdersAdminFacade:         ordersAdminFacade,
 		TaxPolicy:                 taxPolicy,
 		HTTP:                      httpDependencies,
