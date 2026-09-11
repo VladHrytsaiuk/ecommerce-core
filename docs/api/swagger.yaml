@@ -528,6 +528,40 @@ definitions:
           type: array
         type: object
     type: object
+  internal_identity_delivery_http.loginRequest:
+    properties:
+      email:
+        description: Backward-compatible client alias.
+        type: string
+      login:
+        type: string
+      password:
+        type: string
+    required:
+    - password
+    type: object
+  internal_identity_delivery_http.registerRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      phone:
+        type: string
+    type: object
+  internal_identity_delivery_http.sessionResponse:
+    properties:
+      access_token:
+        type: string
+      expires_at:
+        type: string
+      role:
+        type: string
+      token_type:
+        type: string
+      user_id:
+        type: string
+    type: object
   internal_reports_delivery_http.rebuildRequest:
     properties:
       from:
@@ -778,6 +812,159 @@ paths:
       summary: Replace the quantity of one cart line
       tags:
       - Cart
+  /api/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: The login field accepts an email or a phone number. Failed attempts
+        cost the same as successful ones, so timing does not reveal whether an account
+        exists.
+      parameters:
+      - description: Credentials
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.sessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Exchange credentials for an access token
+      tags:
+      - Auth
+  /api/auth/oauth/{provider}/callback:
+    get:
+      description: Called by the provider. A guest cart in the request cookie is carried
+        into the authenticated session.
+      parameters:
+      - description: Provider code
+        enum:
+        - google
+        in: path
+        name: provider
+        required: true
+        type: string
+      - description: Authorization code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: Opaque state issued at the start of the flow
+        in: query
+        name: state
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.sessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Complete an OAuth sign-in
+      tags:
+      - Auth
+  /api/auth/oauth/{provider}/login:
+    get:
+      description: Redirects to the provider. Returns 404 where the deployment has
+        configured no OAuth provider.
+      parameters:
+      - description: Provider code
+        enum:
+        - google
+        in: path
+        name: provider
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Redirect to the provider
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Start an OAuth sign-in
+      tags:
+      - Auth
+  /api/auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Accepts an email, a phone number, or both. Returns a session immediately;
+        the account starts unverified.
+      parameters:
+      - description: Credentials
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.sessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a customer account
+      tags:
+      - Auth
   /api/comparison:
     get:
       description: One list per category, scoped to the authenticated customer or
@@ -870,6 +1057,77 @@ paths:
       summary: Add a product variant to its category comparison list
       tags:
       - Comparison
+  /api/me/profile:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - bearerAuth: []
+      summary: Read the authenticated account's profile
+      tags:
+      - Users
+    patch:
+      consumes:
+      - application/json
+      description: The document is validated against the deployment's configured profile
+        policy.
+      parameters:
+      - description: Profile fields to change
+        in: body
+        name: payload
+        required: true
+        schema:
+          additionalProperties: true
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - bearerAuth: []
+      summary: Patch the authenticated account's profile
+      tags:
+      - Users
   /api/v1/admin/badges:
     post:
       consumes:

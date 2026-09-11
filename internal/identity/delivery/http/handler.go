@@ -54,6 +54,17 @@ type sessionResponse struct {
 	ExpiresAt   time.Time `json:"expires_at"`
 }
 
+// Register godoc
+// @Summary Register a customer account
+// @Description Accepts an email, a phone number, or both. Returns a session immediately; the account starts unverified.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param payload body registerRequest true "Credentials"
+// @Success 201 {object} sessionResponse
+// @Failure 400 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Router /api/auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var request registerRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -69,6 +80,18 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	writeSession(c, stdhttp.StatusCreated, session)
 }
 
+// Login godoc
+// @Summary Exchange credentials for an access token
+// @Description The login field accepts an email or a phone number. Failed attempts cost the same as successful ones, so timing does not reveal whether an account exists.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param payload body loginRequest true "Credentials"
+// @Success 200 {object} sessionResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 429 {object} map[string]string
+// @Router /api/auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var request loginRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -88,6 +111,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	writeSession(c, stdhttp.StatusOK, session)
 }
 
+// BeginOAuth godoc
+// @Summary Start an OAuth sign-in
+// @Description Redirects to the provider. Returns 404 where the deployment has configured no OAuth provider.
+// @Tags Auth
+// @Param provider path string true "Provider code" Enums(google)
+// @Success 302 {string} string "Redirect to the provider"
+// @Failure 404 {object} map[string]string
+// @Router /api/auth/oauth/{provider}/login [get]
 func (h *AuthHandler) BeginOAuth(c *gin.Context) {
 	if h.oauthRedirectURI == "" {
 		c.AbortWithStatusJSON(stdhttp.StatusNotFound, gin.H{"error": "OAuth provider is not enabled"})
@@ -101,6 +132,19 @@ func (h *AuthHandler) BeginOAuth(c *gin.Context) {
 	c.Redirect(stdhttp.StatusFound, authorization.RedirectURL)
 }
 
+// CompleteOAuth godoc
+// @Summary Complete an OAuth sign-in
+// @Description Called by the provider. A guest cart in the request cookie is carried into the authenticated session.
+// @Tags Auth
+// @Produce json
+// @Param provider path string true "Provider code" Enums(google)
+// @Param code query string true "Authorization code"
+// @Param state query string true "Opaque state issued at the start of the flow"
+// @Success 200 {object} sessionResponse
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Router /api/auth/oauth/{provider}/callback [get]
 func (h *AuthHandler) CompleteOAuth(c *gin.Context) {
 	if h.oauthRedirectURI == "" {
 		c.AbortWithStatusJSON(stdhttp.StatusNotFound, gin.H{"error": "OAuth provider is not enabled"})
@@ -115,6 +159,15 @@ func (h *AuthHandler) CompleteOAuth(c *gin.Context) {
 	writeSession(c, stdhttp.StatusOK, session)
 }
 
+// Get godoc
+// @Summary Read the authenticated account's profile
+// @Tags Users
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security bearerAuth
+// @Router /api/me/profile [get]
 func (h *ProfileHandler) Get(c *gin.Context) {
 	userID, ok := middleware.AuthenticatedUserID(c)
 	if !ok {
@@ -133,6 +186,19 @@ func (h *ProfileHandler) Get(c *gin.Context) {
 	c.JSON(stdhttp.StatusOK, profileResponse(profile))
 }
 
+// Update godoc
+// @Summary Patch the authenticated account's profile
+// @Description The document is validated against the deployment's configured profile policy.
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param payload body map[string]interface{} true "Profile fields to change"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Security bearerAuth
+// @Router /api/me/profile [patch]
 func (h *ProfileHandler) Update(c *gin.Context) {
 	userID, ok := middleware.AuthenticatedUserID(c)
 	if !ok {
