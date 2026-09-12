@@ -407,7 +407,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		videoStorefront = video.Storefront
 	}
 	if returnsEnabled {
-		returns, returnsErr := buildReturns(storeConfig, db, inventoryService, paymentGateways)
+		returns, returnsErr := buildReturns(storeConfig, db, inventoryService, paymentGateways, notificationsEnabled)
 		if returnsErr != nil {
 			return nil, returnsErr
 		}

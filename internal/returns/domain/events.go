@@ -20,17 +20,21 @@ const (
 // other PII.
 type StatusChangedEvent struct {
 	EventID, ReturnID uuid.UUID
-	FromStatus        ReturnStatus
-	ToStatus          ReturnStatus
-	ActorType         ActorType
-	Occurred          time.Time
+	// OrderID is how a consumer reaches the buyer without Returns handing out
+	// their address: the notification module already keys the order contact by
+	// it. An order identifier is an integration fact, not personal data.
+	OrderID    uuid.UUID
+	FromStatus ReturnStatus
+	ToStatus   ReturnStatus
+	ActorType  ActorType
+	Occurred   time.Time
 }
 
-func NewStatusChangedEvent(eventID, returnID uuid.UUID, from, to ReturnStatus, actorType ActorType, occurred time.Time) (StatusChangedEvent, error) {
-	if eventID == uuid.Nil || returnID == uuid.Nil || !isValidReturnStatus(from) || !isValidReturnStatus(to) || !isValidActorType(actorType) || occurred.IsZero() {
+func NewStatusChangedEvent(eventID, returnID, orderID uuid.UUID, from, to ReturnStatus, actorType ActorType, occurred time.Time) (StatusChangedEvent, error) {
+	if eventID == uuid.Nil || returnID == uuid.Nil || orderID == uuid.Nil || !isValidReturnStatus(from) || !isValidReturnStatus(to) || !isValidActorType(actorType) || occurred.IsZero() {
 		return StatusChangedEvent{}, fmt.Errorf("invalid return status changed event")
 	}
-	return StatusChangedEvent{EventID: eventID, ReturnID: returnID, FromStatus: from, ToStatus: to, ActorType: actorType, Occurred: occurred.UTC()}, nil
+	return StatusChangedEvent{EventID: eventID, ReturnID: returnID, OrderID: orderID, FromStatus: from, ToStatus: to, ActorType: actorType, Occurred: occurred.UTC()}, nil
 }
 func (StatusChangedEvent) Topic() string               { return TopicStatusChanged }
 func (StatusChangedEvent) AggregateType() string       { return "return_request" }
@@ -41,11 +45,12 @@ func (e StatusChangedEvent) MarshalPayload() ([]byte, error) {
 	return json.Marshal(struct {
 		Version    int          `json:"version"`
 		ReturnID   uuid.UUID    `json:"return_id"`
+		OrderID    uuid.UUID    `json:"order_id"`
 		FromStatus ReturnStatus `json:"from_status"`
 		ToStatus   ReturnStatus `json:"to_status"`
 		ActorType  ActorType    `json:"actor_type"`
 		OccurredAt time.Time    `json:"occurred_at"`
-	}{Version: 1, ReturnID: e.ReturnID, FromStatus: e.FromStatus, ToStatus: e.ToStatus, ActorType: e.ActorType, OccurredAt: e.Occurred})
+	}{Version: 1, ReturnID: e.ReturnID, OrderID: e.OrderID, FromStatus: e.FromStatus, ToStatus: e.ToStatus, ActorType: e.ActorType, OccurredAt: e.Occurred})
 }
 
 // SettlementRequestedEvent is a durable command for the worker that performs

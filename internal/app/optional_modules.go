@@ -255,7 +255,7 @@ type returnsRuntime struct {
 	Worker  *eventsApp.OutboxWorker
 }
 
-func buildReturns(storeConfig StoreConfig, db *gorm.DB, inventory *inventoryApp.Service, gateways *paymentsApp.Registry) (returnsRuntime, error) {
+func buildReturns(storeConfig StoreConfig, db *gorm.DB, inventory *inventoryApp.Service, gateways *paymentsApp.Registry, notificationsEnabled bool) (returnsRuntime, error) {
 	policy, err := returnsDomain.NewWindowEligibilityPolicy(storeConfig.ReturnWindowDays)
 	if err != nil {
 		return returnsRuntime{}, fmt.Errorf("configure returns policy: %w", err)
@@ -270,7 +270,23 @@ func buildReturns(storeConfig StoreConfig, db *gorm.DB, inventory *inventoryApp.
 	if err != nil {
 		return returnsRuntime{}, fmt.Errorf("configure returns refund: %w", err)
 	}
-	service, err := returnsApp.NewReturnService(repository, snapshots, policy, adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher(), eventsPostgres.NewPublisher(returnsDomain.ConsumerSettlement))
+	// The status topic is routed only where something can act on it. Without
+	// the notifications module there is no mail to send, and a delivery for a
+	// topic its consumer cannot handle is failed by the worker rather than
+	// silently acknowledged — so an unrouted publisher is the correct shape,
+	// and the event is still recorded for audit either way.
+	statusPublisher := eventsPostgres.NewPublisher()
+	handlers := []eventsApp.Consumer{}
+	if notificationsEnabled {
+		statusPublisher = eventsPostgres.NewPublisher(returnsDomain.ConsumerSettlement)
+		notifier, notifierErr := returnsApp.NewStatusChangedNotifier(snapshots, adminPostgres.NewTransactionManager(db),
+			notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale))
+		if notifierErr != nil {
+			return returnsRuntime{}, fmt.Errorf("configure returns status notifier: %w", notifierErr)
+		}
+		handlers = append(handlers, notifier)
+	}
+	service, err := returnsApp.NewReturnService(repository, snapshots, policy, adminPostgres.NewTransactionManager(db), statusPublisher, eventsPostgres.NewPublisher(returnsDomain.ConsumerSettlement))
 	if err != nil {
 		return returnsRuntime{}, fmt.Errorf("configure returns service: %w", err)
 	}
@@ -282,10 +298,14 @@ func buildReturns(storeConfig StoreConfig, db *gorm.DB, inventory *inventoryApp.
 	if err != nil {
 		return returnsRuntime{}, fmt.Errorf("configure returns refund confirmation handler: %w", err)
 	}
+	// One worker for the module's own consumer. It carries settlement, refund
+	// confirmation and — where notifications are enabled — the customer status
+	// mail, because they are the same module's reactions to its own events.
+	handlers = append(handlers, settlement, confirmation)
 	return returnsRuntime{
 		Service: service,
 		Worker: eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), returnsDomain.ConsumerSettlement, time.Minute, logger.Log,
-			settlement, confirmation).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
+			handlers...).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 	}, nil
 }
 

@@ -25,18 +25,22 @@ func (p *Provider) GetOrderSnapshot(ctx context.Context, orderID uuid.UUID) (ret
 		return returns.OrderSnapshot{}, fmt.Errorf("invalid order snapshot request")
 	}
 	var row struct {
-		ID          uuid.UUID
-		CustomerID  *uuid.UUID
-		Status      string
-		TotalAmount int64
-		Currency    string
-		PaidAt      *time.Time
-		DeliveredAt *time.Time
+		ID           uuid.UUID
+		CustomerID   *uuid.UUID
+		Status       string
+		TotalAmount  int64
+		Currency     string
+		PaidAt       *time.Time
+		DeliveredAt  *time.Time
+		ContactEmail *string
+		Locale       *string
 	}
 	query := `SELECT o.id, o.customer_id, o.status, o.total_amount, o.currency,
+       contact.email AS contact_email, contact.locale AS locale,
        COALESCE(paid_history.occurred_at, paid_payment.updated_at) AS paid_at,
        COALESCE(delivered.occurred_at, CASE WHEN o.status = 'delivered' THEN o.updated_at ELSE NULL END) AS delivered_at
 FROM orders AS o
+LEFT JOIN order_contact_details AS contact ON contact.order_id = o.id
 LEFT JOIN LATERAL (
     SELECT occurred_at FROM order_status_history
     WHERE order_id = o.id AND to_status_code = 'paid'
@@ -80,7 +84,21 @@ WHERE o.id = ?`
 		}
 		items = append(items, returns.OrderItemSnapshot{VariantID: item.VariantID, Quantity: item.Quantity, Total: value})
 	}
-	return returns.OrderSnapshot{OrderID: row.ID, CustomerID: row.CustomerID, Status: row.Status, PaidAt: row.PaidAt, DeliveredAt: row.DeliveredAt, Total: total, Items: items}, nil
+	// A guest order placed before contact capture has no row here; the buyer
+	// simply cannot be written to, which the notifier treats as nothing to send
+	// rather than as a failure.
+	return returns.OrderSnapshot{
+		OrderID: row.ID, CustomerID: row.CustomerID, Status: row.Status,
+		PaidAt: row.PaidAt, DeliveredAt: row.DeliveredAt, Total: total, Items: items,
+		ContactEmail: valueOr(row.ContactEmail), Locale: valueOr(row.Locale),
+	}, nil
+}
+
+func valueOr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }
 
 var _ returns.OrderSnapshotReader = (*Provider)(nil)

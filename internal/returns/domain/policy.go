@@ -27,6 +27,11 @@ type OrderSnapshot struct {
 	DeliveredAt *time.Time
 	Total       money.Money
 	Items       []OrderItemSnapshot
+	// ContactEmail and Locale are how the buyer is told what happened to their
+	// return. They are the order's own contact details, already stored for the
+	// payment receipt; Returns reads them and never stores a copy.
+	ContactEmail string
+	Locale       string
 }
 
 type ReturnEligibilityPolicy interface {

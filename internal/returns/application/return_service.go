@@ -113,7 +113,7 @@ func (s *ReturnService) ReceiveReturn(ctx context.Context, returnID, adminID uui
 		if err := s.repository.Update(txCtx, request, history); err != nil {
 			return err
 		}
-		if err := s.publishStatusChanged(txCtx, request.ID, from, history); err != nil {
+		if err := s.publishStatusChanged(txCtx, request.ID, request.OrderID, from, history); err != nil {
 			return err
 		}
 		settlement, err := returns.NewSettlementRequestedEvent(history.ID, request.ID, request.OrderID, history.CreatedAt)
@@ -155,7 +155,7 @@ func (s *ReturnService) ConfirmRefunded(ctx context.Context, orderID uuid.UUID) 
 		if err := s.repository.Update(txCtx, request, history); err != nil {
 			return err
 		}
-		return s.publishStatusChanged(txCtx, request.ID, from, history)
+		return s.publishStatusChanged(txCtx, request.ID, request.OrderID, from, history)
 	})
 }
 
@@ -184,7 +184,7 @@ func (s *ReturnService) transition(ctx context.Context, returnID uuid.UUID, acto
 		if err := s.repository.Update(txCtx, request, history); err != nil {
 			return err
 		}
-		if err := s.publishStatusChanged(txCtx, request.ID, from, history); err != nil {
+		if err := s.publishStatusChanged(txCtx, request.ID, request.OrderID, from, history); err != nil {
 			return err
 		}
 		result = request
@@ -196,8 +196,8 @@ func (s *ReturnService) transition(ctx context.Context, returnID uuid.UUID, acto
 	return result, nil
 }
 
-func (s *ReturnService) publishStatusChanged(ctx context.Context, returnID uuid.UUID, from returns.ReturnStatus, history returns.ReturnStatusHistory) error {
-	event, err := returns.NewStatusChangedEvent(history.ID, returnID, from, history.Status, history.ActorType, history.CreatedAt)
+func (s *ReturnService) publishStatusChanged(ctx context.Context, returnID, orderID uuid.UUID, from returns.ReturnStatus, history returns.ReturnStatusHistory) error {
+	event, err := returns.NewStatusChangedEvent(history.ID, returnID, orderID, from, history.Status, history.ActorType, history.CreatedAt)
 	if err != nil {
 		return err
 	}
