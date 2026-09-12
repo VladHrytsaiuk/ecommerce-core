@@ -5,6 +5,7 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
 	"github.com/google/uuid"
 	"testing"
+	"time"
 )
 
 func TestTrackerMapsCarrierStatusToActiveDelivery(t *testing.T) {
@@ -24,9 +25,12 @@ type fakeTrackingStore struct {
 		ID uuid.UUID
 		domain.TrackingResult
 	}
+	claimedLimit    int
+	claimedInterval time.Duration
 }
 
-func (f *fakeTrackingStore) ListActive(context.Context, int) ([]domain.TrackingDelivery, error) {
+func (f *fakeTrackingStore) ClaimDue(_ context.Context, limit int, _ time.Time, interval time.Duration) ([]domain.TrackingDelivery, error) {
+	f.claimedLimit, f.claimedInterval = limit, interval
 	return f.active, nil
 }
 func (f *fakeTrackingStore) UpdateStatusAndTransition(_ context.Context, delivery domain.TrackingDelivery, r domain.TrackingResult, _ domain.OrderTransitioner) error {

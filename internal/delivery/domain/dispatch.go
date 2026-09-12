@@ -75,6 +75,10 @@ type OrderTransitioner interface {
 }
 
 type TrackingStore interface {
-	ListActive(context.Context, int) ([]TrackingDelivery, error)
+	// ClaimDue takes a bounded batch of deliveries that are due for a carrier
+	// check and defers them, so replicas take disjoint work and no delivery is
+	// polled twice in a cycle. It used to be ListActive, which took the same
+	// arbitrary rows on every tick.
+	ClaimDue(ctx context.Context, limit int, now time.Time, interval time.Duration) ([]TrackingDelivery, error)
 	UpdateStatusAndTransition(context.Context, TrackingDelivery, TrackingResult, OrderTransitioner) error
 }

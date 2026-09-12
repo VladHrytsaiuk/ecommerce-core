@@ -116,7 +116,11 @@ func (s *JobStore) Complete(ctx context.Context, claimed domain.DispatchJob, res
             ON CONFLICT (order_id, provider) DO UPDATE
             SET provider_reference = EXCLUDED.provider_reference,
                 tracking_number = EXCLUDED.tracking_number,
-                status = CASE WHEN deliveries.status IN ('cancelled', 'received') THEN deliveries.status ELSE 'created' END,
+                -- Preserve a terminal state. This named 'received', which is
+                -- not one of this column's statuses, so a re-dispatch of an
+                -- already delivered shipment reset it to 'created' and put it
+                -- back into tracking.
+                status = CASE WHEN deliveries.status IN ('cancelled', 'delivered', 'failed') THEN deliveries.status ELSE 'created' END,
                 updated_at = CURRENT_TIMESTAMP`, uuid.New(), job.OrderID, job.Provider, result.ProviderReference, result.TrackingNumber).Error; err != nil {
 			return err
 		}

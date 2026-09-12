@@ -22,20 +22,62 @@ type trackingRow struct {
 	Status                                   string
 }
 
-func (s *TrackingStore) ListActive(ctx context.Context, limit int) ([]domain.TrackingDelivery, error) {
+// activeTrackingStatuses are the delivery statuses still worth asking a carrier
+// about. The rest — delivered, failed, cancelled — are terminal.
+//
+// This list used to read {created, in_transit, shipped, delivered}. 'shipped'
+// is not one of this column's statuses at all, so it matched nothing, and
+// 'delivered' is terminal, so every completed shipment stayed in the set
+// forever and eventually filled the batch to the exclusion of everything in
+// transit.
+var activeTrackingStatuses = []string{"pending", "created", "in_transit"}
+
+// ClaimDue takes the deliveries whose next check is due, oldest first, and
+// defers them by interval inside the same transaction.
+//
+// The deferral is what makes this safe to run from more than one replica: a row
+// this call returns is not due again until the interval elapses, and
+// SKIP LOCKED keeps two replicas from contending for the same rows rather than
+// one waiting on the other.
+func (s *TrackingStore) ClaimDue(ctx context.Context, limit int, now time.Time, interval time.Duration) ([]domain.TrackingDelivery, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	var rows []trackingRow
-	err := s.db.WithContext(ctx).Table("deliveries").Select("deliveries.id, deliveries.order_id, deliveries.provider, deliveries.tracking_number, deliveries.status, order_delivery_details.recipient_phone").Joins("JOIN order_delivery_details ON order_delivery_details.order_id = deliveries.order_id").Where("deliveries.status IN ? AND deliveries.tracking_number IS NOT NULL", []string{"created", "in_transit", "shipped", "delivered"}).Limit(limit).Find(&rows).Error
+	if interval <= 0 {
+		return nil, fmt.Errorf("delivery tracking interval must be positive")
+	}
+	var claimed []domain.TrackingDelivery
+	err := transaction.Within(ctx, s.db, func(tx *gorm.DB) error {
+		var rows []trackingRow
+		if err := tx.Raw(`
+			SELECT d.id, d.order_id, d.provider, d.tracking_number, d.status, od.recipient_phone
+			FROM deliveries AS d
+			JOIN order_delivery_details AS od ON od.order_id = d.order_id
+			WHERE d.tracking_number IS NOT NULL
+			  AND d.status IN ?
+			  AND d.next_check_at <= ?
+			ORDER BY d.next_check_at, d.id
+			LIMIT ?
+			FOR UPDATE OF d SKIP LOCKED`, activeTrackingStatuses, now.UTC(), limit).Scan(&rows).Error; err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		ids := make([]uuid.UUID, 0, len(rows))
+		claimed = make([]domain.TrackingDelivery, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, row.ID)
+			claimed = append(claimed, domain.TrackingDelivery{ID: row.ID, OrderID: row.OrderID, Provider: row.Provider, TrackingNumber: row.TrackingNumber, RecipientPhone: row.RecipientPhone, Status: row.Status})
+		}
+		// Deferred before the carrier is called, not after: a call that hangs
+		// or fails must not hand the same row straight back on the next tick.
+		return tx.Exec(`UPDATE deliveries SET next_check_at = ? WHERE id IN ?`, now.UTC().Add(interval), ids).Error
+	})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]domain.TrackingDelivery, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, domain.TrackingDelivery{ID: row.ID, OrderID: row.OrderID, Provider: row.Provider, TrackingNumber: row.TrackingNumber, RecipientPhone: row.RecipientPhone, Status: row.Status})
-	}
-	return result, nil
+	return claimed, nil
 }
 func (s *TrackingStore) UpdateStatusAndTransition(ctx context.Context, delivery domain.TrackingDelivery, result domain.TrackingResult, orders domain.OrderTransitioner) error {
 	if !validDeliveryStatus(result.Status) {
