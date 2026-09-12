@@ -66,8 +66,14 @@ func (s *Service) ApprovePrivacyRequest(c context.Context, id uuid.UUID) (*conse
 	e := s.tx.WithinTransaction(c, func(tc context.Context) error {
 		var e error
 		x, e = s.repo.ApprovePrivacyRequest(tc, id)
-		if e != nil || x.RequestType != "erasure" {
+		if e != nil {
 			return e
+		}
+		if x == nil {
+			return consent.ErrInvalidPrivacyTransition
+		}
+		if x.RequestType != "erasure" {
+			return nil
 		}
 		if s.eraser == nil {
 			// Rolls the approval back: the request stays pending.
@@ -131,6 +137,11 @@ func (s *Service) GrantActiveMarketing(c context.Context, customerID *uuid.UUID,
 	return consent.ErrDocumentInactive
 }
 func (s *Service) Withdraw(c context.Context, id uuid.UUID, t string) error {
+	// Normalise before the guard rather than after it. This value is a path
+	// parameter, so comparing it raw while writing it trimmed meant a request
+	// for "%20terms" skipped the active-order check and then withdrew the very
+	// consent the check exists to hold.
+	t = strings.TrimSpace(t)
 	if t == "terms" {
 		active, e := s.orders.HasActiveOrders(c, id)
 		if e != nil {
@@ -140,7 +151,7 @@ func (s *Service) Withdraw(c context.Context, id uuid.UUID, t string) error {
 			return consent.ErrTermsWithdrawalBlocked
 		}
 	}
-	return s.repo.Withdraw(c, id, strings.TrimSpace(t), s.now())
+	return s.repo.Withdraw(c, id, t, s.now())
 }
 
 // WithdrawMarketingByEmail supports a signed unsubscribe endpoint for a guest
