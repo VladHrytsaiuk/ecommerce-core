@@ -25,7 +25,12 @@ type message support.Message
 func (message) TableName() string { return "support_messages" }
 
 func (r *Repository) Create(ctx context.Context, t support.Ticket, m support.Message) (*support.Ticket, error) {
-	t.ID, m.ID, m.TicketID = uuid.New(), uuid.New(), t.ID
+	// Two statements, deliberately. A single assignment evaluates the whole
+	// right-hand side first, so `t.ID, m.ID, m.TicketID = uuid.New(),
+	// uuid.New(), t.ID` gave the message the *incoming* ticket ID — the zero
+	// UUID — and detached every ticket's opening message from its thread.
+	t.ID = uuid.New()
+	m.ID, m.TicketID = uuid.New(), t.ID
 	err := transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
 		if err := tx.Create((*ticket)(&t)).Error; err != nil {
 			return err

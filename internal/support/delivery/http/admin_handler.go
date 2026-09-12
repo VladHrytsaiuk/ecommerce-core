@@ -152,12 +152,23 @@ func (h *adminHandler) id(c *gin.Context) (uuid.UUID, bool) {
 func (h *adminHandler) data(c *gin.Context, status int, data any) {
 	apiresponse.Success(c, status, data)
 }
+
+// abort classifies what went wrong. Everything used to render as 422, so a
+// dropped database connection told the operator their input was invalid,
+// produced a 4xx that no error-rate alert counts, and invited a retry that
+// could not succeed. Only the domain's own refusals are the caller's fault;
+// anything else is ours and belongs in the 5xx the renderer produces.
 func (h *adminHandler) abort(c *gin.Context, err error) {
-	if errors.Is(err, supportDomain.ErrTicketNotFound) {
+	switch {
+	case errors.Is(err, supportDomain.ErrTicketNotFound):
 		h.errors.Abort(c, apiresponse.NotFound(err, "Support ticket was not found."))
-		return
+	case errors.Is(err, supportDomain.ErrSpam):
+		h.errors.Abort(c, apiresponse.RateLimited(err))
+	case errors.Is(err, supportDomain.ErrInvalidTicket), errors.Is(err, supportDomain.ErrMessageForbidden):
+		h.errors.Abort(c, apiresponse.ValidationFailed(err))
+	default:
+		h.errors.Abort(c, err)
 	}
-	h.errors.Abort(c, apiresponse.ValidationFailed(err))
 }
 func pageLimit(c *gin.Context) (int, int) {
 	page, limit := 1, 20
