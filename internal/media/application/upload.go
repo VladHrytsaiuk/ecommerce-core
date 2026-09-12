@@ -16,6 +16,10 @@ import (
 
 const PermissionMediaWrite = "media:write"
 
+// orphanCleanupTimeout bounds the best-effort delete of a blob whose metadata
+// never committed. It matches the finalization budget the workers use.
+const orphanCleanupTimeout = 3 * time.Second
+
 type TransactionManager interface {
 	WithinTransaction(context.Context, func(context.Context) error) error
 }
@@ -44,6 +48,19 @@ func NewUploadService(repository media.AssetRepository, store media.ObjectStore,
 	return &UploadService{repository: repository, store: store, tx: tx, publisher: publisher, provider: strings.TrimSpace(provider), bucket: strings.TrimSpace(bucket)}, nil
 }
 
+// removeOrphanedObject deletes a blob whose metadata never committed.
+//
+// The context is detached because the request's own cancellation is often what
+// caused the failure, and a cancelled context would abandon the cleanup too.
+// It is also bounded: an unresponsive object store would otherwise hold the
+// request goroutine open indefinitely on a best-effort delete. The orphan
+// cleanup worker is the backstop when this does not finish.
+func (s *UploadService) removeOrphanedObject(ctx context.Context, ref media.ObjectRef) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), orphanCleanupTimeout)
+	defer cancel()
+	_ = s.store.Delete(cleanupCtx, ref)
+}
+
 func (s *UploadService) Upload(ctx context.Context, command UploadCommand) (media.Asset, error) {
 	if command.UploadID == uuid.Nil || command.Body == nil || command.SizeBytes <= 0 || !allowedMIME(command.MIMEType) || len(command.ChecksumSHA256) != 64 {
 		return media.Asset{}, fmt.Errorf("invalid media upload")
@@ -62,7 +79,7 @@ func (s *UploadService) Upload(ctx context.Context, command UploadCommand) (medi
 	asset := media.Asset{ID: assetID, UploadID: command.UploadID, Object: stored.ObjectRef, Status: media.AssetQuarantine, ChecksumSHA256: command.ChecksumSHA256, SizeBytes: command.SizeBytes, MIMEType: command.MIMEType, CreatedBy: command.ActorID, CreatedAt: time.Now().UTC()}
 	event, err := media.NewAssetUploadedEvent(command.UploadID, assetID, asset.CreatedAt)
 	if err != nil {
-		_ = s.store.Delete(context.Background(), stored.ObjectRef)
+		s.removeOrphanedObject(ctx, stored.ObjectRef)
 		return media.Asset{}, err
 	}
 	if err := s.tx.WithinTransaction(ctx, func(txCtx context.Context) error {
@@ -73,7 +90,7 @@ func (s *UploadService) Upload(ctx context.Context, command UploadCommand) (medi
 	}); err != nil {
 		// The blob is quarantined but unreferenced only on a failed local commit;
 		// remove it best-effort so retries can use their idempotency key safely.
-		_ = s.store.Delete(context.Background(), stored.ObjectRef)
+		s.removeOrphanedObject(ctx, stored.ObjectRef)
 		return media.Asset{}, fmt.Errorf("persist media upload: %w", err)
 	}
 	return asset, nil

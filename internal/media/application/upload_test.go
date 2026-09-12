@@ -45,6 +45,33 @@ func TestUploadDeletesObjectWhenTransactionalOutboxFails(t *testing.T) {
 	}
 }
 
+func TestTheCleanupDeleteIsDetachedAndBounded(t *testing.T) {
+	// The request's own cancellation is often what failed the commit, so the
+	// cleanup must not inherit it — but it ran on context.Background(), which
+	// meant an unresponsive object store held the request goroutine open with
+	// no bound at all.
+	store := &fakeStore{}
+	service, err := NewUploadService(&fakeRepository{}, store, fakeTx{}, &fakePublisher{err: errors.New("outbox unavailable")}, "s3", "media")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := service.Upload(ctx, UploadCommand{UploadID: uuid.New(), Body: bytes.NewReader([]byte("image")), SizeBytes: 5, MIMEType: "image/png", ChecksumSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}); err == nil {
+		t.Fatal("Upload() error = nil, want the outbox failure")
+	}
+	if !store.deleted {
+		t.Fatal("the orphaned object was not removed")
+	}
+	if store.deleteContextErr != nil {
+		t.Fatalf("cleanup context error = %v; it inherited the cancelled request", store.deleteContextErr)
+	}
+	if !store.deleteHadDeadline {
+		t.Fatal("cleanup context has no deadline; a hung object store would hold the request goroutine open")
+	}
+}
+
 func TestUploadReusesExistingAssetForSameIdempotencyKey(t *testing.T) {
 	asset := media.Asset{ID: uuid.New(), UploadID: uuid.New(), Status: media.AssetReady}
 	repository := &fakeRepository{existing: asset}
@@ -66,8 +93,10 @@ func (fakeTx) WithinTransaction(ctx context.Context, fn func(context.Context) er
 }
 
 type fakeStore struct {
-	deleted bool
-	puts    int
+	deleted           bool
+	deleteHadDeadline bool
+	deleteContextErr  error
+	puts              int
 }
 
 func (s *fakeStore) Put(_ context.Context, req media.PutRequest) (media.StoredObject, error) {
@@ -78,8 +107,13 @@ func (s *fakeStore) Put(_ context.Context, req media.PutRequest) (media.StoredOb
 func (*fakeStore) Get(context.Context, media.ObjectRef) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(nil)), nil
 }
-func (*fakeStore) List(context.Context, string) ([]media.ListedObject, error)   { return nil, nil }
-func (s *fakeStore) Delete(context.Context, media.ObjectRef) error              { s.deleted = true; return nil }
+func (*fakeStore) List(context.Context, string) ([]media.ListedObject, error) { return nil, nil }
+func (s *fakeStore) Delete(ctx context.Context, _ media.ObjectRef) error {
+	s.deleted = true
+	s.deleteHadDeadline = func() bool { _, has := ctx.Deadline(); return has }()
+	s.deleteContextErr = ctx.Err()
+	return nil
+}
 func (s *fakeStore) PublicURL(context.Context, media.ObjectRef) (string, error) { return "", nil }
 
 type fakeRepository struct{ created, existing media.Asset }
