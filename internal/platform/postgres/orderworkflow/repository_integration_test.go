@@ -417,3 +417,151 @@ func mustMoney(amount int64, currency string) money.Money {
 	}
 	return value
 }
+
+// TestMarkPaidTakesStockRowsInTheOrderCheckoutReservesThem drives the real
+// release path against a competing transaction that holds stock rows the way
+// checkout's ReserveBatch does — sorted by variant and warehouse.
+//
+// Both sides update the same two rows. The competing transaction takes the
+// lower variant first; MarkPaid must do the same. The reservations are
+// deliberately inserted in the opposite order, so a release that walked them
+// in scan order would take the higher one first and the two would deadlock.
+func TestMarkPaidTakesStockRowsInTheOrderCheckoutReservesThem(t *testing.T) {
+	testcontainers.SkipIfProviderIsNotHealthy(t)
+	ctx := context.Background()
+	container, err := containerPostgres.Run(ctx, "postgres:16-alpine",
+		containerPostgres.WithDatabase("lock_order_test"),
+		containerPostgres.WithUsername("workflow"),
+		containerPostgres.WithPassword("workflow"),
+		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second)))
+	if err != nil {
+		t.Fatalf("start PostgreSQL: %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+	databaseURL, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := repositoryRoot(t)
+	for _, migration := range []struct{ dir, table string }{
+		{filepath.Join(root, "migrations", "core"), "schema_migrations"},
+		{filepath.Join(root, "migrations", "modules", "inventory"), "schema_migrations_module_inventory"},
+		{filepath.Join(root, "migrations", "modules", "sync"), "schema_migrations_module_sync"},
+		{filepath.Join(root, "migrations", "modules", "notifications"), "schema_migrations_module_notifications"},
+	} {
+		if err := applyMigrations(migration.dir, databaseURL, migration.table); err != nil {
+			t.Fatalf("migrate %s: %v", migration.table, err)
+		}
+	}
+	db, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedOrderPaidTemplate(t, db)
+
+	// Two variants whose sorted order is known, with their reservations
+	// inserted in reverse so an unordered scan returns the higher one first.
+	lower, higher := orderedVariantPair(t)
+	warehouseID := uuid.New()
+	if err := db.Exec(`INSERT INTO locales (code, name, is_default) VALUES ('en', 'English', true)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO warehouses (id, code, name) VALUES (?, 'main', 'Main')`, warehouseID).Error; err != nil {
+		t.Fatal(err)
+	}
+	reservations := make([]uuid.UUID, 0, 2)
+	for _, variantID := range []uuid.UUID{higher, lower} {
+		productID := uuid.New()
+		if err := db.Exec(`INSERT INTO products (id, status) VALUES (?, 'active')`, productID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Exec(`INSERT INTO product_variants (id, product_id, sku, status, price_amount, currency)
+			VALUES (?, ?, ?, 'active', 500, 'EUR')`, variantID, productID, "SKU-"+variantID.String()[:8]).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Exec(`INSERT INTO stock_items (id, variant_id, warehouse_id, quantity_on_hand, quantity_reserved)
+			VALUES (?, ?, ?, 5, 1)`, uuid.New(), variantID, warehouseID).Error; err != nil {
+			t.Fatal(err)
+		}
+		reservationID := uuid.New()
+		if err := db.Exec(`INSERT INTO inventory_reservations (id, idempotency_key, variant_id, warehouse_id, quantity, expires_at)
+			VALUES (?, ?, ?, ?, 1, ?)`, reservationID, uuid.New(), variantID, warehouseID, time.Now().Add(time.Hour)).Error; err != nil {
+			t.Fatal(err)
+		}
+		reservations = append(reservations, reservationID)
+	}
+
+	price := mustMoney(1000, "EUR")
+	service := workflowApp.NewService(NewRepository(db, true).WithEventPublisher(eventsPostgres.NewTopicPublisher(nil)))
+	order, err := service.CreatePendingCheckout(ctx, ordersDomain.Draft{
+		Number: "ES-400", Subtotal: price, Tax: mustMoney(0, "EUR"), Total: price, PaymentProvider: "fake", DeliveryProvider: "novaposhta",
+		Delivery: &ordersDomain.DeliveryDetails{RecipientName: "Iryna Customer", RecipientPhone: "+34123456789", CountryCode: "ES", City: "Madrid", LocalityID: "madrid", ServicePointID: "branch-1"},
+		Contact:  &ordersDomain.ContactDetails{Email: "iryna@example.com", Locale: "es"},
+		Items: []ordersDomain.Item{
+			{VariantID: &lower, ProductName: "Cream", SKU: "A", Quantity: 1, UnitPrice: mustMoney(500, "EUR"), Total: mustMoney(500, "EUR")},
+			{VariantID: &higher, ProductName: "Soap", SKU: "B", Quantity: 1, UnitPrice: mustMoney(500, "EUR"), Total: mustMoney(500, "EUR")},
+		},
+	}, reservations, workflowDomain.CheckoutAttemptRequest{Provider: "fake", IdempotencyKey: "checkout-400", Amount: price})
+	if err != nil {
+		t.Fatalf("CreatePendingCheckout() error = %v", err)
+	}
+	confirmation := workflowDomain.PaymentConfirmation{PaymentAttempt: workflowDomain.PaymentAttempt{OrderID: order.ID, Provider: "fake", ProviderReference: "payment-400", Amount: price}, Status: "paid"}
+	if err := service.RegisterPayment(ctx, confirmation.PaymentAttempt); err != nil {
+		t.Fatalf("RegisterPayment() error = %v", err)
+	}
+
+	// A concurrent purchase of the same two variants, holding the lower one
+	// and about to take the higher — exactly what ReserveBatch does.
+	holding := make(chan struct{})
+	release := make(chan struct{})
+	competitor := make(chan error, 1)
+	go func() {
+		competitor <- db.Transaction(func(tx *gorm.DB) error {
+			if err := reserveStock(tx, lower, warehouseID); err != nil {
+				close(holding)
+				return err
+			}
+			close(holding)
+			<-release
+			return reserveStock(tx, higher, warehouseID)
+		})
+	}()
+	<-holding
+
+	paid := make(chan error, 1)
+	go func() { paid <- service.MarkPaid(ctx, confirmation) }()
+
+	// Give MarkPaid time to reach for its first row, then let the competitor
+	// finish. With a shared order the two serialize; with opposite orders
+	// PostgreSQL breaks the cycle and one of them fails.
+	time.Sleep(500 * time.Millisecond)
+	close(release)
+
+	if err := <-competitor; err != nil {
+		t.Fatalf("the concurrent reservation failed: %v", err)
+	}
+	select {
+	case err := <-paid:
+		if err != nil {
+			t.Fatalf("MarkPaid() error = %v; the release must take stock rows in the order checkout reserves them", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("MarkPaid() never returned")
+	}
+}
+
+func reserveStock(tx *gorm.DB, variantID, warehouseID uuid.UUID) error {
+	return tx.Exec(`UPDATE stock_items SET quantity_reserved = quantity_reserved + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE variant_id = ? AND warehouse_id = ?`, variantID, warehouseID).Error
+}
+
+// orderedVariantPair returns two ids whose textual order is known, since that
+// is the order both sides must agree on.
+func orderedVariantPair(t *testing.T) (lower, higher uuid.UUID) {
+	t.Helper()
+	first, second := uuid.New(), uuid.New()
+	if first.String() > second.String() {
+		first, second = second, first
+	}
+	return first, second
+}

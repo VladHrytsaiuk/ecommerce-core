@@ -743,8 +743,18 @@ func (r *Repository) withTransaction(ctx context.Context, fn func(*gorm.DB) erro
 
 func (r *Repository) completePending(ctx context.Context, tx *gorm.DB, order orderStateRecord, orderID uuid.UUID, targetStatus string, payment *paymentRecord, confirmation *workflowDomain.PaymentConfirmation, audit *statusHistoryAudit) error {
 	fromStatus := order.Status
+	// The ordering is a global lock order, not presentation. The loop below
+	// updates stock_items row by row, and checkout's ReserveBatch updates the
+	// same rows sorted by variant and warehouse — deliberately, so every
+	// caller takes them in one sequence. Without the same order here, a
+	// purchase reserving {A, B} and a payment confirmation releasing {B, A}
+	// take the two rows in opposite directions and PostgreSQL aborts one of
+	// them. Two customers buying the same pair of products is enough.
 	var reservations []reservationRecord
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_id = ?", orderID).Find(&reservations).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("order_id = ?", orderID).
+		Order("variant_id, warehouse_id").
+		Find(&reservations).Error; err != nil {
 		return err
 	}
 	if len(reservations) == 0 {
@@ -993,10 +1003,16 @@ func createOrderSnapshot(tx *gorm.DB, order *ordersDomain.Order) error {
 }
 
 // lockReservations takes every reservation row for one checkout under a write
-// lock. PostgreSQL locks rows in scan order, not by id, so an IN list is only
-// deadlock-free because reservation ids are derived deterministically from the
-// checkout id (uuid.NewSHA1 in checkout's PreparePayment) and therefore never
-// overlap between concurrent checkouts. Preserve that derivation if it moves.
+// lock.
+//
+// PostgreSQL locks rows in scan order, not by id, so an IN list is only
+// deadlock-free because two concurrent checkouts never name the same
+// reservation. What guarantees that is the idempotency key, not the row id:
+// checkout derives it as uuid.NewSHA1(CheckoutID, variant:warehouse) in
+// PreparePayment, and the row id is a plain uuid.New(). Preserve that
+// derivation if it moves — an idempotency key that stopped including the
+// checkout id would let two checkouts share reservations, and then this scan
+// order would matter.
 func lockReservations(tx *gorm.DB, reservationIDs []uuid.UUID) ([]reservationRecord, error) {
 	var reservations []reservationRecord
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id IN ?", reservationIDs).Find(&reservations).Error; err != nil {
