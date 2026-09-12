@@ -64,12 +64,38 @@ type Policy struct {
 	DefaultDeliveryProvider    string
 }
 
+// orderNumberDigits is how much of the checkout UUID the order number carries.
+//
+// It was eight, which is 32 bits, and orders.number is UNIQUE. By the birthday
+// bound two of 50,000 checkouts share an eight-character prefix about a quarter
+// of the time, and by 200,000 it is all but certain; each collision fails the
+// losing checkout at order insert. Twelve is 48 bits, which puts the same risk
+// past any volume this core is built for.
+//
+// The number stays a deterministic function of the checkout ID, but nothing
+// depends on its shape: a retried checkout is recognised by the attempt row's
+// idempotency key, not by this string.
+const orderNumberDigits = 12
+
+// orderNumberPrefixLimit keeps the assembled number inside orders.number's
+// VARCHAR(64). STORE_CODE, which supplies the prefix, may be 64 characters on
+// its own, so an unbounded prefix would overflow the column and fail every
+// checkout in the store.
+const orderNumberPrefixLimit = 64 - orderNumberDigits - 1
+
 func (p Policy) OrderNumber(checkoutID uuid.UUID) string {
 	prefix := strings.ToUpper(strings.TrimSpace(p.OrderNumberPrefix))
 	if prefix == "" {
 		prefix = "ORDER"
 	}
-	return prefix + "-" + strings.ToUpper(checkoutID.String()[:8])
+	if len(prefix) > orderNumberPrefixLimit {
+		prefix = prefix[:orderNumberPrefixLimit]
+	}
+	// The UUID's own hyphen sits at index 8, so slicing the formatted string
+	// past that point would spend a character of the budget on a separator
+	// rather than on entropy.
+	digits := strings.ReplaceAll(checkoutID.String(), "-", "")
+	return prefix + "-" + strings.ToUpper(digits[:orderNumberDigits])
 }
 
 func (p Policy) ValidateCustomer(customerID *uuid.UUID, phone string) error {

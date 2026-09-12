@@ -256,8 +256,15 @@ func TestStartPaymentGeneratesConfiguredOrderNumberWhenNotSupplied(t *testing.T)
 	if _, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: checkoutID, Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, CustomerEmail: "buyer@example.com"}); err != nil {
 		t.Fatalf("StartPayment() error = %v", err)
 	}
-	if workflow.created == nil || workflow.created.Number != "COSMETICS-ES-"+strings.ToUpper(checkoutID.String()[:8]) {
-		t.Fatalf("generated order = %+v", workflow.created)
+	// The exact shape is the policy's business and is pinned in its own tests;
+	// what matters here is that the checkout used the configured prefix and
+	// derived the number from this checkout rather than inventing one.
+	if workflow.created == nil {
+		t.Fatal("no order was created")
+	}
+	digits := strings.ToUpper(strings.ReplaceAll(checkoutID.String(), "-", ""))
+	if workflow.created.Number != "COSMETICS-ES-"+digits[:12] {
+		t.Fatalf("generated order number = %q", workflow.created.Number)
 	}
 }
 
