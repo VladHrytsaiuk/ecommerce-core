@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/badges/domain"
 	"github.com/google/uuid"
@@ -57,10 +58,26 @@ func (s *Service) RemoveProduct(ctx context.Context, badgeID, productID uuid.UUI
 	}
 	return s.repository.RemoveProduct(ctx, badgeID, productID)
 }
+
+// Column widths from migrations/modules/badges/000001. Checking them here
+// turns a value that is merely too long into a refusal the caller can act on;
+// without it the write reaches PostgreSQL, the facade's transaction rolls back
+// on "value too long for type character varying", and the administrator gets a
+// 500 that names neither the field nor the limit.
+const (
+	maxSlugRunes    = 120
+	maxColorRunes   = 32
+	maxLocaleRunes  = 10
+	maxBadgeNameLen = 120
+)
+
 func valid(slug, color *string, translations []domain.Translation) bool {
 	*slug = strings.ToLower(strings.TrimSpace(*slug))
 	*color = strings.TrimSpace(*color)
 	if *slug == "" || *color == "" || len(translations) == 0 {
+		return false
+	}
+	if utf8.RuneCountInString(*slug) > maxSlugRunes || utf8.RuneCountInString(*color) > maxColorRunes {
 		return false
 	}
 	seen := map[string]struct{}{}
@@ -68,6 +85,9 @@ func valid(slug, color *string, translations []domain.Translation) bool {
 		translations[i].Locale = strings.ToLower(strings.TrimSpace(translations[i].Locale))
 		translations[i].Name = strings.TrimSpace(translations[i].Name)
 		if translations[i].Locale == "" || translations[i].Name == "" {
+			return false
+		}
+		if utf8.RuneCountInString(translations[i].Locale) > maxLocaleRunes || utf8.RuneCountInString(translations[i].Name) > maxBadgeNameLen {
 			return false
 		}
 		if _, ok := seen[translations[i].Locale]; ok {
