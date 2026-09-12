@@ -90,6 +90,14 @@ func (s *WebhookEventStore) Abandon(ctx context.Context, claim paymentsDomain.We
 	})
 }
 
+// finalize applies a terminal write gated on the claim's token.
+//
+// A write that matches no row is deliberately not an error here, unlike the
+// equivalent in abandoned_cart. The difference is what follows it: there, the
+// write gates scheduling an email and creating the next campaign step, so a
+// silent no-op let a worker that had lost its claim perform both. Here both
+// terminal writes are the last statement of the callback — nothing follows
+// them, and the replica that holds the row will close it.
 func (s *WebhookEventStore) finalize(ctx context.Context, claim paymentsDomain.WebhookClaim, apply func(*gorm.DB) *gorm.DB) error {
 	if claim.LockToken == uuid.Nil {
 		return fmt.Errorf("payment webhook claim carries no lock token")

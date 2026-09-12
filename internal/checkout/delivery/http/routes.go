@@ -11,22 +11,6 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 )
 
-func RegisterRoutes(localized *gin.RouterGroup, service checkoutDomain.Service, carts cartDomain.Service, reservationTTL time.Duration, warehouseID uuid.UUID, secureCookies bool, sensitiveLimit gin.HandlerFunc) {
-	if service == nil || carts == nil || warehouseID == uuid.Nil {
-		return
-	}
-	handler := NewHandler(service, carts, reservationTTL, warehouseID, secureCookies)
-	if sensitiveLimit == nil {
-		localized.POST("/checkout/delivery-options", handler.QuoteDelivery)
-		localized.POST("/checkout/payment", handler.StartPayment)
-		return
-	}
-	checkout := localized.Group("/checkout")
-	checkout.Use(sensitiveLimit)
-	checkout.POST("/delivery-options", handler.QuoteDelivery)
-	checkout.POST("/payment", handler.StartPayment)
-}
-
 // RegisterV1Routes adds the versioned transport contract without changing the
 // legacy checkout endpoints.
 func RegisterV1Routes(group *gin.RouterGroup, service checkoutDomain.Service, carts cartDomain.Service, reservationTTL time.Duration, warehouseID uuid.UUID, secureCookies bool, renderer *apiresponse.ErrorRenderer) {

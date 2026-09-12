@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -164,6 +165,47 @@ func TestACorruptSessionCookieIsRefusedRatherThanReplaced(t *testing.T) {
 	}
 	if service.calls != 0 {
 		t.Fatal("a corrupt session reached the cart service")
+	}
+}
+
+func TestAnUnexpectedFailureIsNotDescribedToTheBuyer(t *testing.T) {
+	// A database failure used to come back as 422 carrying the driver's text,
+	// which names tables, columns and constraints — and 422 tells a client the
+	// request was malformed and not worth retrying.
+	service := &cartServiceFake{err: errors.New("pq: relation \"cart_items\" does not exist")}
+
+	recorder := httptest.NewRecorder()
+	newCartRouter(service, false).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/uk/cart", nil))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d for a failure the buyer cannot act on", recorder.Code, http.StatusInternalServerError)
+	}
+	for _, leaked := range []string{"cart_items", "relation", "pq:"} {
+		if strings.Contains(recorder.Body.String(), leaked) {
+			t.Fatalf("response leaks %q: %s", leaked, recorder.Body.String())
+		}
+	}
+}
+
+func TestKnownCartFailuresKeepTheirOwnStatus(t *testing.T) {
+	// The classification must not flatten everything into 500: an invalid item
+	// is the caller's to fix and has to stay distinguishable.
+	for name, testCase := range map[string]struct {
+		err    error
+		status int
+	}{
+		"missing line":  {domain.ErrItemNotFound, http.StatusNotFound},
+		"invalid item":  {domain.ErrInvalidItem, http.StatusUnprocessableEntity},
+		"invalid owner": {domain.ErrInvalidOwner, http.StatusUnprocessableEntity},
+	} {
+		t.Run(name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			newCartRouter(&cartServiceFake{err: testCase.err}, false).
+				ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/uk/cart", nil))
+			if recorder.Code != testCase.status {
+				t.Fatalf("status = %d, want %d", recorder.Code, testCase.status)
+			}
+		})
 	}
 }
 

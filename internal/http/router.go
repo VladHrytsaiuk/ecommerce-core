@@ -128,8 +128,15 @@ func InitRouter(application *app.Application) *gin.Engine {
 	localized.Use(application.HTTP.LocaleMiddleware)
 	cart := localized.Group("")
 	cart.Use(application.HTTP.OptionalAuth)
+	// Checkout is served only under /v1. A second registration here offered the
+	// same two operations through the handler v1 wraps, and that handler puts
+	// err.Error() in the response body — so a database failure reached the
+	// buyer carrying PostgreSQL's text, as a 422 telling their client the
+	// request was invalid and not to retry. v1 renders problem details from a
+	// classified error and logs the rest.
+	//
+	// Cart stays here: it has no v1 contract, so this is its only one.
 	cartHTTP.RegisterRoutes(cart, application.CartService, application.Config.CookieSecure)
-	checkoutHTTP.RegisterRoutes(cart, application.CheckoutService, application.CartService, application.StoreConfig.CheckoutReservationTTL, application.StoreConfig.DefaultWarehouseID, application.Config.CookieSecure, sensitiveLimit)
 	return r
 }
 

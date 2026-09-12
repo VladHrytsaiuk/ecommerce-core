@@ -14,6 +14,7 @@ import (
 	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	paymentsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/domain"
@@ -24,12 +25,9 @@ func TestStartPaymentGeneratesServerCheckoutIDAndMapsRedirect(t *testing.T) {
 	service := &fakeCheckout{}
 	variantID, warehouseID := uuid.New(), uuid.New()
 	carts := &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: variantID, Quantity: 2}}}}
-	router := gin.New()
-	localized := router.Group("/api/:lang")
-	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, carts, 15*time.Minute, warehouseID, false, nil)
+	router, _ := newCheckoutRouter(service, carts, warehouseID)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{"customer_email":"buyer@example.com","customer_phone":"+34123456789","return_url":"https://store.example/return"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/checkout/es/payment", strings.NewReader(`{"customer_email":"buyer@example.com","customer_phone":"+34123456789","return_url":"https://store.example/return"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "checkout-test-1")
 	router.ServeHTTP(recorder, request)
@@ -45,13 +43,10 @@ func TestStartPaymentReturnsClientSecretOnlyWhenGatewayProvidesOne(t *testing.T)
 	gin.SetMode(gin.TestMode)
 	service := &fakeCheckout{clientSecret: "pi_test_secret"}
 	carts := &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}
-	router := gin.New()
-	localized := router.Group("/api/:lang")
-	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, carts, 15*time.Minute, uuid.New(), false, nil)
+	router, _ := newCheckoutRouter(service, carts, uuid.New())
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{"customer_email":"buyer@example.com","customer_phone":"+34123456789"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/checkout/es/payment", strings.NewReader(`{"customer_email":"buyer@example.com","customer_phone":"+34123456789"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "checkout-test-2")
 	router.ServeHTTP(recorder, request)
@@ -60,52 +55,58 @@ func TestStartPaymentReturnsClientSecretOnlyWhenGatewayProvidesOne(t *testing.T)
 	}
 }
 
+// An empty cart is a well-formed request the current state cannot satisfy,
+// which v1 answers 422 rather than the 400 its predecessor used.
 func TestStartPaymentRejectsEmptyCart(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := gin.New()
-	localized := router.Group("/api/:lang")
-	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, &fakeCheckout{}, &fakeCart{cart: &cartDomain.Cart{}}, 15*time.Minute, uuid.New(), false, nil)
+	router, _ := newCheckoutRouter(&fakeCheckout{}, &fakeCart{cart: &cartDomain.Cart{}}, uuid.New())
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/checkout/es/payment", strings.NewReader(`{}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "checkout-test-empty")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), "cart is empty") {
+	if recorder.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	// "cart is empty" stays in the log, not the body. The predecessor put the
+	// raw error text in the response, which is how a database failure reached
+	// the buyer carrying PostgreSQL's message.
+	if strings.Contains(recorder.Body.String(), "cart is empty") {
+		t.Fatalf("body = %s, want the internal message kept out of the response", recorder.Body.String())
 	}
 }
 
 func TestStartPaymentRequiresStableIdempotencyKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeCheckout{}
-	router := gin.New()
-	localized := router.Group("/api/:lang")
-	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}, 15*time.Minute, uuid.New(), false, nil)
+	router, _ := newCheckoutRouter(service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}, uuid.New())
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/checkout/es/payment", strings.NewReader(`{}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "Idempotency-Key") {
+	// A missing Idempotency-Key is a malformed request, so v1 answers 400 with
+	// the shared problem-details envelope. The header name is deliberately not
+	// echoed back: the envelope carries a stable code and a static detail, and
+	// the specifics go to the log rather than to the caller.
+	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"INVALID_PAYLOAD"`) {
+		t.Fatalf("body = %s, want the shared problem-details code", recorder.Body.String())
 	}
 }
 
 func TestStartPaymentDerivesSameCheckoutIDForRetryKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeCheckout{}
-	router := gin.New()
-	localized := router.Group("/api/:lang")
-	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}, 15*time.Minute, uuid.New(), false, nil)
+	router, _ := newCheckoutRouter(service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}, uuid.New())
 
 	var first uuid.UUID
 	for range 2 {
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/payment", strings.NewReader(`{}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/checkout/es/payment", strings.NewReader(`{}`))
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Idempotency-Key", "retry-key-1")
 		router.ServeHTTP(recorder, request)
@@ -124,13 +125,10 @@ func TestQuoteDeliveryUsesActiveCart(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	variantID, warehouseID := uuid.New(), uuid.New()
 	service := &fakeCheckout{}
-	router := gin.New()
-	localized := router.Group("/api/:lang")
-	localized.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
-	RegisterRoutes(localized, service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: variantID, Quantity: 3}}}}, 15*time.Minute, warehouseID, false, nil)
+	router, _ := newCheckoutRouter(service, &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: variantID, Quantity: 3}}}}, warehouseID)
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/es/checkout/delivery-options", strings.NewReader(`{"delivery_provider":"novaposhta","delivery":{"locality_id":"city"}}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/checkout/es/delivery-options", strings.NewReader(`{"delivery_provider":"novaposhta","delivery":{"locality_id":"city"}}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK || service.quote.Lines[0].VariantID != variantID || service.quote.Lines[0].WarehouseID != warehouseID || service.quote.Lines[0].Quantity != 3 {
@@ -182,3 +180,18 @@ func (*fakeCheckout) ConfirmPayment(context.Context, workflowDomain.PaymentConfi
 	return nil
 }
 func (*fakeCheckout) CancelPayment(context.Context, uuid.UUID) error { return nil }
+
+// newCheckoutRouter builds the v1 registration these tests exercise. The
+// predecessor registration they used to drive served the same two operations
+// through a handler that wrote err.Error() into the response body; it was
+// removed, and v1 is now the only checkout contract.
+func newCheckoutRouter(service checkoutDomain.Service, carts cartDomain.Service, warehouseID uuid.UUID) (*gin.Engine, *apiresponse.ErrorRenderer) {
+	gin.SetMode(gin.TestMode)
+	renderer := apiresponse.NewErrorRenderer(nil)
+	router := gin.New()
+	router.Use(renderer.Middleware())
+	group := router.Group("/api/v1/checkout/:lang")
+	group.Use(middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: "es", FallbackLocale: "es", SupportedLocales: []string{"es"}}))
+	RegisterV1Routes(group, service, carts, 15*time.Minute, warehouseID, false, renderer)
+	return router, renderer
+}

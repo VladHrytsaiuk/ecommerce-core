@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	stdhttp "net/http"
 
 	"github.com/gin-gonic/gin"
@@ -106,20 +107,39 @@ func (h *Handler) Remove(c *gin.Context) {
 func (h *Handler) respond(c *gin.Context, action func(domain.Owner) (*domain.Cart, error)) {
 	owner, created, err := cartowner.FromContext(c)
 	if err != nil {
-		c.JSON(stdhttp.StatusBadRequest, gin.H{"error": err.Error()})
+		// The only failure here is an unusable session cookie, and saying so
+		// is safe: the value came from the caller.
+		c.JSON(stdhttp.StatusBadRequest, gin.H{"error": "cart session is invalid"})
 		return
 	}
 	cart, err := action(owner)
 	if err != nil {
-		status := stdhttp.StatusUnprocessableEntity
-		if err == domain.ErrItemNotFound {
-			status = stdhttp.StatusNotFound
-		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		status, message := classifyCartError(err)
+		c.JSON(status, gin.H{"error": message})
 		return
 	}
 	if created {
 		cartowner.SetSessionCookie(c, *owner.SessionID, h.secureCookies)
 	}
 	c.JSON(stdhttp.StatusOK, cart)
+}
+
+// classifyCartError maps a failure to what the buyer is told.
+//
+// Anything unrecognized is a 500 with a fixed message. It used to be a 422
+// carrying err.Error(): a database failure therefore reached the buyer with
+// PostgreSQL's text — which names tables, columns and constraints — under a
+// status that tells their client the request was malformed and not worth
+// retrying. Both halves were wrong.
+func classifyCartError(err error) (int, string) {
+	switch {
+	case errors.Is(err, domain.ErrItemNotFound):
+		return stdhttp.StatusNotFound, "cart item not found"
+	case errors.Is(err, domain.ErrInvalidItem):
+		return stdhttp.StatusUnprocessableEntity, "cart item is invalid"
+	case errors.Is(err, domain.ErrInvalidOwner):
+		return stdhttp.StatusUnprocessableEntity, "cart owner is invalid"
+	default:
+		return stdhttp.StatusInternalServerError, "cart is unavailable"
+	}
 }
