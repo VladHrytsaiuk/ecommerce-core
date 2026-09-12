@@ -28,6 +28,7 @@ import (
 	adminPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/repository/postgres"
 	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	eventsApplication "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events/application"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	sharedMiddleware "github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	eventsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/events"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
@@ -89,11 +90,13 @@ func TestPromosAdminHTTPPublishesAndPersistsAuditTrail(t *testing.T) {
 		t.Fatal(err)
 	}
 	gin.SetMode(gin.TestMode)
+	renderer := apiresponse.NewErrorRenderer(nil)
 	router := gin.New()
-	admin := router.Group("/api/admin")
+	router.Use(renderer.Middleware())
+	admin := router.Group("/api/v1/admin")
 	admin.Use(sharedMiddleware.AuthMiddleware(maker))
-	adminHTTP.RegisterPromosRoutes(admin, authorizer, facade)
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/promos", bytes.NewBufferString(`{"code":"welcome10","discount_type":"percent","discount_value":1000}`))
+	adminHTTP.RegisterV1Routes(admin, authorizer, facade, nil, nil, renderer)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/promos", bytes.NewBufferString(`{"code":"welcome10","discount_type":"percent","discount_value":1000}`))
 	request.Header.Set("Authorization", "Bearer "+jwt)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()

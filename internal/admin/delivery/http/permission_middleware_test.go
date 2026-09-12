@@ -11,10 +11,13 @@ import (
 	"github.com/google/uuid"
 
 	adminDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
 	sharedMiddleware "github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 )
 
+// The subject being authorized is the one AuthMiddleware established, never
+// anything the caller supplied in the request.
 func TestRequirePermissionUsesAuthenticatedSubject(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	userID := uuid.New()
@@ -28,7 +31,9 @@ func TestRequirePermissionUsesAuthenticatedSubject(t *testing.T) {
 	}
 	authorizer := authorizerFake{allowedUserID: userID, allowedPermission: "catalog:write"}
 	router := gin.New()
-	router.POST("/admin/catalog", sharedMiddleware.AuthMiddleware(maker), RequirePermission(authorizer, "catalog:write"), func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	renderer := apiresponse.NewErrorRenderer(nil)
+	router.Use(renderer.Middleware())
+	router.POST("/admin/catalog", sharedMiddleware.AuthMiddleware(maker), RequirePermissionV1(authorizer, "catalog:write", renderer), func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/admin/catalog", nil)
@@ -36,6 +41,20 @@ func TestRequirePermissionUsesAuthenticatedSubject(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNoContent)
+	}
+
+	// A different subject holding no such permission is refused, so the pass
+	// above cannot come from the middleware ignoring the subject entirely.
+	other, _, err := maker.CreateTokenForRole(uuid.New(), token.RoleCustomer, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/admin/catalog", nil)
+	request.Header.Set("Authorization", "Bearer "+other)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status for an unauthorized subject = %d, want %d", recorder.Code, http.StatusForbidden)
 	}
 }
 

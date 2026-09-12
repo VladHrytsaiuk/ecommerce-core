@@ -118,23 +118,12 @@ func InitRouter(application *app.Application) *gin.Engine {
 	v1Orders := v1.Group("/orders")
 	v1Orders.Use(application.HTTP.RequestBodyLimit, middleware.AuthMiddleware(application.TokenMaker))
 	ordersHTTP.RegisterV1Routes(v1Orders, application.OrderService, application.HTTP.ErrorRenderer)
-	admin := api.Group("/admin")
-	admin.Use(middleware.AuthMiddleware(application.TokenMaker))
-	// Reviews, SEO and Badges now reach the audited ContentAdminFacade and are
-	// registered above under /v1/admin. Variant update and delete remain
-	// unexposed because they do not exist yet: only CreateVariant is
-	// implemented, and it already goes through the audited catalog facade.
-	// New Admin facades use data-driven RBAC. Existing legacy admin routes keep
-	// their compatibility middleware until they are migrated individually.
-	if application.PromosAdminFacade != nil {
-		adminHTTP.RegisterPromosRoutes(admin, application.AdminAuthorizer, application.PromosAdminFacade)
-	}
-	if application.CatalogAdminFacade != nil {
-		adminHTTP.RegisterCatalogRoutes(admin, application.AdminAuthorizer, application.CatalogAdminFacade)
-	}
-	if application.OrdersAdminFacade != nil {
-		adminHTTP.RegisterOrdersRoutes(admin, application.AdminAuthorizer, application.OrdersAdminFacade)
-	}
+	// The whole admin surface lives under /v1/admin. A second registration at
+	// /api/admin served the same operations through separate handlers, and
+	// promised in a comment to be migrated route by route; that never
+	// happened, and there are no existing clients here to migrate — this core
+	// is copied to start a store. v1 covered every one of those routes, so
+	// removing them takes nothing with it.
 	localized := api.Group("/:lang")
 	localized.Use(application.HTTP.LocaleMiddleware)
 	cart := localized.Group("")
