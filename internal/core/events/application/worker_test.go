@@ -426,3 +426,85 @@ func TestRetryDelayIsJittered(t *testing.T) {
 		t.Fatalf("retryDelay produced %d distinct value(s) across 32 calls, want jitter", len(seen))
 	}
 }
+
+// A delivery that exhausts its retries is written to event_deliveries as dead
+// and nothing else happens: no admin surface reads that table. The counter is
+// the only thing that can wake anyone, so it has to fire on exactly the
+// outcomes it claims.
+
+func TestTheWorkerCountsHowEachDeliveryEnded(t *testing.T) {
+	for name, scenario := range map[string]struct {
+		attempts int
+		consumer Consumer
+		want     string
+	}{
+		"completed": {attempts: 0, consumer: &countingConsumer{}, want: OutcomeCompleted},
+		"retried":   {attempts: 1, consumer: errorConsumer{}, want: OutcomeRetried},
+		"dead":      {attempts: 5, consumer: errorConsumer{}, want: OutcomeDead},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &fakeDeliveryStore{delivery: &events.Delivery{
+				EventID: uuid.New(), Topic: events.TopicOrderPaid,
+				Consumer: events.ConsumerNotifications, Attempts: scenario.attempts,
+			}}
+			recorder := &recordingMetrics{}
+			worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, scenario.consumer).
+				WithMaxAttempts(5).WithMetrics(recorder)
+
+			_ = worker.DispatchOnce(context.Background())
+
+			if len(recorder.outcomes) != 1 {
+				t.Fatalf("recorded %d outcomes, want exactly one: %v", len(recorder.outcomes), recorder.outcomes)
+			}
+			got := recorder.outcomes[0]
+			if got.outcome != scenario.want {
+				t.Fatalf("outcome = %q, want %q", got.outcome, scenario.want)
+			}
+			if got.consumer != events.ConsumerNotifications || got.topic != events.TopicOrderPaid {
+				t.Fatalf("labelled %q/%q, want the delivery's consumer and topic", got.consumer, got.topic)
+			}
+		})
+	}
+}
+
+func TestADeliveryForAnUnhandledTopicIsCountedToo(t *testing.T) {
+	// A routing mistake reaches the same dead end as a failing handler, and is
+	// just as invisible without a count.
+	store := &fakeDeliveryStore{delivery: &events.Delivery{
+		EventID: uuid.New(), Topic: "nobody.handles.this.v1",
+		Consumer: events.ConsumerNotifications, Attempts: 9,
+	}}
+	recorder := &recordingMetrics{}
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{}).
+		WithMaxAttempts(5).WithMetrics(recorder)
+
+	_ = worker.DispatchOnce(context.Background())
+
+	if len(recorder.outcomes) != 1 || recorder.outcomes[0].outcome != OutcomeDead {
+		t.Fatalf("outcomes = %v, want one dead", recorder.outcomes)
+	}
+	if recorder.outcomes[0].topic != "nobody.handles.this.v1" {
+		t.Fatalf("topic = %q, want the unroutable one so the mismatch is findable", recorder.outcomes[0].topic)
+	}
+}
+
+func TestAWorkerWithNoMetricsStillRuns(t *testing.T) {
+	// Metrics are injected at the composition root; a worker built without
+	// them must not panic on the no-op default.
+	store := &fakeDeliveryStore{delivery: &events.Delivery{
+		EventID: uuid.New(), Topic: events.TopicOrderPaid, Consumer: events.ConsumerNotifications,
+	}}
+	worker := NewOutboxWorker(store, events.ConsumerNotifications, time.Minute, nil, &countingConsumer{}).WithMetrics(nil)
+
+	if err := worker.DispatchOnce(context.Background()); err != nil {
+		t.Fatalf("DispatchOnce() error = %v", err)
+	}
+}
+
+type recordedOutcome struct{ consumer, topic, outcome string }
+
+type recordingMetrics struct{ outcomes []recordedOutcome }
+
+func (m *recordingMetrics) DeliveryOutcome(consumer, topic, outcome string) {
+	m.outcomes = append(m.outcomes, recordedOutcome{consumer, topic, outcome})
+}

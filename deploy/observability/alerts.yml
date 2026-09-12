@@ -1,0 +1,33 @@
+groups:
+  - name: outbox
+    rules:
+      # A delivery reaches "dead" only after exhausting every retry. Nothing
+      # reads event_deliveries afterwards, so this counter is the only thing
+      # that can raise a hand. What is stranded depends on the topic: a dead
+      # returns.settlement_requested is a refund the customer is still waiting
+      # for; a dead orders.paid is an order confirmation nobody received.
+      - alert: OutboxDeliveryDead
+        expr: increase(outbox_deliveries_total{outcome="dead"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Outbox delivery abandoned: {{ $labels.consumer }} / {{ $labels.topic }}"
+          description: >-
+            A delivery exhausted its retries and was written off. Nothing will
+            retry it. Find it with:
+            SELECT * FROM event_deliveries WHERE status = 'dead'
+            AND consumer = '{{ $labels.consumer }}' ORDER BY updated_at DESC;
+
+      # Retries are normal in isolation. A consumer retrying far more than it
+      # completes is a handler or a dependency that is down, and it will reach
+      # the alert above in minutes rather than hours.
+      - alert: OutboxRetriesOutpacingCompletions
+        expr: |
+          sum by (consumer) (rate(outbox_deliveries_total{outcome="retried"}[10m]))
+            > sum by (consumer) (rate(outbox_deliveries_total{outcome="completed"}[10m]))
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox consumer {{ $labels.consumer }} is failing more than it completes"

@@ -49,6 +49,24 @@ type Tracer interface {
 	ContinueDelivery(context.Context, events.Delivery) (context.Context, Span)
 }
 
+// Recorder counts how deliveries end. Without it a delivery that exhausts its
+// retries is written to event_deliveries as dead and nothing says so: there is
+// no admin surface over that table, so a settlement command that never ran —
+// a refund the customer is still waiting for — leaves no signal an operator
+// could alert on. Platform implements this with a counter; tests and
+// deployments without metrics use the no-op default.
+type Recorder interface {
+	DeliveryOutcome(consumer, topic, outcome string)
+}
+
+// The outcomes a delivery can reach. Retried deliveries are expected and say
+// nothing on their own; they make the dead count readable as a proportion.
+const (
+	OutcomeCompleted = "completed"
+	OutcomeRetried   = "retried"
+	OutcomeDead      = "dead"
+)
+
 // Consumer handles one event topic after its delivery lease is claimed. It is
 // invoked outside the claim transaction and must be idempotent.
 type Consumer interface {
@@ -66,6 +84,7 @@ type OutboxWorker struct {
 	maxAttempts int
 	logger      Logger
 	tracer      Tracer
+	recorder    Recorder
 	handlers    map[string][]Consumer
 }
 
@@ -79,12 +98,19 @@ func NewOutboxWorker(store events.DeliveryStore, consumer string, lease time.Dur
 			registered[handler.Topic()] = append(registered[handler.Topic()], handler)
 		}
 	}
-	return &OutboxWorker{store: store, consumer: consumer, lease: lease, maxAttempts: DefaultMaxAttempts, logger: logger, tracer: noopTracer{}, handlers: registered}
+	return &OutboxWorker{store: store, consumer: consumer, lease: lease, maxAttempts: DefaultMaxAttempts, logger: logger, tracer: noopTracer{}, recorder: noopRecorder{}, handlers: registered}
 }
 
 // WithTracer injects the platform tracing adapter at the composition root.
 // Nil intentionally retains no-op behaviour for unit tests and minimal
 // deployments.
+func (w *OutboxWorker) WithMetrics(recorder Recorder) *OutboxWorker {
+	if recorder != nil {
+		w.recorder = recorder
+	}
+	return w
+}
+
 func (w *OutboxWorker) WithTracer(tracer Tracer) *OutboxWorker {
 	if tracer != nil {
 		w.tracer = tracer
@@ -154,6 +180,7 @@ func (w *OutboxWorker) dispatchOnce(ctx context.Context) (bool, error) {
 		}
 		return true, err
 	}
+	w.recorder.DeliveryOutcome(w.consumer, event.Topic, OutcomeCompleted)
 	if w.logger != nil {
 		w.logger.Infow("event outbox delivery completed", "event_id", event.EventID, "topic", event.Topic, "consumer", event.Consumer)
 	}
@@ -186,6 +213,10 @@ func (w *OutboxWorker) drain(ctx context.Context) error {
 	}
 	return nil
 }
+
+type noopRecorder struct{}
+
+func (noopRecorder) DeliveryOutcome(string, string, string) {}
 
 type noopTracer struct{}
 type noopSpan struct{}
@@ -240,6 +271,11 @@ func (w *OutboxWorker) failDelivery(ctx context.Context, event *events.Delivery,
 		// until the lease expires. This is a store problem, not a handler one.
 		return fmt.Errorf("record event delivery failure")
 	}
+	outcome := OutcomeRetried
+	if dead {
+		outcome = OutcomeDead
+	}
+	w.recorder.DeliveryOutcome(w.consumer, event.Topic, outcome)
 	if w.logger != nil {
 		status := "failed"
 		if dead {

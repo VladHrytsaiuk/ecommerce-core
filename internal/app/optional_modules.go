@@ -119,7 +119,7 @@ func buildReports(cfg *config.Config, db *gorm.DB) (reportsRuntime, error) {
 		Queries:   queries,
 		Rebuilder: rebuilder.WithLogger(logger.Log),
 		Worker: eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerReportsProjection, time.Minute, logger.Log,
-			sales, refunds, cartFunnel, checkoutFunnel).WithTracer(observability.NewOutboxTracer()),
+			sales, refunds, cartFunnel, checkoutFunnel).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 	}, nil
 }
 
@@ -155,7 +155,7 @@ func buildSearch(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, produ
 	}
 	return searchRuntime{
 		Service:          service,
-		Worker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerSearchIndexer, time.Minute, logger.Log, handler).WithTracer(observability.NewOutboxTracer()),
+		Worker:           eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerSearchIndexer, time.Minute, logger.Log, handler).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 		ProductPublisher: eventsPostgres.NewPublisher(eventsDomain.ConsumerSearchIndexer),
 		Index:            index,
 	}, nil
@@ -191,7 +191,7 @@ func buildMedia(cfg *config.Config, db *gorm.DB) (mediaRuntime, error) {
 	return mediaRuntime{
 		Uploads:       uploads,
 		CatalogReader: mediaApp.NewCatalogReader(repository, store),
-		Worker:        eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerMediaProcessor, time.Minute, logger.Log, processor).WithTracer(observability.NewOutboxTracer()),
+		Worker:        eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), eventsDomain.ConsumerMediaProcessor, time.Minute, logger.Log, processor).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 		OrphanCleanup: cleanup,
 	}, nil
 }
@@ -285,7 +285,7 @@ func buildReturns(storeConfig StoreConfig, db *gorm.DB, inventory *inventoryApp.
 	return returnsRuntime{
 		Service: service,
 		Worker: eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), returnsDomain.ConsumerSettlement, time.Minute, logger.Log,
-			settlement, confirmation).WithTracer(observability.NewOutboxTracer()),
+			settlement, confirmation).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 	}, nil
 }
 
@@ -341,7 +341,7 @@ func buildAbandonedCart(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB
 	return abandonedCartRuntime{
 		Worker: abandonedApp.NewWorker(campaigns, carts, abandonedReaders.NewConsentReader(db), notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale), adminPostgres.NewTransactionManager(db), policy).WithLogger(logger.Log),
 		OutboxWorker: eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), abandonedApp.ConsumerCampaignProducer, time.Minute, logger.Log,
-			producer, abandonedApp.NewTopicConsumer(eventsDomain.TopicCheckoutEmailCaptured, producer)).WithTracer(observability.NewOutboxTracer()),
+			producer, abandonedApp.NewTopicConsumer(eventsDomain.TopicCheckoutEmailCaptured, producer)).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 		ContactCapture: checkoutApp.NewContactCaptureService(
 			checkoutPostgres.NewContactRepository(db), cartRepositoryFor(),
 			checkoutConsent.NewWriter(consent), adminPostgres.NewTransactionManager(db),
@@ -410,7 +410,7 @@ func buildAvailability(storeConfig StoreConfig, db *gorm.DB) availabilityRuntime
 	return availabilityRuntime{
 		Service: availabilityApp.NewService(repository, availabilityIdentity.NewEmailReader(db)),
 		Worker: eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), availabilityDomain.ConsumerAvailabilityNotifications, time.Minute, logger.Log,
-			handler).WithTracer(observability.NewOutboxTracer()),
+			handler).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 	}
 }
 
