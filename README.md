@@ -97,7 +97,7 @@ For a locally managed PostgreSQL instance, the equivalent is
 `go run ./cmd/cli create-owner -email ... -password ...`.
 
 Then obtain a JWT through `POST /api/auth/login` and use it as
-`Authorization: Bearer <access_token>` for `/api/admin/...` routes.
+`Authorization: Bearer <access_token>` for `/api/v1/admin/...` routes.
 
 ### API v1 contract
 
@@ -108,9 +108,15 @@ they never materialize a full catalog in the API process. Successful responses
 always contain `data` and `request_id`; collection responses additionally
 contain `meta` with `page`, `limit`, `total`, `total_pages`, `has_next`, and
 `has_previous`. Errors use `application/problem+json` with a stable `code`,
-such as `INVALID_PAYLOAD` or `RESOURCE_NOT_FOUND`. Legacy `/api/*` routes
-remain unchanged while clients migrate. The generated OpenAPI contract is
-served at `/swagger/index.html` and stored in `docs/api/swagger.yaml`.
+such as `INVALID_PAYLOAD` or `RESOURCE_NOT_FOUND`. The only routes outside it
+are the ones that were never versioned: authentication under `/api/auth/*`, the
+profile at `/api/me/profile`, `/api/wishlist`, `/api/comparison`, and provider
+webhooks at `/api/webhooks/*`. The duplicate `/api/admin/*` and
+`/api/:lang/checkout/*` surfaces this document used to describe were removed
+once v1 covered every one of their operations. The generated OpenAPI contract
+is served at `/swagger/index.html` and stored in `docs/api/swagger.yaml`; where
+this file and that contract disagree, the contract is right, because CI
+regenerates it and fails on a difference.
 All v1 request bodies are capped at 1 MiB (`PAYLOAD_TOO_LARGE` on overflow),
 and v1 public traffic uses the Redis-backed distributed limiter when Redis is
 enabled; its in-memory implementation is only the explicit local fallback.
@@ -266,10 +272,10 @@ and exposes `rating` on product responses when the module is enabled.
 ### Optional SEO and product badges
 
 Add `seo` to `ENABLED_MODULES` to manage localized product, category, and
-future static-page metadata through `/api/admin/seo`. SEO is stored in the
+future static-page metadata through `/api/v1/admin/seo`. SEO is stored in the
 module-owned polymorphic `seo_metadata` table; no Core Catalog columns change.
 
-Add `badges` to enable `/api/admin/badges`. Badge display names use normalized
+Add `badges` to enable `/api/v1/admin/badges`. Badge display names use normalized
 translations and can be assigned to products. Catalog enriches both single
 product and product-list responses through optional reader ports. A product
 list uses one bulk SEO query and one bulk badge query for the complete page,
@@ -373,7 +379,7 @@ Admin migrations to grant the seeded `SuperAdmin` role to the first user.
 
 ### Checkout contract
 
-`POST /api/:lang/checkout/payment` starts payment for the caller's active
+`POST /api/v1/checkout/{lang}/payment` starts payment for the caller's active
 Cart. The request contains only buyer, delivery and redirect details; item
 lines, `customer_id`, and a warehouse identifier are deliberately not accepted
 from the browser. The server reads the Cart, resolves the authenticated buyer
@@ -384,12 +390,12 @@ If the first response is lost after payment creation, the retry replays the
 existing checkout and returns fresh provider session data without creating a
 second order or reservation.
 
-`POST /api/:lang/checkout/delivery-options` uses that same active Cart to
+`POST /api/v1/checkout/{lang}/delivery-options` uses that same active Cart to
 return provider-neutral delivery options. It sends server-side item weights and
 the configured currency to the selected enabled carrier; it does not reserve
 stock or create an order.
 
-When delivery is selected, `POST /api/:lang/checkout/payment` must include the
+When delivery is selected, `POST /api/v1/checkout/{lang}/payment` must include the
 chosen `delivery_option_code`. Checkout re-quotes that code server-side and
 persists its amount in the immutable order snapshot; the payment amount is
 `items + tax + shipping`.
@@ -424,7 +430,7 @@ The first clean payment adapter is LiqPay. To enable it locally, set
 `PAYMENT_PROVIDERS=liqpay`, `PAYMENT_DEFAULT=liqpay`, its two keys, and
 `LIQPAY_CALLBACK_URL` (for example
 `https://api.example.com/api/webhooks/payments/liqpay`). The checkout endpoint
-is `POST /api/:lang/checkout/payment`; verified callbacks use the generic route
+is `POST /api/v1/checkout/{lang}/payment`; verified callbacks use the generic route
 `POST /api/webhooks/payments/liqpay`.
 
 ### Stripe development configuration

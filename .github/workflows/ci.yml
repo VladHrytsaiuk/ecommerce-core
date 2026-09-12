@@ -29,6 +29,11 @@ jobs:
             -g cmd/api/main.go --parseDependency --parseInternal \
             --output docs/api
           git diff --exit-code -- docs/api
+      # README described /api/admin/... and /api/:lang/checkout/... for months
+      # after v1 replaced both, so an integrator following it got a 404 on the
+      # first request. The generated contract above is the reference.
+      - name: Verify documented routes exist
+        run: python3 scripts/check-documented-routes.py
       - name: Verify active clean architecture
         run: bash scripts/check-clean-architecture.sh
       - name: Verify every package is reachable
