@@ -277,8 +277,8 @@ func assertOrderCreatedOutbox(t *testing.T, db *gorm.DB, orderID uuid.UUID) {
 	if err := db.Raw(`SELECT topic, status, payload FROM sync_outbox WHERE aggregate_id = ?`, orderID).Row().Scan(&topic, &status, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if topic != "order.created" || status != "pending" || !strings.Contains(payload, `"order_id"`) || strings.Contains(payload, "Iryna Customer") {
-		t.Fatalf("sync outbox = %q/%q/%s, want a PII-free pending order.created event", topic, status, payload)
+	if topic != syncDomain.TopicOrderCreated || status != "pending" || !strings.Contains(payload, `"order_id"`) || strings.Contains(payload, "Iryna Customer") {
+		t.Fatalf("sync outbox = %q/%q/%s, want a PII-free pending %s event", topic, status, payload, syncDomain.TopicOrderCreated)
 	}
 }
 
@@ -302,7 +302,7 @@ func assertSyncPersistence(t *testing.T, ctx context.Context, db *gorm.DB, order
 	}
 
 	crashedID := uuid.New()
-	if err := db.Exec(`INSERT INTO sync_outbox (id, topic, aggregate_id, idempotency_key, payload, status, attempts, locked_at) VALUES (?, 'order.created', ?, ?, '{}', 'processing', 1, ?)`, crashedID, uuid.New(), uuid.New(), time.Now().UTC().Add(-2*time.Minute)).Error; err != nil {
+	if err := db.Exec(`INSERT INTO sync_outbox (id, topic, aggregate_id, idempotency_key, payload, status, attempts, locked_at) VALUES (?, ?, ?, ?, '{}', 'processing', 1, ?)`, crashedID, syncDomain.TopicOrderCreated, uuid.New(), uuid.New(), time.Now().UTC().Add(-2*time.Minute)).Error; err != nil {
 		t.Fatal(err)
 	}
 	if recovered, err := outbox.Claim(ctx, time.Now().UTC(), time.Minute); err != nil || recovered == nil || recovered.ID != crashedID || recovered.Attempts != 2 {

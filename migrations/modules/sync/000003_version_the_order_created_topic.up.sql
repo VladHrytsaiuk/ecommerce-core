@@ -1,0 +1,11 @@
+-- Every other topic in this system names its version: orders.paid.v1,
+-- catalog.product.changed.v1, privacy.erasure_requested.v1. This one carried
+-- the version only inside its payload — and it is the single topic that leaves
+-- the system, so its name is the one that is actually part of somebody else's
+-- contract.
+--
+-- The rename is done now because this core is copied to start a store: there
+-- is no deployed ERP integration yet to coordinate with, and every later
+-- moment is more expensive than this one. A deployment that has already
+-- integrated must rename on its consumer side at the same time.
+UPDATE sync_outbox SET topic = 'order.created.v1' WHERE topic = 'order.created';

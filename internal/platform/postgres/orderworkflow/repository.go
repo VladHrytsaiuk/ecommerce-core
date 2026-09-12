@@ -21,6 +21,9 @@ import (
 	workflowDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/orderworkflow/domain"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	transaction "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
+	// The writer of the sync outbox names the topic from the module that owns
+	// it. The literal was duplicated here, so the two could drift silently.
+	syncDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/sync/domain"
 )
 
 type Repository struct {
@@ -360,10 +363,10 @@ func enqueueOrderCreated(tx *gorm.DB, order *ordersDomain.Order) error {
 		Total: order.Total.Amount(), Items: items,
 	})
 	if err != nil {
-		return fmt.Errorf("marshal sync order.created event: %w", err)
+		return fmt.Errorf("marshal %s event: %w", syncDomain.TopicOrderCreated, err)
 	}
 	return tx.Create(&syncOutboxRecord{
-		ID: uuid.New(), Topic: "order.created", AggregateID: order.ID, IdempotencyKey: order.ID,
+		ID: uuid.New(), Topic: syncDomain.TopicOrderCreated, AggregateID: order.ID, IdempotencyKey: order.ID,
 		Payload: string(payload), Status: "pending",
 	}).Error
 }

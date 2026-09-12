@@ -10,7 +10,11 @@ import (
 	"github.com/google/uuid"
 )
 
-const TopicOrderCreated = "order.created"
+// TopicOrderCreated is the one topic in this system that leaves it, so its
+// name is part of an external contract rather than an internal one. It is
+// versioned in the name like every other topic; the payload carries a version
+// field as well, which describes the envelope's schema within this topic.
+const TopicOrderCreated = "order.created.v1"
 
 var ErrInboundVersionConflict = errors.New("sync inbound version conflicts with an existing payload")
 
