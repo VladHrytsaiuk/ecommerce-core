@@ -163,9 +163,6 @@ func mustMoney(amount int64, currency string) money.Money {
 	}
 	return value
 }
-func (s *v1ProductService) List(context.Context, string) ([]domain.Product, error) {
-	return s.products, nil
-}
 func (s *v1ProductService) ListProducts(_ context.Context, _ string, page, limit int) ([]domain.Product, int64, error) {
 	start := (page - 1) * limit
 	if start >= len(s.products) {

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -85,4 +86,71 @@ func requestFrom(router *gin.Engine, address string) int {
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	return response.Code
+}
+
+func TestTheVisitorMapHasACeiling(t *testing.T) {
+	// Age-based eviction bounds the map only by how many distinct addresses
+	// appear within the retention window, which for IPv6 is no bound at all: a
+	// client with a /64 can add an entry per request and hold it ten minutes.
+	limiter := NewIPRateLimiter(rate.Every(time.Second), 1)
+	limiter.maxVisitors = 100
+
+	for n := range 1000 {
+		limiter.GetLimiter(fmt.Sprintf("2001:db8::%x", n))
+	}
+
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if len(limiter.visitors) > limiter.maxVisitors {
+		t.Fatalf("the map holds %d addresses, want at most %d", len(limiter.visitors), limiter.maxVisitors)
+	}
+	if len(limiter.visitors) == 0 {
+		t.Fatal("the map was emptied; every client would get a fresh budget")
+	}
+}
+
+func TestTheMostRecentlySeenAddressesSurviveEviction(t *testing.T) {
+	// Whoever is evicted gets their budget back, so it has to be whoever has
+	// been quiet longest — not an active client mid-request.
+	limiter := NewIPRateLimiter(rate.Every(time.Second), 1)
+	limiter.maxVisitors = 10
+
+	for n := range 10 {
+		limiter.GetLimiter(fmt.Sprintf("198.51.100.%d", n))
+	}
+	// Keep one address warm, then push the map past its cap.
+	limiter.GetLimiter("198.51.100.9")
+	for n := range 5 {
+		limiter.GetLimiter(fmt.Sprintf("203.0.113.%d", n))
+	}
+
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	if _, kept := limiter.visitors["198.51.100.9"]; !kept {
+		t.Fatal("the most recently seen address was evicted ahead of quieter ones")
+	}
+	if _, kept := limiter.visitors["198.51.100.0"]; kept {
+		t.Fatal("the least recently seen address survived while newer ones were added")
+	}
+}
+
+func TestEvictionLeavesAnActiveClientLimited(t *testing.T) {
+	// The point of the ceiling is memory, not amnesty. An address that is
+	// actively being limited must not get a fresh bucket because someone else
+	// rotated addresses.
+	limiter := NewIPRateLimiter(rate.Every(time.Hour), 1)
+	limiter.maxVisitors = 50
+
+	const active = "198.51.100.200"
+	if !limiter.GetLimiter(active).Allow() {
+		t.Fatal("the first request was refused")
+	}
+	for n := range 200 {
+		limiter.GetLimiter(fmt.Sprintf("2001:db8:1::%x", n))
+		// The active client keeps being heard from throughout the flood.
+		limiter.GetLimiter(active)
+	}
+	if limiter.GetLimiter(active).Allow() {
+		t.Fatal("an actively limited address got a fresh budget during an address flood")
+	}
 }

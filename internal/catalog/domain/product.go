@@ -123,7 +123,6 @@ func (ProductTranslation) TableName() string { return "product_translations" }
 
 type ProductRepository interface {
 	FindBySlug(context.Context, string, string) (*Product, error)
-	List(context.Context) ([]Product, error)
 	ListProducts(context.Context, string, int, int) ([]Product, int64, error)
 	Create(context.Context, *Product) error
 }
@@ -163,7 +162,6 @@ type ActiveProductRepository interface {
 // product fields.
 type ProductService interface {
 	FindBySlug(context.Context, string, string) (*Product, error)
-	List(context.Context, string) ([]Product, error)
 	ListProducts(context.Context, string, int, int) ([]Product, int64, error)
 	Create(context.Context, *Product) error
 }

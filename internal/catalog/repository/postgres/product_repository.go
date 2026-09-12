@@ -64,14 +64,6 @@ func (r *ProductRepository) FindBySlug(ctx context.Context, locale, slug string)
 	return &product, nil
 }
 
-func (r *ProductRepository) List(ctx context.Context) ([]domain.Product, error) {
-	var products []domain.Product
-	if err := r.database(ctx).Preload("Translations").Preload("Media").Order("created_at DESC").Find(&products).Error; err != nil {
-		return nil, err
-	}
-	return products, nil
-}
-
 // ListProducts applies LIMIT/OFFSET in PostgreSQL and counts the same
 // locale-visible product set. A product without a translation for the
 // requested locale is deliberately not exposed through that localized API.

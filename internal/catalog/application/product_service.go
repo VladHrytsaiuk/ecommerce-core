@@ -91,30 +91,11 @@ func (s *ProductService) FindBySlug(ctx context.Context, locale, slug string) (*
 	return product, nil
 }
 
-// List enriches a catalog page with at most one bulk read per optional module.
-// It never invokes an optional reader once per product.
-func (s *ProductService) List(ctx context.Context, locale string) ([]domain.Product, error) {
-	locale = normalize(locale)
-	if locale == "" || !s.locales.allows(locale) {
-		return nil, fmt.Errorf("%w: locale %q is not enabled for this store", domain.ErrInvalidProduct, locale)
-	}
-	products, err := s.repo.List(ctx)
-	if err != nil || len(products) == 0 {
-		return products, err
-	}
-	pointers := make([]*domain.Product, 0, len(products))
-	for index := range products {
-		pointers = append(pointers, &products[index])
-	}
-	if err := s.enrich(ctx, pointers, locale); err != nil {
-		return nil, err
-	}
-	return products, nil
-}
-
-// ListProducts returns exactly one database-backed catalog page and its total.
-// Pagination intentionally belongs below the HTTP layer: loading a large
-// catalog only to trim it in memory is both expensive and unsafe.
+// ListProducts returns exactly one database-backed catalog page and its total,
+// enriched with at most one bulk read per optional module — never one reader
+// call per product. Pagination intentionally belongs below the HTTP layer:
+// loading a large catalog only to trim it in memory is both expensive and
+// unsafe.
 func (s *ProductService) ListProducts(ctx context.Context, locale string, page, limit int) ([]domain.Product, int64, error) {
 	locale = normalize(locale)
 	if locale == "" || !s.locales.allows(locale) || page < 1 || limit < 1 {

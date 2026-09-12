@@ -44,22 +44,24 @@ func TestProductServiceReadsOptionalRatingProjection(t *testing.T) {
 	}
 }
 
-func TestProductServiceListUsesOneBulkLookupPerOptionalModule(t *testing.T) {
+// Enrichment reads SEO and badges for a whole page at once. One reader call per
+// product would turn a twenty-item catalog page into forty extra queries.
+func TestAListedPageCostsOneBulkLookupPerOptionalModule(t *testing.T) {
 	products := []domain.Product{{ID: uuid.New()}, {ID: uuid.New()}, {ID: uuid.New()}}
 	repository := &listProductRepository{products: products}
 	seo := &seoReaderFake{}
 	badges := &badgeReaderFake{}
 	service := NewProductService(repository, []string{"en"}).WithSEOReader(seo).WithBadgeReader(badges)
 
-	result, err := service.List(context.Background(), "en")
+	result, total, err := service.ListProducts(context.Background(), "en", 1, 20)
 	if err != nil {
-		t.Fatalf("List() error = %v", err)
+		t.Fatalf("ListProducts() error = %v", err)
 	}
 	if seo.calls != 1 || badges.calls != 1 {
 		t.Fatalf("bulk readers called seo=%d badges=%d, want one each", seo.calls, badges.calls)
 	}
-	if len(result) != 3 || result[0].SEO == nil || len(result[0].Badges) != 1 {
-		t.Fatalf("List() did not enrich products: %+v", result)
+	if len(result) != 3 || total != 3 || result[0].SEO == nil || len(result[0].Badges) != 1 {
+		t.Fatalf("ListProducts() did not enrich products: %+v", result)
 	}
 }
 
@@ -141,24 +143,17 @@ type fakeProductRepository struct {
 	product *domain.Product
 }
 
-func (r *fakeProductRepository) List(_ context.Context) ([]domain.Product, error) {
-	if r.product == nil {
-		return nil, nil
-	}
-	return []domain.Product{*r.product}, nil
-}
 func (r *fakeProductRepository) ListProducts(_ context.Context, _ string, _, _ int) ([]domain.Product, int64, error) {
-	products, err := r.List(context.Background())
-	return products, int64(len(products)), err
+	if r.product == nil {
+		return nil, 0, nil
+	}
+	return []domain.Product{*r.product}, 1, nil
 }
 
 type listProductRepository struct{ products []domain.Product }
 
 func (r *listProductRepository) FindBySlug(context.Context, string, string) (*domain.Product, error) {
 	return nil, domain.ErrProductNotFound
-}
-func (r *listProductRepository) List(context.Context) ([]domain.Product, error) {
-	return r.products, nil
 }
 func (r *listProductRepository) ListProducts(context.Context, string, int, int) ([]domain.Product, int64, error) {
 	return r.products, int64(len(r.products)), nil
