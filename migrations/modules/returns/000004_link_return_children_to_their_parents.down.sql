@@ -1,0 +1,4 @@
+ALTER TABLE return_restock_operations DROP CONSTRAINT IF EXISTS return_restock_operations_item_fk;
+ALTER TABLE return_restock_operations DROP CONSTRAINT IF EXISTS return_restock_operations_request_fk;
+ALTER TABLE return_status_history DROP CONSTRAINT IF EXISTS return_status_history_request_fk;
+ALTER TABLE return_items DROP CONSTRAINT IF EXISTS return_items_request_fk;
