@@ -27,6 +27,7 @@ import (
 	catalogApp "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/application"
 	catalogDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/domain"
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
+	checkoutIdentity "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/adapter/identity"
 	checkoutApp "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/application"
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
 	comparisonDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/comparison/domain"
@@ -42,7 +43,6 @@ import (
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
 	deliveryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
-	identityApplication "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/application"
 	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
 	identityPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/repository/postgres"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
@@ -423,9 +423,9 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		OrderNumberPrefix:          storeConfig.Code,
 		SupportedDeliveryProviders: storeConfig.ShippingProviders,
 		DefaultDeliveryProvider:    storeConfig.ShippingDefault,
-	}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers).WithPriceCalculator(priceCalculator).WithCustomerVerificationReader(identityApplication.NewVerificationReader(identityPostgres.NewVerificationStatusReader(db)))
+	}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers).WithPriceCalculator(priceCalculator).WithCustomerVerificationReader(checkoutIdentity.NewVerificationReader(identityPostgres.NewVerificationStatusReader(db)))
 	if customerProfileService != nil {
-		checkoutService.WithCustomerProfileReader(identityApplication.NewCheckoutProfileReader(customerProfileService))
+		checkoutService.WithCustomerProfileReader(checkoutIdentity.NewCheckoutProfileReader(customerProfileService))
 	}
 	var checkoutContactCapture checkoutDomain.ContactCaptureService
 	if abandonedCartEnabled {

@@ -185,6 +185,12 @@ type PlacementRepository interface {
 	ListProductVideos(context.Context, uuid.UUID) ([]ProductVideo, error)
 }
 
+// TopicVideoReady records that Cloudflare finished encoding an asset, written
+// in the same transaction as the status change it describes. It is an audit
+// record of work done, not a work item: nothing consumes it and nothing is
+// waiting to, because every read path already sees the asset as ready from that
+// same transaction. Publishing it with no consumer is therefore the intended
+// shape — the event is kept for the timeline, and no delivery row is created.
 const TopicVideoReady = "media.video.ready.v1"
 
 type VideoReadyEvent struct {

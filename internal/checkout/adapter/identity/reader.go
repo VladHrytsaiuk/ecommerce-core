@@ -1,5 +1,12 @@
-// Package application contains narrow cross-module Identity adapters.
-package application
+// Package identity adapts the Identity module to Checkout's narrow read ports.
+//
+// It lives here, with the consumer, because that is where the rest of these
+// adapters live: Checkout already owns adapters for Consent and Delivery, and
+// ten modules across this codebase keep the same shape. Written inside
+// identity/application it read as Identity depending on Checkout, which is the
+// wrong way round for a supplier and the one edge in the module graph that
+// pointed upward.
+package identity
 
 import (
 	"context"
