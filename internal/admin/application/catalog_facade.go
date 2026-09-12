@@ -248,9 +248,13 @@ func (f *CatalogAdminFacade) product(ctx context.Context, cmd CatalogCommand, p 
 			if !ok {
 				return fmt.Errorf("catalog product snapshot reader is not configured")
 			}
-			previous, err := reader.FindByIDForUpdate(tx, p.ID)
-			if err != nil {
-				return err
+			// findErr, not err: `previous, err :=` declares a second err
+			// scoped to this block, so the Update below assigned to that one
+			// and the check after the if/else read the outer err, still nil.
+			// A refused update returned success and was audited as done.
+			previous, findErr := reader.FindByIDForUpdate(tx, p.ID)
+			if findErr != nil {
+				return findErr
 			}
 			old, _ = json.Marshal(previous)
 			action = "catalog.product.update"
@@ -428,9 +432,10 @@ func (f *CatalogAdminFacade) category(ctx context.Context, cmd CatalogCommand, c
 			if !ok {
 				return fmt.Errorf("catalog category snapshot reader is not configured")
 			}
-			previous, err := reader.FindByIDForUpdate(tx, c.ID)
-			if err != nil {
-				return err
+			// findErr, not err: see the same correction in the product path.
+			previous, findErr := reader.FindByIDForUpdate(tx, c.ID)
+			if findErr != nil {
+				return findErr
 			}
 			old, _ = json.Marshal(previous)
 			action = "catalog.category.update"
