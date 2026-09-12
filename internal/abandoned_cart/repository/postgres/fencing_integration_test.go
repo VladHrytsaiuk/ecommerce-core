@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,13 +43,18 @@ func TestATakenOverClaimRefusesTheOldWorkersOutcome(t *testing.T) {
 		t.Fatalf("takeover token = %s, want a new one (previous %s)", second.LockToken, first.LockToken)
 	}
 
+	// Update must report the lost lease, not return nil. A silent no-op was
+	// the original defect: the caller read it as a successful write and went
+	// on to schedule an email and create the next campaign step.
 	stale := *first
 	stale.Status = "skipped"
-	if err := repository.Update(ctx, &stale); err != nil {
-		t.Fatalf("stale Update() error = %v", err)
+	if err := repository.Update(ctx, &stale); !errors.Is(err, cart.ErrLeaseLost) {
+		t.Fatalf("stale Update() error = %v, want ErrLeaseLost", err)
 	}
+	// Requeue is the opposite: there is nothing to release, and the worker
+	// that holds the campaign will release it, so this is not a fault.
 	if err := repository.Requeue(ctx, first.ID, first.LockToken); err != nil {
-		t.Fatalf("stale Requeue() error = %v", err)
+		t.Fatalf("stale Requeue() error = %v, want a lost lease treated as a no-op", err)
 	}
 
 	var status string

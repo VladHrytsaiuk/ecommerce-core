@@ -17,6 +17,9 @@ type workerRepoFake struct {
 	requeued               bool
 	requeueContextCanceled bool
 	requeueToken           uuid.UUID
+	leaseLost              bool
+	updatedStatuses        []string
+	createdSteps           []int
 }
 
 func (f *workerRepoFake) ClaimDue(context.Context, time.Time) (*cart.Campaign, error) {
@@ -24,14 +27,35 @@ func (f *workerRepoFake) ClaimDue(context.Context, time.Time) (*cart.Campaign, e
 	f.claimed = nil
 	return item, nil
 }
-func (*workerRepoFake) Update(context.Context, *cart.Campaign) error       { return nil }
-func (*workerRepoFake) Create(context.Context, cart.Campaign) error        { return nil }
+
+// Update models the fenced write: once the lease is gone it refuses, exactly
+// as the repository's conditional UPDATE does when it matches no row.
+func (f *workerRepoFake) Update(_ context.Context, x *cart.Campaign) error {
+	if f.leaseLost {
+		return cart.ErrLeaseLost
+	}
+	f.updatedStatuses = append(f.updatedStatuses, x.Status)
+	return nil
+}
+func (f *workerRepoFake) Create(_ context.Context, x cart.Campaign) error {
+	f.createdSteps = append(f.createdSteps, x.Step)
+	return nil
+}
 func (*workerRepoFake) CreateOrReset(context.Context, cart.Campaign) error { return nil }
 func (f *workerRepoFake) Requeue(ctx context.Context, _, token uuid.UUID) error {
 	f.requeued = true
 	f.requeueContextCanceled = ctx.Err() != nil
 	f.requeueToken = token
 	return nil
+}
+
+// workerCartDue reports a cart that is still active and overdue, which is the
+// state that carries a pass all the way to scheduling an email and creating
+// the next step.
+type workerCartDue struct{}
+
+func (workerCartDue) GetCartState(context.Context, uuid.UUID) (cart.CartState, error) {
+	return cart.CartState{IsActive: true, LastUpdatedAt: time.Now().Add(-48 * time.Hour)}, nil
 }
 
 type workerCartFail struct{}
@@ -57,6 +81,67 @@ type workerTxFake struct{}
 
 func (workerTxFake) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
 	return fn(ctx)
+}
+
+// TestALostLeaseStopsThePassBeforeAnySideEffect is the defect the token was
+// added for and did not actually prevent. The conditional UPDATE matched no
+// row and returned nil, so the worker read that as a successful write and went
+// on to schedule the recovery email and create the next campaign step — both
+// of which the worker that had taken the campaign over was about to do itself.
+//
+// The visible result was worse than a duplicate email: the new holder then hit
+// the unique constraint on (cart_id, step) creating a step that already
+// existed, failed its pass, and returned the campaign to the queue — where it
+// could be picked up and fail the same way again.
+func TestALostLeaseStopsThePassBeforeAnySideEffect(t *testing.T) {
+	repository := &workerRepoFake{
+		claimed:   &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), ContactEmail: "buyer@example.com", Step: 1, LockToken: uuid.New()},
+		leaseLost: true,
+	}
+	scheduler := &workerSchedulerFake{}
+	worker := NewWorker(repository, workerCartDue{}, workerConsentFake{}, scheduler, workerTxFake{},
+		Policy{Delays: []time.Duration{time.Hour, 2 * time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+
+	worked, err := worker.claimAndProcess(context.Background())
+	if err != nil {
+		t.Fatalf("claimAndProcess() error = %v; a lease taken over is a race, not a fault", err)
+	}
+	if !worked {
+		t.Fatal("claimAndProcess() reported no work although it claimed a campaign")
+	}
+	if len(scheduler.locales) != 0 {
+		t.Fatalf("%d emails scheduled by a worker that no longer owns the campaign", len(scheduler.locales))
+	}
+	if len(repository.createdSteps) != 0 {
+		t.Fatalf("next steps created = %v; the holder creates those, and a duplicate collides on (cart_id, step)", repository.createdSteps)
+	}
+	if repository.requeued {
+		t.Fatal("the campaign was released by a worker that no longer holds it")
+	}
+}
+
+// TestAHeldLeaseCompletesTheWholePass is the other direction: the guard must
+// not stop a worker that still owns the campaign.
+func TestAHeldLeaseCompletesTheWholePass(t *testing.T) {
+	repository := &workerRepoFake{
+		claimed: &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), ContactEmail: "buyer@example.com", Step: 1, LockToken: uuid.New()},
+	}
+	scheduler := &workerSchedulerFake{}
+	worker := NewWorker(repository, workerCartDue{}, workerConsentFake{}, scheduler, workerTxFake{},
+		Policy{Delays: []time.Duration{time.Hour, 2 * time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+
+	if _, err := worker.claimAndProcess(context.Background()); err != nil {
+		t.Fatalf("claimAndProcess() error = %v", err)
+	}
+	if len(scheduler.locales) != 1 {
+		t.Fatalf("%d emails scheduled, want 1", len(scheduler.locales))
+	}
+	if len(repository.createdSteps) != 1 || repository.createdSteps[0] != 2 {
+		t.Fatalf("next steps created = %v, want [2]", repository.createdSteps)
+	}
+	if len(repository.updatedStatuses) != 1 || repository.updatedStatuses[0] != "scheduled" {
+		t.Fatalf("statuses written = %v, want [scheduled]", repository.updatedStatuses)
+	}
 }
 
 func TestWorkerRequeuesClaimWithFinalizationContextAfterCancellation(t *testing.T) {

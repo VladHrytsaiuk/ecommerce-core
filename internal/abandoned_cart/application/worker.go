@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	cart "github.com/VladHrytsaiuk/ecommerce-core/internal/abandoned_cart/domain"
 	notifications "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/domain"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/shared/worker"
@@ -52,10 +53,19 @@ func (w *Worker) claimAndProcess(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if err := w.process(ctx, campaign); err != nil {
+		// A lease taken over mid-pass is a normal race, not a fault. The
+		// transaction has already rolled back, so nothing this worker started
+		// survives, and the campaign belongs to the worker that claimed it —
+		// releasing it here would hand away a lease this worker no longer
+		// holds. Reporting it would alert on the race instead of on a defect.
+		if errors.Is(err, cart.ErrLeaseLost) {
+			return true, nil
+		}
 		// Claiming and processing are deliberately separate transactions. On
 		// shutdown the processing tx rolls back, so use a short detached
 		// context to release the lease immediately instead of waiting for its
-		// expiry. The update is conditional on status=processing.
+		// expiry. The update is conditional on status=processing and on the
+		// claim's token.
 		finalizeCtx, cancel := finalizationContext(ctx)
 		requeueErr := w.repo.Requeue(finalizeCtx, campaign.ID, campaign.LockToken)
 		cancel()

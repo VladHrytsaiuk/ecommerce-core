@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"errors"
 	"github.com/google/uuid"
 	"time"
 )
@@ -18,6 +19,16 @@ type Campaign struct {
 	LockToken                             uuid.UUID
 	DueAt, LockedAt, CreatedAt, UpdatedAt time.Time
 }
+
+// ErrLeaseLost reports that this worker's claim on a campaign was taken over
+// while it was still running.
+//
+// It has to abort the pass rather than be shrugged off. A campaign pass ends
+// by scheduling a recovery email and creating the next step, and both of those
+// are side effects the new holder is about to perform itself: letting a worker
+// that no longer owns the campaign carry on produces a duplicate of each.
+var ErrLeaseLost = errors.New("abandoned cart campaign lease was lost to another worker")
+
 type CartState struct {
 	IsActive, IsPaid, IsEmpty bool
 	LastUpdatedAt             time.Time

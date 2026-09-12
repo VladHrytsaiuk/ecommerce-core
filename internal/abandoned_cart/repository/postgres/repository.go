@@ -45,10 +45,22 @@ func (r *Repository) ClaimDue(c context.Context, now time.Time) (*cart.Campaign,
 	return (*cart.Campaign)(&x), nil
 }
 
-// Update writes the outcome of one pass. It is conditional on the claim's
-// token, so a worker whose lease expired mid-pass changes nothing.
+// Update writes the outcome of one pass, conditional on the claim's token.
+//
+// A lost lease is reported as an error rather than a silent no-op. The write
+// is the first statement of a unit of work that goes on to schedule an email
+// and create the next campaign step; returning nil here would leave a worker
+// that no longer owns the campaign doing both, on top of the work the new
+// holder is doing.
 func (r *Repository) Update(c context.Context, x *cart.Campaign) error {
-	return r.finalize(c, x.ID, x.LockToken, map[string]any{"status": x.Status, "due_at": x.DueAt, "locked_at": nil, "lock_token": nil, "updated_at": time.Now().UTC()})
+	changed, err := r.finalize(c, x.ID, x.LockToken, map[string]any{"status": x.Status, "due_at": x.DueAt, "locked_at": nil, "lock_token": nil, "updated_at": time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return cart.ErrLeaseLost
+	}
+	return nil
 }
 func (r *Repository) Create(c context.Context, x cart.Campaign) error {
 	return r.database(c).Create((*row)(&x)).Error
@@ -67,16 +79,27 @@ func (r *Repository) CreateOrReset(c context.Context, x cart.Campaign) error {
 // Requeue releases a claim whose pass failed. It takes the token for the same
 // reason Update does: releasing a lease another worker now holds would let two
 // passes run on the same campaign.
+//
+// Unlike Update, a lost lease here is not an error. There is nothing to
+// release — the campaign already belongs to the worker that took it over, and
+// that worker will release it. Reporting a fault would alert on the race
+// rather than on anything wrong.
 func (r *Repository) Requeue(c context.Context, id uuid.UUID, token uuid.UUID) error {
-	return r.finalize(c, id, token, map[string]any{"status": "pending", "locked_at": nil, "lock_token": nil, "updated_at": time.Now().UTC()})
+	_, err := r.finalize(c, id, token, map[string]any{"status": "pending", "locked_at": nil, "lock_token": nil, "updated_at": time.Now().UTC()})
+	return err
 }
 
-func (r *Repository) finalize(c context.Context, id, token uuid.UUID, values map[string]any) error {
+// finalize applies a terminal write and reports whether it matched the claim.
+func (r *Repository) finalize(c context.Context, id, token uuid.UUID, values map[string]any) (bool, error) {
 	query := r.database(c).Model((*row)(nil)).Where("id=? AND status='processing'", id)
 	if token != uuid.Nil {
 		query = query.Where("lock_token=?", token)
 	}
-	return query.Updates(values).Error
+	result := query.Updates(values)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected == 1, nil
 }
 func (r *Repository) database(c context.Context) *gorm.DB {
 	if tx, e := transaction.FromContext(c); e == nil {
