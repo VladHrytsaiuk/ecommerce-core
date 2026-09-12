@@ -39,7 +39,7 @@ func main() {
 	if err != nil {
 		l.Fatalw("Failed to open logo", "error", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		l.Fatalw("Failed to stat logo", "error", err)

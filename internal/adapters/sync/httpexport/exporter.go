@@ -97,7 +97,7 @@ func (e *Exporter) ExportOrder(ctx context.Context, event sync.OutboxEvent) erro
 	if err != nil {
 		return fmt.Errorf("call sync export endpoint: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	// Drain before closing so the connection returns to the pool instead of
 	// being torn down on every export.
 	body, _ := io.ReadAll(io.LimitReader(response.Body, maxResponseBodySize))

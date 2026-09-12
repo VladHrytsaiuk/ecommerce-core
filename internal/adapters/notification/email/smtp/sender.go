@@ -116,7 +116,7 @@ func (s *Sender) Send(ctx context.Context, message notificationsDomain.EmailMess
 	if err != nil {
 		return notificationsDomain.DeliveryReceipt{}, fmt.Errorf("dial SMTP server: %w", err)
 	}
-	defer connection.Close()
+	defer func() { _ = connection.Close() }()
 	if err := connection.SetDeadline(deadline); err != nil {
 		return notificationsDomain.DeliveryReceipt{}, fmt.Errorf("set SMTP deadline: %w", err)
 	}
@@ -131,7 +131,7 @@ func (s *Sender) Send(ctx context.Context, message notificationsDomain.EmailMess
 	if err != nil {
 		return notificationsDomain.DeliveryReceipt{}, fmt.Errorf("create SMTP client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if s.tlsMode == "starttls" {
 		if ok, _ := client.Extension("STARTTLS"); !ok {
 			return notificationsDomain.DeliveryReceipt{}, fmt.Errorf("SMTP server does not advertise required STARTTLS")

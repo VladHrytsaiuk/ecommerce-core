@@ -64,7 +64,7 @@ func TestSendFailsClosedWhenServerDoesNotOfferSTARTTLS(t *testing.T) {
 		if acceptErr != nil {
 			return
 		}
-		defer connection.Close()
+		defer func() { _ = connection.Close() }()
 		_, _ = fmt.Fprint(connection, "220 smtp.test ESMTP\r\n")
 		buffer := make([]byte, 512)
 		read, _ := connection.Read(buffer)

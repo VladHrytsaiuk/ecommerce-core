@@ -293,7 +293,7 @@ func (a *Adapter) callResponse(ctx context.Context, model, method string, proper
 	if err != nil {
 		return responseEnvelope{}, fmt.Errorf("%w: novaposhta request: %v", deliveryDomain.ErrProviderUnavailable, err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
 		return responseEnvelope{}, err

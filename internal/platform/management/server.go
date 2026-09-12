@@ -4,7 +4,6 @@ package management
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -57,10 +56,10 @@ func (s *Server) Start() error {
 	}
 	s.started = true
 	go func() {
-		if err := s.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			// There is no process logger dependency here. A terminated listener
-			// is surfaced by readiness probes and application shutdown.
-		}
+		// Deliberately unreported: there is no process logger dependency
+		// here, and a terminated listener is surfaced by the readiness probe
+		// and by application shutdown.
+		_ = s.server.Serve(listener)
 	}()
 	return nil
 }

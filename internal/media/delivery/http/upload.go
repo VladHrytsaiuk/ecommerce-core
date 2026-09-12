@@ -132,13 +132,13 @@ func upload(service *mediaApp.UploadService, renderer *apiresponse.ErrorRenderer
 			abortUploadError(c, renderer, err)
 			return
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		body, err := file.Open()
 		if err != nil {
 			renderer.Abort(c, err)
 			return
 		}
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 		asset, err := service.Upload(c.Request.Context(), mediaApp.UploadCommand{ActorID: actor, UploadID: uploadID, Body: body, SizeBytes: file.SizeBytes, MIMEType: file.MIMEType, ChecksumSHA256: file.ChecksumSHA256})
 		if err != nil {
 			renderer.Abort(c, err)

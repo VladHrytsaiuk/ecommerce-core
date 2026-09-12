@@ -47,15 +47,16 @@ func (s *CategoryService) FindBySlug(ctx context.Context, locale, slug string) (
 	}
 	key := categoryCacheKey(locale, slug)
 	if s.cache != nil {
+		// A miss and a cache fault take the same path: fall through to the
+		// repository. Caching is an optimization and must never turn a catalog
+		// read into an outage. The fault itself is reported from the
+		// authorization cache, which shares this Redis and does have a logger.
 		if encoded, err := s.cache.Get(ctx, key); err == nil {
 			var category domain.Category
 			if err := json.Unmarshal(encoded, &category); err == nil {
 				return &category, nil
 			}
 			_ = s.cache.Delete(ctx, key)
-		} else if err != cache.ErrMiss {
-			// Caching is an optimization; a transient cache failure must not turn a
-			// catalog read into an outage.
 		}
 	}
 	category, err := s.repo.FindBySlug(ctx, locale, slug)

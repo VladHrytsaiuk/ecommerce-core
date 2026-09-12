@@ -178,7 +178,7 @@ type apiRequest struct {
 
 func decodeRequest(t *testing.T, r *http.Request) apiRequest {
 	t.Helper()
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var request apiRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		t.Fatal(err)

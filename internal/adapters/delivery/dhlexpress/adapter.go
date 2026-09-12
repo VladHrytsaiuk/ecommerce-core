@@ -267,7 +267,7 @@ func (a *Adapter) doJSON(ctx context.Context, method, path string, payload any, 
 	if err != nil {
 		return fmt.Errorf("call DHL Express: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
 		return fmt.Errorf("read DHL Express response: %w", err)

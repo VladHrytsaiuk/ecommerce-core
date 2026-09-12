@@ -107,7 +107,7 @@ type fakeEventStore struct {
 }
 
 func (s *fakeEventStore) Claim(_ context.Context, provider string, event paymentsDomain.PaymentEvent) (paymentsDomain.WebhookClaim, bool, error) {
-	if !(s.claimed || !s.processed) {
+	if !s.claimed && s.processed {
 		return paymentsDomain.WebhookClaim{}, false, nil
 	}
 	s.issued = uuid.New()

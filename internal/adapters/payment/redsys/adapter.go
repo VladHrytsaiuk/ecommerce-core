@@ -173,7 +173,7 @@ func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundReque
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("redsys refund response status %d", response.StatusCode)
 	}

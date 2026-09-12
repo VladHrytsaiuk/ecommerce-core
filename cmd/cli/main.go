@@ -120,7 +120,7 @@ func searchReindex() {
 	if err != nil {
 		log.Fatalf("obtain PostgreSQL pool: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	index, err := searchMeili.New(ctx, searchMeili.Config{
@@ -130,7 +130,7 @@ func searchReindex() {
 	if err != nil {
 		log.Fatalf("configure search index: %v", err)
 	}
-	defer index.Close()
+	defer func() { _ = index.Close() }()
 	products := catalogApp.NewProductService(catalogPostgres.NewProductRepository(database), storeConfig.SupportedLocales)
 	reindexer, err := searchApp.NewReindexer(searchCatalog.NewSnapshotProvider(products), index)
 	if err != nil {

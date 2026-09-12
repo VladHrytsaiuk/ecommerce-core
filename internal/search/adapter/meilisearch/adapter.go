@@ -45,7 +45,7 @@ func New(ctx context.Context, config Config) (*Adapter, error) {
 	config.URL = strings.TrimRight(strings.TrimSpace(config.URL), "/")
 	config.IndexUID = strings.TrimSpace(config.IndexUID)
 	if config.URL == "" || config.MasterKey == "" || config.IndexUID == "" {
-		return nil, fmt.Errorf("Meilisearch URL, master key and index UID are required")
+		return nil, fmt.Errorf("meilisearch URL, master key and index UID are required")
 	}
 	if config.Timeout <= 0 {
 		config.Timeout = 5 * time.Second
@@ -79,7 +79,7 @@ func New(ctx context.Context, config Config) (*Adapter, error) {
 
 func (a *Adapter) configure(ctx context.Context) error {
 	if a == nil || a.index == nil {
-		return fmt.Errorf("Meilisearch adapter is not configured")
+		return fmt.Errorf("meilisearch adapter is not configured")
 	}
 	settings := &meili.Settings{
 		SearchableAttributes: []string{"names", "descriptions", "slugs", "brand"},
@@ -95,7 +95,7 @@ func (a *Adapter) configure(ctx context.Context) error {
 
 func (a *Adapter) AddOrUpdateDocuments(ctx context.Context, documents ...search.SearchDocument) error {
 	if a == nil || a.index == nil || len(documents) == 0 {
-		return fmt.Errorf("Meilisearch document batch is required")
+		return fmt.Errorf("meilisearch document batch is required")
 	}
 	taskCtx, cancel := a.taskContext(ctx)
 	defer cancel()
@@ -108,7 +108,7 @@ func (a *Adapter) AddOrUpdateDocuments(ctx context.Context, documents ...search.
 
 func (a *Adapter) DeleteDocument(ctx context.Context, productID uuid.UUID) error {
 	if a == nil || a.index == nil || productID == uuid.Nil {
-		return fmt.Errorf("Meilisearch product ID is required")
+		return fmt.Errorf("meilisearch product ID is required")
 	}
 	taskCtx, cancel := a.taskContext(ctx)
 	defer cancel()
@@ -129,7 +129,7 @@ func (a *Adapter) taskContext(ctx context.Context) (context.Context, context.Can
 
 func (a *Adapter) Search(ctx context.Context, query search.ProductSearchQuery) (search.ProductSearchResult, error) {
 	if a == nil || a.index == nil {
-		return search.ProductSearchResult{}, fmt.Errorf("Meilisearch adapter is not configured")
+		return search.ProductSearchResult{}, fmt.Errorf("meilisearch adapter is not configured")
 	}
 	offset := int64((query.Page - 1) * query.Limit)
 	response, err := a.index.SearchWithContext(ctx, query.Query, &meili.SearchRequest{
@@ -156,7 +156,7 @@ func (a *Adapter) Search(ctx context.Context, query search.ProductSearchQuery) (
 
 func (a *Adapter) Autocomplete(ctx context.Context, query search.ProductSearchQuery) ([]search.Suggestion, error) {
 	if a == nil || a.index == nil {
-		return nil, fmt.Errorf("Meilisearch adapter is not configured")
+		return nil, fmt.Errorf("meilisearch adapter is not configured")
 	}
 	response, err := a.index.SearchWithContext(ctx, query.Query, &meili.SearchRequest{
 		Limit: int64(query.Limit), Filter: query.Filter,
@@ -223,14 +223,14 @@ func decodeFacets(value interface{}) search.Facets {
 
 func wait(ctx context.Context, client meili.ServiceManager, task *meili.TaskInfo) error {
 	if task == nil {
-		return fmt.Errorf("Meilisearch task is missing")
+		return fmt.Errorf("meilisearch task is missing")
 	}
 	result, err := client.WaitForTaskWithContext(ctx, task.TaskUID, 25*time.Millisecond)
 	if err != nil {
 		return err
 	}
 	if result.Status != meili.TaskStatusSucceeded {
-		return fmt.Errorf("Meilisearch task %d ended with %s", task.TaskUID, result.Status)
+		return fmt.Errorf("meilisearch task %d ended with %s", task.TaskUID, result.Status)
 	}
 	return nil
 }

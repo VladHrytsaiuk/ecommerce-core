@@ -195,7 +195,7 @@ func (a *Adapter) Refund(ctx context.Context, request paymentsDomain.RefundReque
 	if err != nil {
 		return fmt.Errorf("send liqpay refund request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBodySize))
 	if err != nil {
 		return fmt.Errorf("read liqpay refund response: %w", err)

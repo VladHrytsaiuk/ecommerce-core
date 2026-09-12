@@ -59,7 +59,7 @@ func TestNewJWTMaker_ImplementsMakerInterface(t *testing.T) {
 	require.NoError(t, err)
 
 	// Перевіряємо, що повернутий об'єкт реалізує інтерфейс Maker
-	var _ Maker = maker
+	_ = maker
 }
 
 // ==========================================
@@ -122,13 +122,13 @@ func TestCreateToken_ExpiresAtCorrectTime(t *testing.T) {
 	require.NoError(t, err)
 
 	// Перевіряємо, що IssuedAt в очікуваних межах
-	assert.True(t, !claims.IssuedAt.Time.Before(beforeCreate.Add(-time.Second)),
+	assert.True(t, !claims.IssuedAt.Before(beforeCreate.Add(-time.Second)),
 		"IssuedAt не повинен бути до часу створення")
-	assert.True(t, !claims.IssuedAt.Time.After(afterCreate.Add(time.Second)),
+	assert.True(t, !claims.IssuedAt.After(afterCreate.Add(time.Second)),
 		"IssuedAt не повинен бути після часу створення")
 
 	// Перевіряємо, що ExpiresAt відповідає duration
-	expectedExpiry := claims.IssuedAt.Time.Add(duration)
+	expectedExpiry := claims.IssuedAt.Add(duration)
 	assert.WithinDuration(t, expectedExpiry, claims.ExpiresAt.Time, time.Second,
 		"ExpiresAt має відповідати IssuedAt + duration")
 }
@@ -187,7 +187,7 @@ func TestCreateToken_DifferentDurations(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, tokenStr)
-			assert.WithinDuration(t, claims.IssuedAt.Time.Add(d), claims.ExpiresAt.Time, time.Second)
+			assert.WithinDuration(t, claims.IssuedAt.Add(d), claims.ExpiresAt.Time, time.Second)
 		})
 	}
 }

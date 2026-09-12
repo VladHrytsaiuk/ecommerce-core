@@ -34,7 +34,7 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, command domain.Updat
 	if id == uuid.Nil || s.repository == nil {
 		return nil, domain.ErrInvalidBadge
 	}
-	create := domain.CreateCommand{Slug: command.Slug, Color: command.Color, Translations: command.Translations}
+	create := domain.CreateCommand(command)
 	if !valid(&create.Slug, &create.Color, create.Translations) {
 		return nil, domain.ErrInvalidBadge
 	}

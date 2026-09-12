@@ -34,7 +34,7 @@ type Adapter struct {
 
 func New(config Config) (*Adapter, error) {
 	if strings.TrimSpace(config.ClientID) == "" || strings.TrimSpace(config.ClientSecret) == "" || len(config.AllowedRedirectURIs) == 0 {
-		return nil, fmt.Errorf("Google OAuth client id, client secret and allowed redirect URIs are required")
+		return nil, fmt.Errorf("google OAuth client id, client secret and allowed redirect URIs are required")
 	}
 	redirectURIs := make(map[string]struct{}, len(config.AllowedRedirectURIs))
 	for _, redirectURI := range config.AllowedRedirectURIs {
@@ -43,7 +43,7 @@ func New(config Config) (*Adapter, error) {
 		}
 	}
 	if len(redirectURIs) == 0 {
-		return nil, fmt.Errorf("Google OAuth allowed redirect URIs are required")
+		return nil, fmt.Errorf("allowed redirect URIs are required for Google OAuth")
 	}
 	if config.HTTPClient == nil {
 		config.HTTPClient = http.DefaultClient
@@ -55,7 +55,7 @@ func (*Adapter) Code() string { return code }
 
 func (a *Adapter) BeginAuthorization(_ context.Context, request identityDomain.OAuthAuthorizationRequest) (identityDomain.OAuthAuthorization, error) {
 	if !a.allowsRedirectURI(request.RedirectURI) || strings.TrimSpace(request.State) == "" || strings.TrimSpace(request.Nonce) == "" || strings.TrimSpace(request.CodeVerifier) == "" {
-		return identityDomain.OAuthAuthorization{}, fmt.Errorf("Google OAuth authorization request is incomplete")
+		return identityDomain.OAuthAuthorization{}, fmt.Errorf("incomplete Google OAuth authorization request")
 	}
 	config := a.oauthConfig(request.RedirectURI)
 	url := config.AuthCodeURL(request.State,
@@ -68,7 +68,7 @@ func (a *Adapter) BeginAuthorization(_ context.Context, request identityDomain.O
 
 func (a *Adapter) ExchangeCode(ctx context.Context, request identityDomain.OAuthCodeExchange) (identityDomain.VerifiedOAuthIdentity, error) {
 	if !a.allowsRedirectURI(request.RedirectURI) || strings.TrimSpace(request.Code) == "" || strings.TrimSpace(request.CodeVerifier) == "" || strings.TrimSpace(request.Nonce) == "" {
-		return identityDomain.VerifiedOAuthIdentity{}, fmt.Errorf("Google OAuth code exchange is incomplete")
+		return identityDomain.VerifiedOAuthIdentity{}, fmt.Errorf("incomplete Google OAuth code exchange")
 	}
 	config := a.oauthConfig(request.RedirectURI)
 	if a.httpClient != nil {
@@ -80,7 +80,7 @@ func (a *Adapter) ExchangeCode(ctx context.Context, request identityDomain.OAuth
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || strings.TrimSpace(rawIDToken) == "" {
-		return identityDomain.VerifiedOAuthIdentity{}, fmt.Errorf("Google OAuth response has no id_token")
+		return identityDomain.VerifiedOAuthIdentity{}, fmt.Errorf("the Google OAuth response has no id_token")
 	}
 	payload, err := a.validate(ctx, rawIDToken, a.clientID)
 	if err != nil || payload == nil || strings.TrimSpace(payload.Subject) == "" {
@@ -88,7 +88,7 @@ func (a *Adapter) ExchangeCode(ctx context.Context, request identityDomain.OAuth
 	}
 	nonce, _ := payload.Claims["nonce"].(string)
 	if nonce != request.Nonce {
-		return identityDomain.VerifiedOAuthIdentity{}, fmt.Errorf("Google ID token nonce mismatch")
+		return identityDomain.VerifiedOAuthIdentity{}, fmt.Errorf("the Google ID token nonce does not match")
 	}
 	verified := identityDomain.VerifiedOAuthIdentity{Provider: code, Subject: payload.Subject}
 	if email, ok := payload.Claims["email"].(string); ok && strings.TrimSpace(email) != "" {

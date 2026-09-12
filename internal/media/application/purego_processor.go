@@ -47,7 +47,7 @@ func (p *PureGoProcessor) Process(ctx context.Context, source media.SourceObject
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	img, _, err := image.Decode(r)
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)

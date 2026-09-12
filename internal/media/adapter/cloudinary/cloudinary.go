@@ -31,7 +31,7 @@ type Adapter struct {
 func New(cfg Config) (*Adapter, error) {
 	url := strings.TrimSpace(cfg.URL)
 	if url == "" {
-		return nil, fmt.Errorf("Cloudinary URL is required")
+		return nil, fmt.Errorf("cloudinary URL is required")
 	}
 	client, err := cloudinarySDK.NewFromURL(url)
 	if err != nil {
@@ -56,7 +56,7 @@ func (a *Adapter) Put(ctx context.Context, request media.PutRequest) (media.Stor
 		return media.StoredObject{}, fmt.Errorf("put Cloudinary media object: %w", err)
 	}
 	if result.PublicID == "" {
-		return media.StoredObject{}, fmt.Errorf("Cloudinary upload returned no public ID")
+		return media.StoredObject{}, fmt.Errorf("cloudinary upload returned no public ID")
 	}
 	return media.StoredObject{
 		ObjectRef: media.ObjectRef{Provider: provider, Key: result.PublicID},

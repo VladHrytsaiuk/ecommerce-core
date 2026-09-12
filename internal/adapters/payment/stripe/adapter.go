@@ -175,7 +175,7 @@ func (a *Adapter) postForm(ctx context.Context, path string, form url.Values, id
 	if err != nil {
 		return fmt.Errorf("send stripe request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBodySize))
 	if err != nil {
 		return fmt.Errorf("read stripe response: %w", err)

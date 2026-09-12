@@ -192,7 +192,7 @@ func (a *Adapter) postJSON(ctx context.Context, path string, payload any, target
 	if err != nil {
 		return fmt.Errorf("send monobank request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBodySize))
 	if err != nil {
 		return fmt.Errorf("read monobank response: %w", err)

@@ -123,7 +123,7 @@ func newAdapter(t *testing.T, apiURL string) *Adapter {
 
 func signature(secret string, timestamp int64, payload []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(fmt.Sprintf("%d.", timestamp)))
+	_, _ = fmt.Fprintf(mac, "%d.", timestamp)
 	_, _ = mac.Write(payload)
 	return fmt.Sprintf("t=%d,v1=%s", timestamp, hex.EncodeToString(mac.Sum(nil)))
 }

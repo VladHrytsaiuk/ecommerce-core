@@ -46,7 +46,7 @@ type Adapter struct {
 func New(cfg Config) (*Adapter, error) {
 	accountID, token, secret := strings.TrimSpace(cfg.AccountID), strings.TrimSpace(cfg.APIToken), strings.TrimSpace(cfg.WebhookSecret)
 	if accountID == "" || token == "" || secret == "" {
-		return nil, fmt.Errorf("Cloudflare Stream account ID, API token and webhook secret are required")
+		return nil, fmt.Errorf("account ID, API token and webhook secret are required for Cloudflare Stream")
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	if baseURL == "" {
@@ -54,7 +54,7 @@ func New(cfg Config) (*Adapter, error) {
 	}
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Scheme != "https" || u.Host == "" {
-		return nil, fmt.Errorf("Cloudflare Stream API URL must be an absolute HTTPS URL")
+		return nil, fmt.Errorf("the Cloudflare Stream API URL must be an absolute HTTPS URL")
 	}
 	origins := make([]string, 0, len(cfg.AllowedOrigins))
 	for _, origin := range cfg.AllowedOrigins {
@@ -101,7 +101,7 @@ func (a *Adapter) CreateDirectUpload(ctx context.Context, metadata video.DirectU
 	if err != nil {
 		return video.UploadInstruction{}, fmt.Errorf("call Cloudflare Stream: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	var decoded struct {
 		Success bool `json:"success"`
 		Result  struct {
@@ -113,7 +113,7 @@ func (a *Adapter) CreateDirectUpload(ctx context.Context, metadata video.DirectU
 		return video.UploadInstruction{}, fmt.Errorf("decode Cloudflare Stream response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 || !decoded.Success || decoded.Result.UID == "" || decoded.Result.UploadURL == "" {
-		return video.UploadInstruction{}, fmt.Errorf("Cloudflare Stream rejected direct upload")
+		return video.UploadInstruction{}, fmt.Errorf("direct upload was rejected by Cloudflare Stream")
 	}
 	return video.UploadInstruction{ExternalID: decoded.Result.UID, UploadURL: decoded.Result.UploadURL}, nil
 }
@@ -133,7 +133,7 @@ func (a *Adapter) DeleteAsset(ctx context.Context, externalID string) error {
 	if err != nil {
 		return fmt.Errorf("call Cloudflare Stream deletion: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return nil
 	}
@@ -142,7 +142,7 @@ func (a *Adapter) DeleteAsset(ctx context.Context, externalID string) error {
 		return fmt.Errorf("read Cloudflare Stream deletion response: %w", err)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("Cloudflare Stream rejected asset deletion")
+		return fmt.Errorf("asset deletion was rejected by Cloudflare Stream")
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
@@ -151,7 +151,7 @@ func (a *Adapter) DeleteAsset(ctx context.Context, externalID string) error {
 		Success bool `json:"success"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil || !decoded.Success {
-		return fmt.Errorf("Cloudflare Stream rejected asset deletion")
+		return fmt.Errorf("asset deletion was rejected by Cloudflare Stream")
 	}
 	return nil
 }
@@ -176,7 +176,7 @@ func (a *Adapter) VerifyWebhookSignature(_ context.Context, payload []byte, sign
 		return video.ErrInvalidWebhookSignature
 	}
 	mac := hmac.New(sha256.New, a.webhookSecret)
-	_, _ = mac.Write([]byte(fmt.Sprintf("%d.", unix)))
+	_, _ = fmt.Fprintf(mac, "%d.", unix)
 	_, _ = mac.Write(payload)
 	if !hmac.Equal(mac.Sum(nil), given) {
 		return video.ErrInvalidWebhookSignature

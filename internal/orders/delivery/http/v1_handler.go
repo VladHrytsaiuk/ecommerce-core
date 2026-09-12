@@ -38,7 +38,7 @@ func (h *OrdersV1Handler) ListMine(c *gin.Context) {
 		h.errors.Abort(c, apiresponse.Unauthenticated(nil))
 		return
 	}
-	page, limit := 1, 20
+	var page, limit int
 	if value, ok := queryInt(c, "page", 1, 1, 1000); ok {
 		page = value
 	} else {

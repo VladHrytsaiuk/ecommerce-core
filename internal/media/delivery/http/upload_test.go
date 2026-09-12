@@ -12,7 +12,7 @@ func TestReadImagePartAcceptsMagicBytesAndHashesStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadImagePart() error = %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if file.MIMEType != "image/png" || file.SizeBytes != int64(len(png)) || len(file.ChecksumSHA256) != 64 {
 		t.Fatalf("unexpected file %+v", file)
 	}

@@ -41,7 +41,7 @@ func NewPlaybackSigner(config SigningConfig) (*PlaybackSigner, error) {
 	customerCode := strings.TrimSpace(config.CustomerCode)
 	keyID := strings.TrimSpace(config.KeyID)
 	if customerCode == "" || keyID == "" {
-		return nil, fmt.Errorf("Cloudflare Stream customer code and signing key ID are required")
+		return nil, fmt.Errorf("customer code and signing key ID are required for Cloudflare Stream")
 	}
 	// The subdomain is interpolated into a hostname, so anything that could
 	// escape the label has to be refused rather than escaped.
@@ -98,29 +98,29 @@ func (s *PlaybackSigner) SignPlayback(_ context.Context, externalID string, expi
 func parseSigningKey(raw string) (*rsa.PrivateKey, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, fmt.Errorf("Cloudflare Stream signing key is required")
+		return nil, fmt.Errorf("a Cloudflare Stream signing key is required")
 	}
 	if !strings.Contains(raw, "-----BEGIN") {
 		decoded, err := base64.StdEncoding.DecodeString(raw)
 		if err != nil {
-			return nil, fmt.Errorf("Cloudflare Stream signing key is neither PEM nor base64-encoded PEM")
+			return nil, fmt.Errorf("the Cloudflare Stream signing key is neither PEM nor base64-encoded PEM")
 		}
 		raw = string(decoded)
 	}
 	block, _ := pem.Decode([]byte(raw))
 	if block == nil {
-		return nil, fmt.Errorf("Cloudflare Stream signing key does not contain a PEM block")
+		return nil, fmt.Errorf("the Cloudflare Stream signing key does not contain a PEM block")
 	}
 	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
 		return key, nil
 	}
 	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("Cloudflare Stream signing key is not a supported RSA private key")
+		return nil, fmt.Errorf("the Cloudflare Stream signing key is not a supported RSA private key")
 	}
 	key, ok := parsed.(*rsa.PrivateKey)
 	if !ok {
-		return nil, fmt.Errorf("Cloudflare Stream signing key must be RSA")
+		return nil, fmt.Errorf("the Cloudflare Stream signing key must be RSA")
 	}
 	return key, nil
 }

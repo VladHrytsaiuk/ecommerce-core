@@ -72,7 +72,7 @@ func TestVerifyWebhookSignatureChecksTimestampAndHMAC(t *testing.T) {
 	body := []byte(`{"uid":"stream-video","status":{"state":"ready"},"thumbnail":"https://video.example.test/poster.jpg","duration":5.5}`)
 	adapter := &Adapter{webhookSecret: []byte("secret"), now: func() time.Time { return now }}
 	mac := hmac.New(sha256.New, []byte("secret"))
-	_, _ = mac.Write([]byte(fmt.Sprintf("%d.", now.Unix())))
+	_, _ = fmt.Fprintf(mac, "%d.", now.Unix())
 	_, _ = mac.Write(body)
 	signature := fmt.Sprintf("time=%d,sig1=%x", now.Unix(), mac.Sum(nil))
 	if err := adapter.VerifyWebhookSignature(context.Background(), body, signature); err != nil {
