@@ -38,6 +38,7 @@ type Config struct {
 	Env                  string
 	CookieSecure         bool
 	APIRateLimitPerMin   int
+	WebhookRatePerMin    int
 	SensitiveRatePerMin  int
 
 	// HTTP server
@@ -628,8 +629,14 @@ func Load() *Config {
 	otelEnabled := getEnvBool("OTEL_ENABLED", false)
 	otelEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	sensitiveRatePerMin := getEnvInt("SENSITIVE_RATE_LIMIT_PER_MINUTE", 10)
-	if apiRateLimitPerMin <= 0 || sensitiveRatePerMin <= 0 {
-		log.Fatal("Fatal: API_RATE_LIMIT_PER_MINUTE and SENSITIVE_RATE_LIMIT_PER_MINUTE must be positive")
+	// Webhooks get their own budget. A payment provider calls from its own
+	// small set of addresses, so every callback for the whole store shares one
+	// per-IP bucket; the browsing limit throttled the integration hardest
+	// exactly when it mattered most, working off a backlog after an outage.
+	// Signature verification, not this number, is what keeps the endpoint safe.
+	webhookRatePerMin := getEnvInt("WEBHOOK_RATE_LIMIT_PER_MINUTE", 600)
+	if apiRateLimitPerMin <= 0 || sensitiveRatePerMin <= 0 || webhookRatePerMin <= 0 {
+		log.Fatal("Fatal: API_RATE_LIMIT_PER_MINUTE, SENSITIVE_RATE_LIMIT_PER_MINUTE and WEBHOOK_RATE_LIMIT_PER_MINUTE must be positive")
 	}
 
 	return &Config{
@@ -649,6 +656,7 @@ func Load() *Config {
 		Env:                                  appEnv,
 		CookieSecure:                         appEnv == "production",
 		APIRateLimitPerMin:                   apiRateLimitPerMin,
+		WebhookRatePerMin:                    webhookRatePerMin,
 		SensitiveRatePerMin:                  sensitiveRatePerMin,
 		RequestTimeout:                       requestTimeout,
 		ManagementAddr:                       managementAddr,

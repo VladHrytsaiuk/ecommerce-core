@@ -58,14 +58,28 @@ func InitRouter(application *app.Application) *gin.Engine {
 		comparison.Use(application.HTTP.OptionalAuth)
 		comparisonHTTP.RegisterRoutes(comparison, application.ComparisonService, application.Config.CookieSecure)
 	}
+	// Webhooks take a separate group with its own budget rather than the
+	// browsing limit. A provider calls from its own small set of addresses, so
+	// every callback for the whole store shares one per-IP bucket: at the
+	// default hundred a minute a busy store throttled its own payment
+	// confirmations, and hardest while a provider worked off a backlog after
+	// an outage. What keeps these endpoints safe is the signature each handler
+	// verifies, not the request count.
+	//
+	// This group is built off the engine, not off `api`, because `api` has
+	// already had the browsing limiter attached and a child group inherits it.
+	webhooks := r.Group("/api")
+	webhooks.Use(middleware.RateLimitMiddleware(middleware.NewIPRateLimiter(perMinute(application.Config.WebhookRatePerMin), application.Config.WebhookRatePerMin)))
 	if application.PaymentGateways != nil && application.PaymentGateways.Default() != nil {
-		paymentsHTTP.RegisterWebhookRoutes(api, application.PaymentWebhookService)
+		paymentsHTTP.RegisterWebhookRoutes(webhooks, application.PaymentWebhookService)
+	}
+	if application.VideoWebhookService != nil {
+		webhooksV1 := webhooks.Group("/v1")
+		webhooksV1.Use(application.HTTP.SecurityHeaders, application.HTTP.ErrorRenderer.Middleware())
+		videoHTTP.RegisterWebhookRoutes(webhooksV1, application.VideoWebhookService, application.HTTP.ErrorRenderer)
 	}
 	v1 := api.Group("/v1")
 	v1.Use(application.HTTP.SecurityHeaders, application.HTTP.ErrorRenderer.Middleware(), application.HTTP.APIRateLimit)
-	if application.VideoWebhookService != nil {
-		videoHTTP.RegisterWebhookRoutes(v1, application.VideoWebhookService, application.HTTP.ErrorRenderer)
-	}
 	identityHTTP.RegisterV1CustomerRoutes(v1, application.CustomerProfileService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
 	returnsHTTP.RegisterV1CustomerRoutes(v1, application.ReturnService, middleware.AuthMiddleware(application.TokenMaker), application.HTTP.ErrorRenderer)
 	deliveryHTTP.RegisterV1LocationRoutes(v1.Group("/delivery"), application.DeliveryLocations, application.HTTP.ErrorRenderer)
