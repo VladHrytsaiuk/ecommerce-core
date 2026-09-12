@@ -202,3 +202,35 @@ func toDomainJob(record jobRecord) *notificationsDomain.Job {
 }
 
 var _ notificationsDomain.Repository = (*Repository)(nil)
+
+// SynchronizeTemplates installs the shipped defaults for one locale, leaving
+// anything already there untouched.
+//
+// A migration could not do this: templates are keyed by locale and the store's
+// fallback locale is configuration, not schema. It is the same shape as the
+// locale synchroniser, and for the same reason.
+func (r *Repository) SynchronizeTemplates(ctx context.Context, locale string, templates []notificationsDomain.Template) error {
+	locale = strings.ToLower(strings.TrimSpace(locale))
+	if locale == "" {
+		return fmt.Errorf("notification template locale is required")
+	}
+	return transaction.Within(ctx, r.db, func(tx *gorm.DB) error {
+		for _, template := range templates {
+			// DO NOTHING, never an update: an operator who rewrote a template
+			// must not find this core's default back in place after a deploy.
+			// Untargeted, so it covers both the (key, channel, locale, version)
+			// constraint and the partial unique index over active rows.
+			if err := tx.Exec(`
+				INSERT INTO notification_templates
+					(id, template_key, channel, locale, version, subject_template, html_template, text_template, is_active)
+				VALUES (?, ?, 'email', ?, 1, ?, ?, ?, true)
+				ON CONFLICT DO NOTHING`,
+				uuid.New(), template.Key, locale, template.Subject, template.HTML, template.Text).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+var _ notificationsDomain.TemplateSynchronizer = (*Repository)(nil)

@@ -37,6 +37,7 @@ import (
 	mediaApp "github.com/VladHrytsaiuk/ecommerce-core/internal/media/application"
 	mediaPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/media/repository/postgres"
 	notificationsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/application"
+	notificationsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/domain"
 	notificationsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/repository/postgres"
 	paymentsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/payments/application"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
@@ -326,6 +327,14 @@ func buildNotifications(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB
 		return notificationsRuntime{}, fmt.Errorf("configure notifications email sender: %w", err)
 	}
 	repository := notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale)
+	// notification_templates ships empty and nothing seeded it, so every
+	// lookup failed, every job retried ten times and died, and a store could
+	// take orders without sending a single confirmation. The defaults go in
+	// for the store's fallback locale — the one FindTemplate falls back to —
+	// and never replace a template that is already there.
+	if err := repository.SynchronizeTemplates(context.Background(), storeConfig.DefaultLocale, notificationsDomain.DefaultTemplates); err != nil {
+		return notificationsRuntime{}, fmt.Errorf("install default notification templates: %w", err)
+	}
 	renderer := notificationsApp.NewTemplateRenderer(repository, storeConfig.DefaultLocale)
 	return notificationsRuntime{
 		Worker:   notificationsApp.NewDurableWorker(repository, renderer, sender).WithLogger(logger.Log),

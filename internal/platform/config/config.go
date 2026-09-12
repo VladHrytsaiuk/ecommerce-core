@@ -114,9 +114,7 @@ type Config struct {
 	SyncRetryDelay    time.Duration
 	SyncMaxAttempts   int
 
-	// SendGrid (Email)
-	SendGridAPIKey string
-	EmailFrom      string
+	EmailFrom string
 
 	// Nova Poshta (Shipping)
 	NovaPoshtaAPIKey string
@@ -391,8 +389,6 @@ func Load() *Config {
 		log.Fatal("Fatal: REDIS_URL is required when REDIS_ENABLED=true")
 	}
 
-	// SendGrid Config
-	sendGridAPIKey := os.Getenv("SENDGRID_API_KEY")
 	emailFrom := os.Getenv("EMAIL_FROM")
 
 	// Nova Poshta Config
@@ -606,6 +602,9 @@ func Load() *Config {
 	if containsModule(enabledModules, "abandoned_cart") && (len(abandonedCartDelays) == 0 || abandonedCartMaxReminders < 1 || abandonedCartMaxReminders > len(abandonedCartDelays)) {
 		log.Fatal("Fatal: abandoned_cart requires delays and a valid ABANDONED_CART_MAX_REMINDERS")
 	}
+	if err := validateNotificationProvider(appEnv, notificationEmailProvider, containsModule(enabledModules, "notifications")); err != nil {
+		log.Fatal("Fatal: " + err.Error())
+	}
 	defaultWarehouseID := getEnvString("DEFAULT_WAREHOUSE_ID", "")
 	checkoutReservationTTL := 15 * time.Minute
 	if value := os.Getenv("CHECKOUT_RESERVATION_TTL"); value != "" {
@@ -703,7 +702,6 @@ func Load() *Config {
 		SyncDispatchLease:                    syncDispatchLease,
 		SyncRetryDelay:                       syncRetryDelay,
 		SyncMaxAttempts:                      syncMaxAttempts,
-		SendGridAPIKey:                       sendGridAPIKey,
 		EmailFrom:                            emailFrom,
 		NovaPoshtaAPIKey:                     novaPoshtaAPIKey,
 		NovaPoshtaURL:                        novaPoshtaURL,
@@ -823,6 +821,28 @@ func parseTrustedProxies(raw string) ([]string, error) {
 		return nil, fmt.Errorf("%q is neither an IP address nor a CIDR prefix", proxy)
 	}
 	return proxies, nil
+}
+
+// validateNotificationProvider refuses a production store that would silently
+// throw its mail away.
+//
+// The mock sender writes to memory and the log and returns a successful
+// receipt, so the job is marked sent and nothing anywhere reports a problem: a
+// store on the default would record every order confirmation, support reply and
+// refund notice as delivered while none of them left the building. It is the
+// default precisely because it needs no credentials, which is exactly what
+// makes it easy to inherit into production.
+//
+// Separate from validateStartupSecurity, and for the same reason that one
+// exists: a rule worth enforcing is worth testing without invoking log.Fatal.
+func validateNotificationProvider(appEnv, provider string, notificationsEnabled bool) error {
+	if appEnv != "production" || !notificationsEnabled {
+		return nil
+	}
+	if strings.ToLower(strings.TrimSpace(provider)) == "mock" {
+		return fmt.Errorf("NOTIFICATION_EMAIL_PROVIDER must not be \"mock\" when APP_ENV=production and the notifications module is enabled: it discards mail and reports it as sent")
+	}
+	return nil
 }
 
 // validateStartupSecurity rejects insecure deployment defaults before a

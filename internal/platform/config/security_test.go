@@ -59,3 +59,31 @@ func TestValidateStartupSecurity(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateNotificationProvider(t *testing.T) {
+	// The mock sender returns a successful receipt, so a production store on
+	// the default reports every order confirmation as sent while none leaves
+	// the building. Nothing downstream can notice: the job is marked sent.
+	for name, scenario := range map[string]struct {
+		env, provider string
+		enabled       bool
+		wantRefusal   bool
+	}{
+		"mock in production with notifications on": {"production", "mock", true, true},
+		"mock spelled loudly":                      {"production", "  MOCK ", true, true},
+		"mock in production, notifications off":    {"production", "mock", false, false},
+		"mock in development":                      {"development", "mock", true, false},
+		"smtp in production":                       {"production", "smtp", true, false},
+		"ses in production":                        {"production", "ses", true, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateNotificationProvider(scenario.env, scenario.provider, scenario.enabled)
+			if scenario.wantRefusal && err == nil {
+				t.Fatal("startup accepted a production store whose mail goes nowhere")
+			}
+			if !scenario.wantRefusal && err != nil {
+				t.Fatalf("startup refused a valid configuration: %v", err)
+			}
+		})
+	}
+}

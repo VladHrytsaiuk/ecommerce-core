@@ -9,8 +9,18 @@ import (
 )
 
 const (
-	OrderPaidTemplate        = "order_paid"
-	MaxEmailOperationTimeout = 30 * time.Second
+	OrderPaidTemplate = "order_paid"
+	// The remaining template keys the system can ask for. They lived as string
+	// literals at their call sites, which is how eight of them came to exist
+	// with no template behind any of them.
+	BackInStockTemplate       = "back_in_stock"
+	SupportAgentReplyTemplate = "support_agent_reply"
+	AbandonedCartTemplate     = "abandoned_cart"
+	ReturnApprovedTemplate    = "return_approved"
+	ReturnRejectedTemplate    = "return_rejected"
+	ReturnReceivedTemplate    = "return_received"
+	ReturnRefundedTemplate    = "return_refunded"
+	MaxEmailOperationTimeout  = 30 * time.Second
 )
 
 type EmailMessage struct {
@@ -50,6 +60,13 @@ type Job struct {
 	LockedAt          *time.Time
 	LockToken         *uuid.UUID
 	CreatedAt         time.Time
+}
+
+// TemplateSynchronizer installs the shipped defaults for a locale. It never
+// replaces a template that already exists, so a store's own wording survives
+// every deployment.
+type TemplateSynchronizer interface {
+	SynchronizeTemplates(ctx context.Context, locale string, templates []Template) error
 }
 
 type Template struct {
