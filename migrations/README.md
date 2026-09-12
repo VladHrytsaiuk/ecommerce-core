@@ -29,3 +29,34 @@ migration that makes the change instead.
 Every `.up.sql` has a paired `.down.sql`; the pairing is checked. A down
 migration that cannot restore the previous state — one whose up dropped data —
 should say so in a comment rather than pretend.
+
+## Retention
+
+Which tables grow without bound is a decision, not an accident, so it is
+recorded here.
+
+**Retained forever, deliberately.** `orders`, `order_items`, `payments`,
+`order_status_history` and `audit_logs` are financial or forensic records. They
+are never pruned, and the cost of that is paid with indexes rather than
+deletion — see `order_items_order_idx`.
+
+**Pruned.** `domain_events` and `event_deliveries` have a retention worker with
+a configurable window (`OUTBOX_DONE_RETENTION`). Terminal deliveries are
+archived once nothing can need them for replay.
+
+**Growing, undecided.** Two tables accumulate operational rows with no window:
+
+- `inventory_reservations` keeps every terminal reservation — released,
+  committed, expired, release_failed — one row per checkout line including
+  abandoned checkouts, which makes it the fastest grower here. A committed
+  reservation's evidence also lives in the order, so a window is defensible,
+  but it must outlive any dispute or chargeback period the store is subject to;
+  `release_failed` rows are an operator alert and must not be pruned at all.
+- `notification_attempts` keeps one row per delivery attempt including retries.
+  A window is defensible for the same reason, and must outlive the support
+  window during which someone may ask why an email did not arrive.
+
+Neither has been given a window yet: the right length is a store policy rather
+than a property of this core, and pruning on the wrong one destroys evidence.
+Until a deployment sets one, both are covered by the indexes their hot lookups
+need, so size costs storage rather than latency.
