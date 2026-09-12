@@ -100,17 +100,25 @@ func (g webhookGateway) VerifyWebhook(context.Context, paymentsDomain.WebhookReq
 }
 func (g webhookGateway) Refund(context.Context, paymentsDomain.RefundRequest) error { return nil }
 
-type fakeEventStore struct{ claimed, processed, abandoned bool }
-
-func (s *fakeEventStore) Claim(context.Context, string, paymentsDomain.PaymentEvent) (bool, error) {
-	return s.claimed || !s.processed, nil
+type fakeEventStore struct {
+	claimed, processed, abandoned bool
+	issued                        uuid.UUID
+	presented                     uuid.UUID
 }
-func (s *fakeEventStore) MarkProcessed(context.Context, string, string) error {
-	s.processed = true
+
+func (s *fakeEventStore) Claim(_ context.Context, provider string, event paymentsDomain.PaymentEvent) (paymentsDomain.WebhookClaim, bool, error) {
+	if !(s.claimed || !s.processed) {
+		return paymentsDomain.WebhookClaim{}, false, nil
+	}
+	s.issued = uuid.New()
+	return paymentsDomain.WebhookClaim{Provider: provider, EventID: event.EventID, LockToken: s.issued}, true, nil
+}
+func (s *fakeEventStore) MarkProcessed(_ context.Context, claim paymentsDomain.WebhookClaim) error {
+	s.processed, s.presented = true, claim.LockToken
 	return nil
 }
-func (s *fakeEventStore) Abandon(context.Context, string, string) error {
-	s.abandoned = true
+func (s *fakeEventStore) Abandon(_ context.Context, claim paymentsDomain.WebhookClaim) error {
+	s.abandoned, s.presented = true, claim.LockToken
 	return nil
 }
 

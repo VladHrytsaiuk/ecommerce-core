@@ -57,11 +57,11 @@ func (httpGateway) Refund(context.Context, paymentsDomain.RefundRequest) error {
 
 type httpEventStore struct{}
 
-func (*httpEventStore) Claim(context.Context, string, paymentsDomain.PaymentEvent) (bool, error) {
-	return true, nil
+func (*httpEventStore) Claim(_ context.Context, provider string, event paymentsDomain.PaymentEvent) (paymentsDomain.WebhookClaim, bool, error) {
+	return paymentsDomain.WebhookClaim{Provider: provider, EventID: event.EventID, LockToken: uuid.New()}, true, nil
 }
-func (*httpEventStore) MarkProcessed(context.Context, string, string) error { return nil }
-func (*httpEventStore) Abandon(context.Context, string, string) error       { return nil }
+func (*httpEventStore) MarkProcessed(context.Context, paymentsDomain.WebhookClaim) error { return nil }
+func (*httpEventStore) Abandon(context.Context, paymentsDomain.WebhookClaim) error       { return nil }
 
 type httpWorkflow struct{}
 

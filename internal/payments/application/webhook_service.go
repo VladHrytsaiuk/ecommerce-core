@@ -44,15 +44,20 @@ func (s *WebhookService) Handle(ctx context.Context, provider string, request pa
 		return fmt.Errorf("verified payment event provider %q does not match route provider %q", event.Provider, provider)
 	}
 	event.Provider = provider
-	claimed, err := s.events.Claim(ctx, provider, event)
+	claim, claimed, err := s.events.Claim(ctx, provider, event)
 	if err != nil || !claimed {
 		return err
 	}
+	// Both terminal writes present the claim's token. A replica whose lease
+	// was taken over while it was applying the event therefore changes
+	// nothing: the replica that holds the callback now owns its outcome, and
+	// in particular this one cannot delete the deduplication record out from
+	// under it.
 	if err := s.apply(ctx, event); err != nil {
-		_ = s.events.Abandon(context.WithoutCancel(ctx), provider, event.EventID)
+		_ = s.events.Abandon(context.WithoutCancel(ctx), claim)
 		return err
 	}
-	if err := s.events.MarkProcessed(ctx, provider, event.EventID); err != nil {
+	if err := s.events.MarkProcessed(ctx, claim); err != nil {
 		return err
 	}
 	return nil

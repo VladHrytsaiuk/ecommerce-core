@@ -74,8 +74,22 @@ type RefundRequest struct {
 
 // WebhookEventStore makes provider callbacks durable and idempotent. It does
 // not contain provider payloads; adapters translate them to PaymentEvent first.
+// WebhookEventStore deduplicates provider callbacks and bounds how long one
+// replica may hold an unfinished one.
+//
+// Claim returns the token identifying this claim, and the terminal writes take
+// it back. Without that, a replica whose lease had expired could still finish
+// against the row a newer replica holds — and Abandon deletes, so it removed
+// the deduplication record the live replica was working under.
 type WebhookEventStore interface {
-	Claim(context.Context, string, PaymentEvent) (bool, error)
-	MarkProcessed(context.Context, string, string) error
-	Abandon(context.Context, string, string) error
+	Claim(ctx context.Context, provider string, event PaymentEvent) (claim WebhookClaim, claimed bool, err error)
+	MarkProcessed(ctx context.Context, claim WebhookClaim) error
+	Abandon(ctx context.Context, claim WebhookClaim) error
+}
+
+// WebhookClaim identifies one replica's exclusive hold on a callback.
+type WebhookClaim struct {
+	Provider  string
+	EventID   string
+	LockToken uuid.UUID
 }

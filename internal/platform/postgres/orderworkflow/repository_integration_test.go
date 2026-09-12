@@ -262,12 +262,14 @@ func (latePaidGateway) Refund(context.Context, paymentsDomain.RefundRequest) err
 
 type latePaidEventStore struct{}
 
-func (*latePaidEventStore) Claim(context.Context, string, paymentsDomain.PaymentEvent) (bool, error) {
-	return true, nil
+func (*latePaidEventStore) Claim(_ context.Context, provider string, event paymentsDomain.PaymentEvent) (paymentsDomain.WebhookClaim, bool, error) {
+	return paymentsDomain.WebhookClaim{Provider: provider, EventID: event.EventID, LockToken: uuid.New()}, true, nil
 }
 
-func (*latePaidEventStore) MarkProcessed(context.Context, string, string) error { return nil }
-func (*latePaidEventStore) Abandon(context.Context, string, string) error       { return nil }
+func (*latePaidEventStore) MarkProcessed(context.Context, paymentsDomain.WebhookClaim) error {
+	return nil
+}
+func (*latePaidEventStore) Abandon(context.Context, paymentsDomain.WebhookClaim) error { return nil }
 
 func assertOrderCreatedOutbox(t *testing.T, db *gorm.DB, orderID uuid.UUID) {
 	t.Helper()

@@ -44,7 +44,7 @@ func TestClaimIsExclusiveAcrossConcurrentReplicas(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			claims[replica], errs[replica] = store.Claim(context.Background(), "stripe", event)
+			_, claims[replica], errs[replica] = store.Claim(context.Background(), "stripe", event)
 		}()
 	}
 	close(start)
@@ -72,11 +72,11 @@ func TestClaimTakesOverAnExpiredLease(t *testing.T) {
 	store := NewWebhookEventStore(db)
 	event := newWebhookEvent(t, orderID, "evt-crashed")
 
-	claimed, err := store.Claim(context.Background(), "stripe", event)
+	first, claimed, err := store.Claim(context.Background(), "stripe", event)
 	if err != nil || !claimed {
 		t.Fatalf("first Claim() = (%t, %v), want granted", claimed, err)
 	}
-	if again, err := store.Claim(context.Background(), "stripe", event); err != nil || again {
+	if _, again, err := store.Claim(context.Background(), "stripe", event); err != nil || again {
 		t.Fatalf("Claim() during a live lease = (%t, %v), want refused", again, err)
 	}
 
@@ -84,9 +84,88 @@ func TestClaimTakesOverAnExpiredLease(t *testing.T) {
 	if err := db.Exec(`UPDATE payment_webhook_events SET locked_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes' WHERE event_id = ?`, event.EventID).Error; err != nil {
 		t.Fatal(err)
 	}
-	recovered, err := store.Claim(context.Background(), "stripe", event)
+	second, recovered, err := store.Claim(context.Background(), "stripe", event)
 	if err != nil || !recovered {
 		t.Fatalf("Claim() after the lease expired = (%t, %v), want taken over", recovered, err)
+	}
+	if second.LockToken == first.LockToken || second.LockToken == uuid.Nil {
+		t.Fatalf("takeover token = %s, want a new one (previous %s)", second.LockToken, first.LockToken)
+	}
+}
+
+// TestAStaleReplicaCannotDeleteALiveClaim is the defect the token exists for.
+// Abandon deletes the deduplication record, and it matched on status alone, so
+// a replica whose lease had been taken over removed the row the live replica
+// was working under — after which the provider's next retry was processed all
+// over again.
+func TestAStaleReplicaCannotDeleteALiveClaim(t *testing.T) {
+	db, orderID := newWebhookTestDB(t)
+	store := NewWebhookEventStore(db)
+	event := newWebhookEvent(t, orderID, "evt-stale-delete")
+	ctx := context.Background()
+
+	stale, claimed, err := store.Claim(ctx, "stripe", event)
+	if err != nil || !claimed {
+		t.Fatalf("first Claim() = (%t, %v), want granted", claimed, err)
+	}
+	if err := db.Exec(`UPDATE payment_webhook_events SET locked_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes' WHERE event_id = ?`, event.EventID).Error; err != nil {
+		t.Fatal(err)
+	}
+	live, takenOver, err := store.Claim(ctx, "stripe", event)
+	if err != nil || !takenOver {
+		t.Fatalf("takeover Claim() = (%t, %v), want granted", takenOver, err)
+	}
+
+	if err := store.Abandon(ctx, stale); err != nil {
+		t.Fatalf("stale Abandon() error = %v", err)
+	}
+	var remaining int64
+	if err := db.Raw(`SELECT COUNT(*) FROM payment_webhook_events WHERE event_id = ?`, event.EventID).Scan(&remaining).Error; err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 1 {
+		t.Fatal("a stale replica deleted the deduplication record the live replica holds; the next provider retry would be processed twice")
+	}
+	// The holder's own writes still work.
+	if err := store.MarkProcessed(ctx, live); err != nil {
+		t.Fatalf("live MarkProcessed() error = %v", err)
+	}
+	var status string
+	if err := db.Raw(`SELECT processing_status FROM payment_webhook_events WHERE event_id = ?`, event.EventID).Row().Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "processed" {
+		t.Fatalf("status = %q, want the live claim to have closed the callback", status)
+	}
+}
+
+// TestAStaleReplicaCannotCloseALiveClaim covers the other terminal write.
+func TestAStaleReplicaCannotCloseALiveClaim(t *testing.T) {
+	db, orderID := newWebhookTestDB(t)
+	store := NewWebhookEventStore(db)
+	event := newWebhookEvent(t, orderID, "evt-stale-close")
+	ctx := context.Background()
+
+	stale, _, err := store.Claim(ctx, "stripe", event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`UPDATE payment_webhook_events SET locked_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes' WHERE event_id = ?`, event.EventID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Claim(ctx, "stripe", event); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.MarkProcessed(ctx, stale); err != nil {
+		t.Fatalf("stale MarkProcessed() error = %v", err)
+	}
+	var status string
+	if err := db.Raw(`SELECT processing_status FROM payment_webhook_events WHERE event_id = ?`, event.EventID).Row().Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "processing" {
+		t.Fatalf("status = %q; a stale replica closed a callback the live one is still applying", status)
 	}
 }
 
@@ -98,10 +177,11 @@ func TestClaimNeverReprocessesACompletedEvent(t *testing.T) {
 	event := newWebhookEvent(t, orderID, "evt-done")
 	ctx := context.Background()
 
-	if claimed, err := store.Claim(ctx, "stripe", event); err != nil || !claimed {
+	claim, claimed, err := store.Claim(ctx, "stripe", event)
+	if err != nil || !claimed {
 		t.Fatalf("Claim() = (%t, %v), want granted", claimed, err)
 	}
-	if err := store.MarkProcessed(ctx, "stripe", event.EventID); err != nil {
+	if err := store.MarkProcessed(ctx, claim); err != nil {
 		t.Fatalf("MarkProcessed() error = %v", err)
 	}
 
@@ -109,7 +189,7 @@ func TestClaimNeverReprocessesACompletedEvent(t *testing.T) {
 	if err := db.Exec(`UPDATE payment_webhook_events SET locked_at = CURRENT_TIMESTAMP - INTERVAL '10 minutes' WHERE event_id = ?`, event.EventID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := store.Claim(ctx, "stripe", event); err != nil || claimed {
+	if _, claimed, err := store.Claim(ctx, "stripe", event); err != nil || claimed {
 		t.Fatalf("Claim() on a processed event = (%t, %v), want refused", claimed, err)
 	}
 }
@@ -122,13 +202,14 @@ func TestAbandonReleasesTheClaimForRetry(t *testing.T) {
 	event := newWebhookEvent(t, orderID, "evt-abandoned")
 	ctx := context.Background()
 
-	if claimed, err := store.Claim(ctx, "stripe", event); err != nil || !claimed {
+	claim, claimed, err := store.Claim(ctx, "stripe", event)
+	if err != nil || !claimed {
 		t.Fatalf("Claim() = (%t, %v), want granted", claimed, err)
 	}
-	if err := store.Abandon(ctx, "stripe", event.EventID); err != nil {
+	if err := store.Abandon(ctx, claim); err != nil {
 		t.Fatalf("Abandon() error = %v", err)
 	}
-	if claimed, err := store.Claim(ctx, "stripe", event); err != nil || !claimed {
+	if _, claimed, err := store.Claim(ctx, "stripe", event); err != nil || !claimed {
 		t.Fatalf("Claim() after Abandon() = (%t, %v), want granted", claimed, err)
 	}
 }
