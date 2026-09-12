@@ -49,7 +49,9 @@ func RegisterV1AdminRoutes(group *gin.RouterGroup, authorizer adminDomain.Author
 type createRequest struct {
 	OrderID    uuid.UUID          `json:"order_id" binding:"required"`
 	RefundMode returns.RefundMode `json:"refund_mode"`
-	Items      []itemRequest      `json:"items" binding:"required,min=1,max=50"`
+	// dive applies the per-item rules below. Without it the validator stops at
+	// the slice itself and every constraint on itemRequest is dead.
+	Items []itemRequest `json:"items" binding:"required,min=1,max=50,dive"`
 }
 
 type itemRequest struct {

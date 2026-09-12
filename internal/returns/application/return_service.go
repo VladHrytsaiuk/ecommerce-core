@@ -213,7 +213,9 @@ func validateRequestedItems(snapshot returns.OrderSnapshot, items []returns.Retu
 	}
 	for _, item := range items {
 		if item.VariantID == uuid.Nil || item.Quantity <= 0 || purchased[item.VariantID] < item.Quantity {
-			return fmt.Errorf("return item is not purchasable from this order")
+			// A sentinel, so delivery renders this as a rejected request rather
+			// than an internal error the client would retry.
+			return fmt.Errorf("%w: variant %s is not purchasable from this order", returns.ErrInvalidReturnItem, item.VariantID)
 		}
 	}
 	return nil

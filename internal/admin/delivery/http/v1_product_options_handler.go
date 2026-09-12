@@ -17,7 +17,7 @@ import (
 type createProductOptionRequest struct {
 	Name     string                     `json:"name" binding:"required,max=100"`
 	Position int                        `json:"position" binding:"gte=0"`
-	Values   []createProductOptionValue `json:"values" binding:"required,min=1,max=100"`
+	Values   []createProductOptionValue `json:"values" binding:"required,min=1,max=100,dive"`
 }
 type createProductOptionValue struct {
 	Value    string `json:"value" binding:"required,max=255"`
