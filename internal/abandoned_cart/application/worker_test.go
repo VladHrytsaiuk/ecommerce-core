@@ -16,6 +16,7 @@ type workerRepoFake struct {
 	claimed                *cart.Campaign
 	requeued               bool
 	requeueContextCanceled bool
+	requeueToken           uuid.UUID
 }
 
 func (f *workerRepoFake) ClaimDue(context.Context, time.Time) (*cart.Campaign, error) {
@@ -26,9 +27,10 @@ func (f *workerRepoFake) ClaimDue(context.Context, time.Time) (*cart.Campaign, e
 func (*workerRepoFake) Update(context.Context, *cart.Campaign) error       { return nil }
 func (*workerRepoFake) Create(context.Context, cart.Campaign) error        { return nil }
 func (*workerRepoFake) CreateOrReset(context.Context, cart.Campaign) error { return nil }
-func (f *workerRepoFake) Requeue(ctx context.Context, _ uuid.UUID) error {
+func (f *workerRepoFake) Requeue(ctx context.Context, _, token uuid.UUID) error {
 	f.requeued = true
 	f.requeueContextCanceled = ctx.Err() != nil
+	f.requeueToken = token
 	return nil
 }
 
@@ -79,6 +81,26 @@ func TestWorkerRequeuesClaimWithFinalizationContextAfterCancellation(t *testing.
 	}
 	if repository.requeueContextCanceled {
 		t.Fatal("requeue must use detached finalization context")
+	}
+}
+
+func TestAFailedPassReleasesTheClaimWithItsOwnToken(t *testing.T) {
+	// Releasing on the campaign id alone would let a worker whose lease had
+	// already been taken over hand the campaign back while another worker is
+	// still running it, so two passes would overlap.
+	claim := &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), Step: 1, LockToken: uuid.New()}
+	repository := &workerRepoFake{claimed: claim}
+	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, &workerSchedulerFake{}, workerTxFake{},
+		Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+
+	if _, err := worker.claimAndProcess(context.Background()); err != nil {
+		t.Fatalf("claimAndProcess() error = %v", err)
+	}
+	if !repository.requeued {
+		t.Fatal("the failed pass did not release its claim")
+	}
+	if repository.requeueToken != claim.LockToken {
+		t.Fatalf("released with token %s, want the claim's own %s", repository.requeueToken, claim.LockToken)
 	}
 }
 

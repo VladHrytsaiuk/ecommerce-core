@@ -57,7 +57,7 @@ func (w *Worker) claimAndProcess(ctx context.Context) (bool, error) {
 		// context to release the lease immediately instead of waiting for its
 		// expiry. The update is conditional on status=processing.
 		finalizeCtx, cancel := finalizationContext(ctx)
-		requeueErr := w.repo.Requeue(finalizeCtx, campaign.ID)
+		requeueErr := w.repo.Requeue(finalizeCtx, campaign.ID, campaign.LockToken)
 		cancel()
 		if requeueErr != nil {
 			return true, requeueErr
@@ -74,7 +74,7 @@ func finalizationContext(ctx context.Context) (context.Context, context.CancelFu
 }
 func (w *Worker) process(ctx context.Context, c *cart.Campaign) error {
 	if len(w.policy.Delays) == 0 || c.Step < 1 || c.Step > len(w.policy.Delays) {
-		return w.repo.Requeue(ctx, c.ID)
+		return w.repo.Requeue(ctx, c.ID, c.LockToken)
 	}
 	s, e := w.carts.GetCartState(ctx, c.CartID)
 	if e != nil {

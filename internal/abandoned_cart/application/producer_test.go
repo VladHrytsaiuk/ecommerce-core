@@ -22,7 +22,7 @@ func (f *producerRepoFake) CreateOrReset(_ context.Context, value cart.Campaign)
 	f.campaign = value
 	return nil
 }
-func (*producerRepoFake) Requeue(context.Context, uuid.UUID) error { return nil }
+func (*producerRepoFake) Requeue(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
 type producerCartFake struct{ cart.CartState }
 

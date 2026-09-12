@@ -1,0 +1,14 @@
+-- The campaign lease had nothing to fence it: a claim set status='processing'
+-- with locked_at, the sweep took over anything older than five minutes, and
+-- Update and Requeue matched on status alone. A worker whose lease had been
+-- taken over could therefore write its own outcome over the newer claim's.
+--
+-- The blast radius was already small and stays worth recording, because it is
+-- why this is the last of the leases to be fenced rather than the first. A
+-- duplicate email was impossible: ScheduleEmail derives dedupe_key from the
+-- type, address and payload, and inserts ON CONFLICT DO NOTHING, so two
+-- workers on the same campaign and step produce the same key. A duplicate next
+-- step was impossible too: abandoned_cart_campaigns_cart_step_idx rejects it,
+-- and the failed pass simply returns the campaign to the queue. What remained
+-- was a corrupted status and a wasted cycle.
+ALTER TABLE abandoned_cart_campaigns ADD COLUMN lock_token UUID;
