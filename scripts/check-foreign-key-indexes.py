@@ -33,6 +33,7 @@ EXEMPT = {
     "inventory_reservations.warehouse_id": "always queried together with variant_id, which leads the lookup",
     "stock_items.warehouse_id": "covered by UNIQUE (variant_id, warehouse_id); every lookup supplies both",
     "product_videos.video_asset_id": "filtered only together with product_id, which leads the composite",
+    "order_status_transitions.to_status_code": "a configuration table of a few dozen rows; the RESTRICT check on order_status_definitions scans nothing worth indexing, and lookups supply from_status_code first",
     # The seven currency columns reference supported_currencies(code), a static
     # ISO-4217 list seeded by migration 000011. Nothing filters money tables by
     # currency — every read is by order, customer or payment — and the only
@@ -61,6 +62,55 @@ def load_sql(root: Path) -> str:
     return re.sub(r"--[^\n]*", "", sql)
 
 
+def table_modules(root: Path) -> dict[str, str]:
+    """Which migration directory declares each table."""
+    owners: dict[str, str] = {}
+    for path in sorted(root.glob("migrations/**/*.up.sql")):
+        text = re.sub(r"--[^\n]*", "", path.read_text())
+        for table in re.findall(r"CREATE TABLE\s+(\w+)\s*\(", text, re.I):
+            owners[table.lower()] = str(path.parent)
+    return owners
+
+
+def unreferenced_children(sql: str, owners: dict[str, str], keys: set[tuple[str, str]]) -> list[str]:
+    """Parent-child links inside one module that are not foreign keys.
+
+    A column named <thing>_id, in a module that also declares the <thing>s table,
+    is a reference to it. Across modules that link is deliberately left to the
+    application — this is a modular monolith and a module does not constrain
+    another's tables. Inside one module there is no such reason, and the absence
+    is how a wrong identifier gets stored with no error: support_messages
+    carried a zero ticket_id for the life of the table because nothing checked.
+    """
+    findings: list[str] = []
+    for match in re.finditer(r"CREATE TABLE\s+(\w+)\s*\((.*?)\)\s*;", sql, re.S | re.I):
+        table, body = match.group(1).lower(), match.group(2)
+        for clause in body.split(","):
+            clause = clause.strip()
+            column = re.match(r"(\w+_id)\s+UUID", clause, re.I)
+            if not column or re.search(r"\bREFERENCES\b", clause, re.I):
+                continue
+            name = column.group(1).lower()
+            if (table, name) in keys:
+                continue
+            stem = name[:-3]
+            # Tables are named with their module's prefix, so ticket_id in
+            # support_messages points at support_tickets. Try the bare stem and
+            # the stem under each prefix the child table itself carries.
+            parts = table.split("_")
+            prefixes = ["_".join(parts[:n]) for n in range(len(parts) - 1, 0, -1)]
+            candidates = [stem + "s", stem]
+            for prefix in prefixes:
+                candidates += [f"{prefix}_{stem}s", f"{prefix}_{stem}"]
+            for candidate in candidates:
+                if candidate == table:
+                    continue  # a stem that resolves back to its own table proves nothing
+                if candidate in owners and owners[candidate] == owners.get(table):
+                    findings.append(f"{table}.{name} -> {candidate}")
+                    break
+    return sorted(findings)
+
+
 def foreign_keys(sql: str) -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
     for table_match in re.finditer(r"CREATE TABLE\s+(\w+)\s*\((.*?)\)\s*;", sql, re.S | re.I):
@@ -70,7 +120,12 @@ def foreign_keys(sql: str) -> set[tuple[str, str]]:
             inline = re.match(r"(\w+)\s+[\w()\[\]]+.*?\bREFERENCES\b", clause, re.I | re.S)
             if inline:
                 found.add((table, inline.group(1)))
-            table_level = re.match(r"FOREIGN KEY\s*\(\s*(\w+)", clause, re.I)
+            # The CONSTRAINT <name> prefix is optional and was not allowed for,
+            # so every named table-level foreign key — including the composite
+            # ones in the catalog module — was invisible to this check.
+            table_level = re.match(
+                r"(?:CONSTRAINT\s+\w+\s+)?FOREIGN KEY\s*\(\s*(\w+)", clause, re.I | re.S
+            )
             if table_level:
                 found.add((table, table_level.group(1)))
     for altered in re.finditer(
@@ -134,7 +189,22 @@ def main() -> int:
         for name in stale:
             print(f"  {name}", file=sys.stderr)
 
-    return 1 if missing or stale else 0
+    unconstrained = unreferenced_children(sql, table_modules(root), keys)
+    if unconstrained:
+        print(
+            "\nThese columns reference a table in their own module but are not"
+            " foreign keys:", file=sys.stderr,
+        )
+        for name in unconstrained:
+            print(f"  {name}", file=sys.stderr)
+        print(
+            "\nWithin a module there is no reason to leave the link to the"
+            " application.\nA wrong identifier written without one is stored"
+            " silently and the row is\ninvisible from then on.",
+            file=sys.stderr,
+        )
+
+    return 1 if missing or stale or unconstrained else 0
 
 
 if __name__ == "__main__":
