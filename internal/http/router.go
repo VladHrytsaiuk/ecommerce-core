@@ -35,13 +35,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 		// production log stream.
 		gin.SetMode(gin.ReleaseMode)
 	}
-	r := gin.New()
-	if err := r.SetTrustedProxies(application.Config.TrustedProxies); err != nil {
-		// Config validates this input before composition. Do not continue with
-		// Gin's proxy defaults if that invariant is ever violated: doing so
-		// would make IP-scoped protection depend on forged forwarded headers.
-		panic("validated trusted proxy configuration rejected by Gin: " + err.Error())
-	}
+	r := newEngine(application.Config.TrustedProxies)
 	r.Use(application.HTTP.Recovery, application.HTTP.Observability, application.HTTP.Timeout, application.HTTP.RequestLogging, application.HTTP.CORS)
 	r.GET("/swagger/*any", application.HTTP.Swagger)
 
@@ -142,4 +136,26 @@ func InitRouter(application *app.Application) *gin.Engine {
 
 func perMinute(limit int) rate.Limit {
 	return rate.Limit(float64(limit) / 60)
+}
+
+// newEngine builds the bare engine every route is attached to.
+//
+// ContextWithFallback is what makes a *gin.Context behave as the request
+// context it wraps. Handlers across this codebase pass the Gin context
+// straight into application services; without this, such a context reports no
+// deadline, returns a nil Done channel, and cannot read a value stored under a
+// non-string key. Both middleware that replace the request context depend on
+// it: TimeoutMiddleware could not interrupt a slow query, and every database
+// span would start detached from its HTTP span, with the request ID missing
+// from anything the service layer logged.
+func newEngine(trustedProxies []string) *gin.Engine {
+	r := gin.New()
+	r.ContextWithFallback = true
+	if err := r.SetTrustedProxies(trustedProxies); err != nil {
+		// Config validates this input before composition. Do not continue with
+		// Gin's proxy defaults if that invariant is ever violated: doing so
+		// would make IP-scoped protection depend on forged forwarded headers.
+		panic("validated trusted proxy configuration rejected by Gin: " + err.Error())
+	}
+	return r
 }
