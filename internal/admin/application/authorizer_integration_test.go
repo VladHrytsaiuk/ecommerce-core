@@ -272,3 +272,139 @@ func applyAdminMigrations(db *gorm.DB) error {
 	}
 	return nil
 }
+
+// TestRevokingAccessInvalidatesTheCachedPermissionSet covers the window the
+// cache key was supposed to close and did not.
+//
+// The set is cached under admin_users.authorization_version. Only two CLI
+// commands ever moved that number, and both of them grant — so a revocation,
+// which has no API and is made directly in SQL, left the key unchanged and the
+// old permissions in force until the TTL expired.
+func TestRevokingAccessInvalidatesTheCachedPermissionSet(t *testing.T) {
+	testcontainers.SkipIfProviderIsNotHealthy(t)
+	ctx := context.Background()
+	container, err := postgresContainer.Run(ctx, "postgres:16-alpine",
+		postgresContainer.WithDatabase("rbac_invalidation_test"),
+		postgresContainer.WithUsername("admin"),
+		postgresContainer.WithPassword("admin"),
+		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(60*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(context.Background()) })
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyAdminMigrations(db); err != nil {
+		t.Fatal(err)
+	}
+
+	// catalog:write is seeded by the admin migrations, so this reuses it
+	// rather than inserting a duplicate code.
+	var permissionID uuid.UUID
+	if err := db.Raw(`SELECT id FROM permissions WHERE code = 'catalog:write'`).Row().Scan(&permissionID); err != nil {
+		t.Fatal(err)
+	}
+	userID, roleID := uuid.New(), uuid.New()
+	for _, statement := range []struct {
+		sql  string
+		args []any
+	}{
+		{"INSERT INTO users (id) VALUES (?)", []any{userID}},
+		{"INSERT INTO admin_users (user_id, authorization_version) VALUES (?, 1)", []any{userID}},
+		{"INSERT INTO roles (id, code, name) VALUES (?, 'editor', 'Editor')", []any{roleID}},
+		{"INSERT INTO admin_user_roles (user_id, role_id) VALUES (?, ?)", []any{userID, roleID}},
+		{"INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)", []any{roleID, permissionID}},
+	} {
+		if err := db.Exec(statement.sql, statement.args...).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A long TTL, so anything that still works does so because the key
+	// changed and not because the entry expired.
+	authorizer, err := adminApplication.NewAuthorizer(adminPostgres.NewRepository(db), newRememberingCache(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := authorizer.Require(ctx, userID, "catalog:write"); err != nil {
+		t.Fatalf("Require() before revocation = %v, want the granted permission", err)
+	}
+
+	for name, revoke := range map[string]string{
+		"permission removed from the role": "DELETE FROM role_permissions WHERE role_id = ?",
+		"role removed from the user":       "DELETE FROM admin_user_roles WHERE role_id = ?",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Each subtest starts from a granted, cached state.
+			if err := db.Exec("INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?) ON CONFLICT DO NOTHING", roleID, permissionID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Exec("INSERT INTO admin_user_roles (user_id, role_id) VALUES (?, ?) ON CONFLICT DO NOTHING", userID, roleID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := authorizer.Require(ctx, userID, "catalog:write"); err != nil {
+				t.Fatalf("Require() after regranting = %v", err)
+			}
+
+			if err := db.Exec(revoke, roleID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := authorizer.Require(ctx, userID, "catalog:write"); !errors.Is(err, adminDomain.ErrPermissionDenied) {
+				t.Fatalf("Require() after revocation = %v, want it denied immediately rather than after the cache TTL", err)
+			}
+		})
+	}
+}
+
+// rememberingCache actually stores what it is given, unlike the no-op used
+// elsewhere in this file. Without a cache that remembers, a test of cache
+// invalidation proves nothing: every lookup would be fresh.
+type rememberingCache struct {
+	mu      sync.Mutex
+	entries map[string][]byte
+}
+
+func newRememberingCache() *rememberingCache {
+	return &rememberingCache{entries: map[string][]byte{}}
+}
+
+func (c *rememberingCache) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = append([]byte(nil), value...)
+	return nil
+}
+
+func (c *rememberingCache) Get(_ context.Context, key string) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	value, ok := c.entries[key]
+	if !ok {
+		return nil, cache.ErrMiss
+	}
+	return append([]byte(nil), value...), nil
+}
+
+func (c *rememberingCache) Delete(_ context.Context, key string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, key)
+	return nil
+}
+
+func (c *rememberingCache) DeleteByPrefix(_ context.Context, prefix string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.entries {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.entries, key)
+		}
+	}
+	return nil
+}
