@@ -46,12 +46,15 @@ func RegisterV1AdminRoutes(group *gin.RouterGroup, authorizer adminDomain.Author
 	group.POST("/returns/:id/receive", shared.RequirePermissionV1(authorizer, PermissionReturnsWrite, renderer), h.Receive)
 }
 
+// createRequest carries `dive` on Items deliberately: without it the validator
+// stops at the slice and every constraint on itemRequest below is dead. The
+// note lives here rather than above the field because a comment attached to a
+// field is published as that field's description in the OpenAPI contract, and
+// a Go validator tag is not something an API consumer should be reading.
 type createRequest struct {
 	OrderID    uuid.UUID          `json:"order_id" binding:"required"`
 	RefundMode returns.RefundMode `json:"refund_mode"`
-	// dive applies the per-item rules below. Without it the validator stops at
-	// the slice itself and every constraint on itemRequest is dead.
-	Items []itemRequest `json:"items" binding:"required,min=1,max=50,dive"`
+	Items      []itemRequest      `json:"items" binding:"required,min=1,max=50,dive"`
 }
 
 type itemRequest struct {
