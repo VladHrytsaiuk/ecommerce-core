@@ -33,18 +33,37 @@ EXEMPT = {
     "inventory_reservations.warehouse_id": "always queried together with variant_id, which leads the lookup",
     "stock_items.warehouse_id": "covered by UNIQUE (variant_id, warehouse_id); every lookup supplies both",
     "product_videos.video_asset_id": "filtered only together with product_id, which leads the composite",
+    # The seven currency columns reference supported_currencies(code), a static
+    # ISO-4217 list seeded by migration 000011. Nothing filters money tables by
+    # currency — every read is by order, customer or payment — and the only
+    # work the referencing side would do is a child check when a currency row is
+    # deleted, which is not an operation this system performs. Indexing a
+    # CHAR(3) with a handful of distinct values across orders and payments would
+    # cost writes on the money path and buy nothing.
+    "orders.currency": "references the static supported_currencies list; money tables are never read by currency",
+    "order_items.currency": "same as orders.currency",
+    "payments.currency": "same as orders.currency",
+    "payment_checkout_attempts.currency": "same as orders.currency",
+    "payment_webhook_events.currency": "same as orders.currency",
+    "payment_anomalies.currency": "same as orders.currency",
+    "product_variants.currency": "same as orders.currency",
 }
 
 
 def load_sql(root: Path) -> str:
-    return "\n".join(
+    sql = "\n".join(
         path.read_text() for path in sorted(root.glob("migrations/**/*.up.sql"))
     )
+    # Strip line comments before anything parses this. A migration that explains
+    # itself in prose — naming a table, or quoting the ALTER an operator should
+    # run later — must not be read as schema. One that did produced a phantom
+    # foreign key on a column called "then".
+    return re.sub(r"--[^\n]*", "", sql)
 
 
 def foreign_keys(sql: str) -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
-    for table_match in re.finditer(r"CREATE TABLE\s+(\w+)\s*\((.*?)\n\);", sql, re.S | re.I):
+    for table_match in re.finditer(r"CREATE TABLE\s+(\w+)\s*\((.*?)\)\s*;", sql, re.S | re.I):
         table, body = table_match.group(1), table_match.group(2)
         for clause in body.split(","):
             clause = clause.strip()
@@ -58,6 +77,10 @@ def foreign_keys(sql: str) -> set[tuple[str, str]]:
         r"ALTER TABLE\s+(\w+)[^;]*?ADD COLUMN\s+(\w+)[^;,]*?\bREFERENCES\b", sql, re.I | re.S
     ):
         found.add((altered.group(1), altered.group(2)))
+    for constrained in re.finditer(
+        r"ALTER TABLE\s+(\w+)[^;]*?\bFOREIGN KEY\s*\(\s*(\w+)[^;]*?\bREFERENCES\b", sql, re.I | re.S
+    ):
+        found.add((constrained.group(1), constrained.group(2)))
     return found
 
 
@@ -67,7 +90,7 @@ def has_leading_index(sql: str, table: str, column: str) -> bool:
         sql, re.I | re.S,
     ):
         return True
-    body = re.search(r"CREATE TABLE\s+" + table + r"\s*\((.*?)\n\);", sql, re.S | re.I)
+    body = re.search(r"CREATE TABLE\s+" + table + r"\s*\((.*?)\)\s*;", sql, re.S | re.I)
     if not body:
         return False
     declarations = body.group(1)
