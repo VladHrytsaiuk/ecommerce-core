@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -233,6 +234,79 @@ func TestAnUnknownPrivacyRequestTypeIsRefused(t *testing.T) {
 	}
 }
 
+// A guest has no account, so the signed link is the only thing that can
+// authorise them to stop receiving marketing. Before this endpoint existed they
+// had no implemented way out at all.
+
+func TestASignedTokenWithdrawsMarketingConsent(t *testing.T) {
+	world := newWorld(t)
+	world.anonymous = true // a guest, by definition
+	token, err := world.signer.Sign("guest@example.test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := world.do(http.MethodPost, "/api/v1/consent/unsubscribe", fmt.Sprintf(`{"token":%q}`, token))
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body = %s", recorder.Code, http.StatusNoContent, recorder.Body.String())
+	}
+	if world.repository.withdrewMarketingFor != "guest@example.test" {
+		t.Fatalf("withdrew for %q, want the address the token names", world.repository.withdrewMarketingFor)
+	}
+}
+
+func TestATokenForOneAddressCannotUnsubscribeAnother(t *testing.T) {
+	world := newWorld(t)
+	valid, err := world.signer.Sign("guest@example.test", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _, _ := strings.Cut(valid, ".")
+	forged := payload + ".AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+	recorder := world.do(http.MethodPost, "/api/v1/consent/unsubscribe", fmt.Sprintf(`{"token":%q}`, forged))
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d; body = %s", recorder.Code, http.StatusUnprocessableEntity, recorder.Body.String())
+	}
+	if world.repository.withdrewMarketingFor != "" {
+		t.Fatalf("a forged token withdrew consent for %q", world.repository.withdrewMarketingFor)
+	}
+}
+
+func TestAMalformedUnsubscribeRequestIsRejected(t *testing.T) {
+	for name, body := range map[string]string{
+		"no token":  `{}`,
+		"empty":     `{"token":""}`,
+		"not json":  `{`,
+		"oversized": `{"token":"` + strings.Repeat("a", 513) + `"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			world := newWorld(t)
+			recorder := world.do(http.MethodPost, "/api/v1/consent/unsubscribe", body)
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d; body = %s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+			}
+			if world.repository.withdrewMarketingFor != "" {
+				t.Fatal("a malformed request reached the repository")
+			}
+		})
+	}
+}
+
+func TestTheUnsubscribeRouteRefusesGet(t *testing.T) {
+	// Mail security scanners follow links. A GET that withdraws consent would
+	// let a provider's link check unsubscribe the customer for them.
+	world := newWorld(t)
+
+	recorder := world.do(http.MethodGet, "/api/v1/consent/unsubscribe", "")
+
+	if recorder.Code == http.StatusNoContent || recorder.Code == http.StatusOK {
+		t.Fatalf("GET on the unsubscribe route returned %d", recorder.Code)
+	}
+}
+
 func TestAdminLegalAndPrivacyRoutesRequireTheirOwnPermission(t *testing.T) {
 	for name, route := range map[string]struct {
 		method, path, body, permission string
@@ -392,6 +466,7 @@ type world struct {
 	publisher    *publisherStub
 	eraser       *eraserStub
 	exporter     *exporterStub
+	signer       *consent.UnsubscribeSigner
 	transactions *transactionStub
 	customerID   uuid.UUID
 	anonymous    bool
@@ -419,7 +494,14 @@ func newWorld(t *testing.T, options ...option) *world {
 		transactions: &transactionStub{},
 		customerID:   uuid.New(),
 	}
-	service := consentApp.NewService(w.repository, w.orders).WithAdminWorkflow(w.transactions, w.publisher)
+	signer, err := consent.NewUnsubscribeSigner("test-application-secret", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.signer = signer
+	service := consentApp.NewService(w.repository, w.orders).
+		WithAdminWorkflow(w.transactions, w.publisher).
+		WithUnsubscribeSigner(signer)
 	for _, apply := range options {
 		service = apply(w, service)
 	}
@@ -449,16 +531,17 @@ func (w *world) do(method, path, body string) *httptest.ResponseRecorder {
 }
 
 type repositoryStub struct {
-	calls           int
-	activeDocument  bool
-	readFor         uuid.UUID
-	granted         consent.CustomerConsent
-	withdrewFor     uuid.UUID
-	withdrewType    string
-	privacyRequest  consent.PrivacyRequest
-	createdDocument consent.LegalDocument
-	completed       bool
-	limit, offset   int
+	calls                int
+	activeDocument       bool
+	readFor              uuid.UUID
+	granted              consent.CustomerConsent
+	withdrewFor          uuid.UUID
+	withdrewType         string
+	withdrewMarketingFor string
+	privacyRequest       consent.PrivacyRequest
+	createdDocument      consent.LegalDocument
+	completed            bool
+	limit, offset        int
 }
 
 func (r *repositoryStub) ActiveDocuments(context.Context) ([]consent.LegalDocument, error) {
@@ -484,8 +567,9 @@ func (r *repositoryStub) Withdraw(_ context.Context, id uuid.UUID, documentType 
 	return nil
 }
 
-func (r *repositoryStub) WithdrawMarketingByEmail(context.Context, string, time.Time) error {
+func (r *repositoryStub) WithdrawMarketingByEmail(_ context.Context, email string, _ time.Time) error {
 	r.calls++
+	r.withdrewMarketingFor = email
 	return nil
 }
 

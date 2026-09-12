@@ -25,7 +25,9 @@ import (
 	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
 	checkoutPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/repository/postgres"
 	consentOrders "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/adapter/orders"
+	consentUnsubscribe "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/adapter/unsubscribe"
 	consentApp "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/application"
+	consentDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/domain"
 	consentPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/repository/postgres"
 	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	eventsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events/application"
@@ -367,8 +369,16 @@ func buildAbandonedCart(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB
 		RequireMarketingConsent: cfg.AbandonedCartRequireMarketingConsent,
 		QuietHours:              quietHours,
 	}
+	// Marketing mail must carry a way out. The link is minted from Consent's
+	// signed capability, so this module cannot send without one — which is the
+	// right coupling: a recovery campaign a guest cannot leave should not go at
+	// all.
+	linker, err := consentUnsubscribe.NewLinker(consent, cfg.FrontendURL)
+	if err != nil {
+		return abandonedCartRuntime{}, fmt.Errorf("configure abandoned-cart unsubscribe links: %w", err)
+	}
 	return abandonedCartRuntime{
-		Worker: abandonedApp.NewWorker(campaigns, carts, abandonedReaders.NewConsentReader(db), notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale), adminPostgres.NewTransactionManager(db), policy).WithLogger(logger.Log),
+		Worker: abandonedApp.NewWorker(campaigns, carts, abandonedReaders.NewConsentReader(db), notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale), adminPostgres.NewTransactionManager(db), policy, linker).WithLogger(logger.Log),
 		OutboxWorker: eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), abandonedApp.ConsumerCampaignProducer, time.Minute, logger.Log,
 			producer, abandonedApp.NewTopicConsumer(eventsDomain.TopicCheckoutEmailCaptured, producer)).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 		ContactCapture: checkoutApp.NewContactCaptureService(
@@ -467,9 +477,23 @@ func buildSupport(storeConfig StoreConfig, db *gorm.DB, limiter ratelimit.Servic
 // Refusing is the honest position. An export used to be accepted whatever the
 // deployment could do: stored, approved, moved to in_progress, and left there
 // while a statutory deadline ran against a request nothing would ever answer.
-func buildConsent(db *gorm.DB) *consentApp.Service {
-	return consentApp.NewService(
+func buildConsent(cfg *config.Config, db *gorm.DB) (*consentApp.Service, error) {
+	service := consentApp.NewService(
 		consentPostgres.NewRepository(db),
 		consentOrders.NewActivityReader(db),
 	).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), eventsPostgres.NewPublisher())
+	// A guest has no session, so a signed link is the only thing that can
+	// authorise them to stop receiving marketing. The service could already
+	// withdraw consent by address and its comment claimed to "support a signed
+	// unsubscribe endpoint", but nothing signed anything and no endpoint
+	// existed: a guest sent an abandoned-cart email had no implemented way out.
+	signer, err := consentDomain.NewUnsubscribeSigner(cfg.JWTSecret, unsubscribeTokenTTL)
+	if err != nil {
+		return nil, fmt.Errorf("configure unsubscribe signer: %w", err)
+	}
+	return service.WithUnsubscribeSigner(signer), nil
 }
+
+// unsubscribeTokenTTL outlives a mail run and a customer's inbox habits without
+// leaving an unbounded capability in a message that can be forwarded.
+const unsubscribeTokenTTL = 90 * 24 * time.Hour

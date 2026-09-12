@@ -491,6 +491,14 @@ definitions:
       request_type:
         type: string
     type: object
+  internal_consent_delivery_http.unsubscribeRequest:
+    properties:
+      token:
+        maxLength: 512
+        type: string
+    required:
+    - token
+    type: object
   internal_identity_delivery_http.customerAddressRequest:
     properties:
       city:
@@ -3209,6 +3217,35 @@ paths:
       summary: Capture an early checkout contact
       tags:
       - Checkout v1
+  /api/v1/consent/unsubscribe:
+    post:
+      consumes:
+      - application/json
+      description: For a guest contact with no account. The token is issued to one
+        address, expires, and is the only thing that authorises the withdrawal.
+      parameters:
+      - description: Signed token from the email
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_consent_delivery_http.unsubscribeRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails'
+      summary: Withdraw marketing consent using a signed link token
+      tags:
+      - Consent v1
   /api/v1/customers/me/addresses:
     get:
       produces:

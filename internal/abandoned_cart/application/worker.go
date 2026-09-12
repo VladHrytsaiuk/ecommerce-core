@@ -18,14 +18,15 @@ type Policy struct {
 	QuietHours              func(time.Time) (time.Time, bool)
 }
 type Worker struct {
-	repo      cart.Repository
-	carts     cart.CartRecoveryReader
-	consent   cart.MarketingConsentReader
-	scheduler notifications.NotificationScheduler
-	tx        cart.TransactionManager
-	policy    Policy
-	now       func() time.Time
-	logger    worker.Logger
+	repo        cart.Repository
+	carts       cart.CartRecoveryReader
+	consent     cart.MarketingConsentReader
+	unsubscribe cart.UnsubscribeLinker
+	scheduler   notifications.NotificationScheduler
+	tx          cart.TransactionManager
+	policy      Policy
+	now         func() time.Time
+	logger      worker.Logger
 }
 
 // WithLogger reports a failing pass. A recovery campaign that stops running
@@ -37,8 +38,8 @@ func (w *Worker) WithLogger(logger worker.Logger) *Worker {
 	return w
 }
 
-func NewWorker(r cart.Repository, c cart.CartRecoveryReader, co cart.MarketingConsentReader, n notifications.NotificationScheduler, tx cart.TransactionManager, p Policy) *Worker {
-	return &Worker{repo: r, carts: c, consent: co, scheduler: n, tx: tx, policy: p, now: func() time.Time { return time.Now().UTC() }}
+func NewWorker(r cart.Repository, c cart.CartRecoveryReader, co cart.MarketingConsentReader, n notifications.NotificationScheduler, tx cart.TransactionManager, p Policy, u cart.UnsubscribeLinker) *Worker {
+	return &Worker{repo: r, carts: c, consent: co, scheduler: n, tx: tx, policy: p, unsubscribe: u, now: func() time.Time { return time.Now().UTC() }}
 }
 
 // Run drains the due campaigns each tick. One campaign per tick meant the
@@ -120,12 +121,21 @@ func (w *Worker) process(ctx context.Context, c *cart.Campaign) error {
 		if e := w.repo.Update(tc, c); e != nil {
 			return e
 		}
+		// Marketing mail has to carry a way out, and a guest has no account to
+		// do it from — so the message carries a signed, expiring link. Minting
+		// it can fail only if the capability is not configured, and a marketing
+		// email a recipient cannot leave should not be sent at all.
+		unsubscribeURL, e := w.unsubscribe.URLFor(c.ContactEmail)
+		if e != nil {
+			return e
+		}
 		// A recovery campaign records the contact email and nothing about
 		// the shopper's language, so the store's locale is used.
 		if e := w.scheduler.ScheduleEmail(tc, "abandoned_cart", "", c.ContactEmail, struct {
-			CartID uuid.UUID `json:"cart_id"`
-			Step   int       `json:"step"`
-		}{c.CartID, c.Step}); e != nil {
+			CartID         uuid.UUID `json:"cart_id"`
+			Step           int       `json:"step"`
+			UnsubscribeURL string    `json:"unsubscribe_url"`
+		}{c.CartID, c.Step, unsubscribeURL}); e != nil {
 			return e
 		}
 		if c.Step < len(w.policy.Delays) {

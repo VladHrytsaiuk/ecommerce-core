@@ -59,3 +59,10 @@ type Repository interface {
 type TransactionManager interface {
 	WithinTransaction(context.Context, func(context.Context) error) error
 }
+
+// UnsubscribeLinker builds the opt-out link a marketing message must carry.
+// Consent owns the capability; this module only needs the address turned into
+// a URL it can put in a template.
+type UnsubscribeLinker interface {
+	URLFor(email string) (string, error)
+}

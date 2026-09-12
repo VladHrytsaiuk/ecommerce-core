@@ -26,6 +26,12 @@ func RegisterV1Routes(v1 *gin.RouterGroup, s *consent.Service, auth gin.HandlerF
 		return
 	}
 	v1.GET("/legal/documents/active", listActiveDocuments(s, e))
+	// Deliberately POST and deliberately unauthenticated. A guest has no
+	// session, so the signed token is what speaks for them; and mail security
+	// scanners follow links in messages, so a GET that withdraws consent would
+	// unsubscribe customers whose provider simply checked the link was safe.
+	// A store's page opens on a GET link and posts this.
+	v1.POST("/consent/unsubscribe", unsubscribeFromMarketing(s, e))
 
 	g := v1.Group("/customers/me/consents")
 	g.Use(auth)
@@ -54,6 +60,35 @@ func listActiveDocuments(s *consent.Service, e *apiresponse.ErrorRenderer) gin.H
 			return
 		}
 		apiresponse.Success(c, std.StatusOK, v)
+	}
+}
+
+type unsubscribeRequest struct {
+	Token string `json:"token" binding:"required,max=512"`
+}
+
+// unsubscribeFromMarketing godoc
+// @Summary Withdraw marketing consent using a signed link token
+// @Description For a guest contact with no account. The token is issued to one address, expires, and is the only thing that authorises the withdrawal.
+// @Tags Consent v1
+// @Accept json
+// @Produce json
+// @Param payload body unsubscribeRequest true "Signed token from the email"
+// @Success 204
+// @Failure 400,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/consent/unsubscribe [post]
+func unsubscribeFromMarketing(s *consent.Service, e *apiresponse.ErrorRenderer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request unsubscribeRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			e.Abort(c, apiresponse.InvalidPayload(err))
+			return
+		}
+		if err := s.UnsubscribeFromMarketing(c, request.Token); err != nil {
+			abort(e, c, err)
+			return
+		}
+		apiresponse.NoContent(c)
 	}
 }
 
@@ -173,6 +208,12 @@ func abort(e *apiresponse.ErrorRenderer, c *gin.Context, err error) {
 	}
 	if errors.Is(err, domain.ErrExportUnsupported) {
 		e.Abort(c, apiresponse.NotImplemented(err, "This store cannot produce a data export. Contact support for how your data is handled."))
+		return
+	}
+	if errors.Is(err, domain.ErrInvalidUnsubscribeToken) {
+		// One message for every failure — wrong signature, wrong shape,
+		// expired. Distinguishing them would make the endpoint an oracle.
+		e.Abort(c, apiresponse.ValidationFailed(err))
 		return
 	}
 	if errors.Is(err, domain.ErrDocumentInactive) || errors.Is(err, domain.ErrInvalid) || errors.Is(err, domain.ErrTermsWithdrawalBlocked) {

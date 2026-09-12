@@ -254,7 +254,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	var consentService *consentApp.Service
 	if consentEnabled {
-		consentService = buildConsent(db)
+		consentService, err = buildConsent(cfg, db)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// The workflow repository is PostgreSQL infrastructure. It is deliberately
 	// outside core so core/application code does not depend on an Orders or

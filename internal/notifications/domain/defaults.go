@@ -34,10 +34,13 @@ var DefaultTemplates = []Template{
 		HTML:    "<p>{{.MessageBody}}</p><p>Reply to this ticket from your account to continue the conversation.</p>",
 	},
 	{
+		// The only marketing message this core sends, so it is the one that
+		// must carry a way out. UnsubscribeURL is a signed, expiring link the
+		// worker refuses to send without.
 		Key:     AbandonedCartTemplate,
 		Subject: "You left something in your cart",
-		Text:    "Your cart is still waiting.\n\nVisit the store to finish your order.",
-		HTML:    "<p>Your cart is still waiting.</p><p>Visit the store to finish your order.</p>",
+		Text:    "Your cart is still waiting.\n\nVisit the store to finish your order.\n\nTo stop receiving these emails: {{.UnsubscribeURL}}",
+		HTML:    "<p>Your cart is still waiting.</p><p>Visit the store to finish your order.</p><p><a href=\"{{.UnsubscribeURL}}\">Stop receiving these emails</a></p>",
 	},
 	{
 		Key:     ReturnApprovedTemplate,

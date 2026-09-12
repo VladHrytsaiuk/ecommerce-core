@@ -3616,6 +3616,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/consent/unsubscribe": {
+            "post": {
+                "description": "For a guest contact with no account. The token is issued to one address, expires, and is the only thing that authorises the withdrawal.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Consent v1"
+                ],
+                "summary": "Withdraw marketing consent using a signed link token",
+                "parameters": [
+                    {
+                        "description": "Signed token from the email",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_consent_delivery_http.unsubscribeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_VladHrytsaiuk_ecommerce-core_internal_http_apiresponse.ProblemDetails"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/customers/me/addresses": {
             "get": {
                 "produces": [
@@ -5585,6 +5628,18 @@ const docTemplate = `{
             "properties": {
                 "request_type": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_consent_delivery_http.unsubscribeRequest": {
+            "type": "object",
+            "required": [
+                "token"
+            ],
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "maxLength": 512
                 }
             }
         },

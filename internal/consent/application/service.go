@@ -10,13 +10,14 @@ import (
 )
 
 type Service struct {
-	repo      consent.Repository
-	orders    consent.OrderActivityReader
-	now       func() time.Time
-	tx        consent.TransactionManager
-	publisher events.TransactionalEventPublisher
-	eraser    consent.ErasureExecutor
-	exporter  consent.DataExporter
+	repo        consent.Repository
+	orders      consent.OrderActivityReader
+	now         func() time.Time
+	tx          consent.TransactionManager
+	publisher   events.TransactionalEventPublisher
+	eraser      consent.ErasureExecutor
+	unsubscribe *consent.UnsubscribeSigner
+	exporter    consent.DataExporter
 }
 
 // WithErasure supplies the deployment's implementation of the right to
@@ -191,6 +192,38 @@ func (s *Service) Withdraw(c context.Context, id uuid.UUID, t string) error {
 // contact without granting that caller access to customer-scoped consent data.
 // The HTTP capability/token transport is intentionally left to the delivery
 // module; this use case is the domain-safe persistence boundary.
+// WithUnsubscribeSigner enables the guest unsubscribe capability. Without it
+// the endpoint refuses every token rather than trusting an unsigned address.
+func (s *Service) WithUnsubscribeSigner(signer *consent.UnsubscribeSigner) *Service {
+	if s != nil && signer != nil {
+		s.unsubscribe = signer
+	}
+	return s
+}
+
+// UnsubscribeFromMarketing withdraws marketing consent for the address a signed
+// token was issued for. It is the guest counterpart to the authenticated
+// withdrawal: a guest has no session, so the link they were sent is the only
+// thing that can speak for them.
+func (s *Service) UnsubscribeFromMarketing(c context.Context, token string) error {
+	if s == nil || s.unsubscribe == nil {
+		return consent.ErrInvalidUnsubscribeToken
+	}
+	email, err := s.unsubscribe.Verify(token, s.now())
+	if err != nil {
+		return err
+	}
+	return s.WithdrawMarketingByEmail(c, email)
+}
+
+// UnsubscribeToken mints the capability an outgoing marketing email carries.
+func (s *Service) UnsubscribeToken(email string) (string, error) {
+	if s == nil || s.unsubscribe == nil {
+		return "", consent.ErrInvalidUnsubscribeToken
+	}
+	return s.unsubscribe.Sign(email, s.now())
+}
+
 func (s *Service) WithdrawMarketingByEmail(c context.Context, email string) error {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {

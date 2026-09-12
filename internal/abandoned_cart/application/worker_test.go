@@ -2,7 +2,9 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,10 +72,14 @@ func (workerConsentFake) HasConsent(context.Context, *uuid.UUID, string) (bool, 
 	return false, nil
 }
 
-type workerSchedulerFake struct{ locales []string }
+type workerSchedulerFake struct {
+	locales []string
+	payload any
+}
 
-func (f *workerSchedulerFake) ScheduleEmail(_ context.Context, _, locale, _ string, _ any) error {
+func (f *workerSchedulerFake) ScheduleEmail(_ context.Context, _, locale, _ string, payload any) error {
 	f.locales = append(f.locales, locale)
+	f.payload = payload
 	return nil
 }
 
@@ -100,7 +106,7 @@ func TestALostLeaseStopsThePassBeforeAnySideEffect(t *testing.T) {
 	}
 	scheduler := &workerSchedulerFake{}
 	worker := NewWorker(repository, workerCartDue{}, workerConsentFake{}, scheduler, workerTxFake{},
-		Policy{Delays: []time.Duration{time.Hour, 2 * time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+		Policy{Delays: []time.Duration{time.Hour, 2 * time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }}, stubLinker{})
 
 	worked, err := worker.claimAndProcess(context.Background())
 	if err != nil {
@@ -128,7 +134,7 @@ func TestAHeldLeaseCompletesTheWholePass(t *testing.T) {
 	}
 	scheduler := &workerSchedulerFake{}
 	worker := NewWorker(repository, workerCartDue{}, workerConsentFake{}, scheduler, workerTxFake{},
-		Policy{Delays: []time.Duration{time.Hour, 2 * time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+		Policy{Delays: []time.Duration{time.Hour, 2 * time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }}, stubLinker{})
 
 	if _, err := worker.claimAndProcess(context.Background()); err != nil {
 		t.Fatalf("claimAndProcess() error = %v", err)
@@ -154,7 +160,7 @@ func TestWorkerRequeuesClaimWithFinalizationContextAfterCancellation(t *testing.
 	// no work on an already-cancelled context: shutdown is not the time to
 	// start claiming.
 	repository := &workerRepoFake{claimed: &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), Step: 1}}
-	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, &workerSchedulerFake{}, workerTxFake{}, Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, &workerSchedulerFake{}, workerTxFake{}, Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }}, stubLinker{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -176,7 +182,7 @@ func TestAFailedPassReleasesTheClaimWithItsOwnToken(t *testing.T) {
 	claim := &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), Step: 1, LockToken: uuid.New()}
 	repository := &workerRepoFake{claimed: claim}
 	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, &workerSchedulerFake{}, workerTxFake{},
-		Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+		Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }}, stubLinker{})
 
 	if _, err := worker.claimAndProcess(context.Background()); err != nil {
 		t.Fatalf("claimAndProcess() error = %v", err)
@@ -191,7 +197,7 @@ func TestAFailedPassReleasesTheClaimWithItsOwnToken(t *testing.T) {
 
 func TestWorkerDoesNotStartClaimingDuringShutdown(t *testing.T) {
 	repository := &workerRepoFake{claimed: &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), Step: 1}}
-	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, &workerSchedulerFake{}, workerTxFake{}, Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }})
+	worker := NewWorker(repository, workerCartFail{}, workerConsentFake{}, &workerSchedulerFake{}, workerTxFake{}, Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }}, stubLinker{})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -203,3 +209,69 @@ func TestWorkerDoesNotStartClaimingDuringShutdown(t *testing.T) {
 }
 
 var _ notifications.NotificationScheduler = (*workerSchedulerFake)(nil)
+
+// stubLinker stands in for Consent's signed opt-out capability.
+type stubLinker struct{ err error }
+
+func (l stubLinker) URLFor(email string) (string, error) {
+	if l.err != nil {
+		return "", l.err
+	}
+	return "https://store.example/unsubscribe?token=signed-for-" + email, nil
+}
+
+func TestAMarketingEmailCarriesAWayOut(t *testing.T) {
+	// A guest has no account, so the link in the message is the only way they
+	// can stop receiving these. The template renders it, so the payload has to
+	// carry it.
+	repository := &workerRepoFake{claimed: &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), ContactEmail: "guest@example.test", Step: 1, LockToken: uuid.New()}}
+	scheduler := &workerSchedulerFake{}
+	worker := NewWorker(repository, workerCartDue{}, workerConsentFake{}, scheduler, workerTxFake{},
+		Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }}, stubLinker{})
+
+	if _, err := worker.claimAndProcess(context.Background()); err != nil {
+		t.Fatalf("claimAndProcess() error = %v", err)
+	}
+	if len(scheduler.locales) != 1 {
+		t.Fatalf("scheduled %d emails, want one", len(scheduler.locales))
+	}
+	encoded, err := json.Marshal(scheduler.payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields struct {
+		UnsubscribeURL string `json:"unsubscribe_url"`
+	}
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(fields.UnsubscribeURL, "guest@example.test") {
+		t.Fatalf("unsubscribe_url = %q, want a link issued for this recipient", fields.UnsubscribeURL)
+	}
+}
+
+func TestAMarketingEmailIsNotSentWithoutAWayOut(t *testing.T) {
+	// If the capability is misconfigured the message must not go at all. A
+	// marketing email a recipient cannot leave is worse than one not sent.
+	repository := &workerRepoFake{claimed: &cart.Campaign{ID: uuid.New(), CartID: uuid.New(), ContactEmail: "guest@example.test", Step: 1, LockToken: uuid.New()}}
+	scheduler := &workerSchedulerFake{}
+	worker := NewWorker(repository, workerCartDue{}, workerConsentFake{}, scheduler, workerTxFake{},
+		Policy{Delays: []time.Duration{time.Hour}, QuietHours: func(time.Time) (time.Time, bool) { return time.Time{}, false }},
+		stubLinker{err: errors.New("unsubscribe capability is not configured")})
+
+	// The pass itself is healthy — the campaign goes back in the queue and the
+	// worker moves on, which is how every other processing failure is handled.
+	// What must not happen is the message going out anyway.
+	if _, err := worker.claimAndProcess(context.Background()); err != nil {
+		t.Fatalf("claimAndProcess() error = %v", err)
+	}
+	if len(scheduler.locales) != 0 {
+		t.Fatal("a marketing email was scheduled that the recipient cannot leave")
+	}
+	if !repository.requeued {
+		t.Fatal("the campaign was neither sent nor returned to the queue")
+	}
+	if len(repository.createdSteps) != 0 {
+		t.Fatal("the campaign advanced a step without its message being sent")
+	}
+}

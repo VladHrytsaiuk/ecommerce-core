@@ -70,6 +70,7 @@ func TestATemplateOnlyReferencesFieldsItsSenderSupplies(t *testing.T) {
 	supplied := map[string][]string{
 		OrderPaidTemplate:         {"OrderNumber"},
 		SupportAgentReplyTemplate: {"Subject", "MessageBody"},
+		AbandonedCartTemplate:     {"UnsubscribeURL"},
 	}
 	for _, candidate := range DefaultTemplates {
 		fields := supplied[candidate.Key]
