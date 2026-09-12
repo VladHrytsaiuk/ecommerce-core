@@ -37,6 +37,12 @@ var (
 	// Accepting the request anyway is worse than refusing it: the customer is
 	// told their data will be deleted and it never is.
 	ErrErasureUnsupported = errors.New("erasure is not available in this deployment")
+	// ErrExportUnsupported is the same judgement for the right of access. An
+	// export request used to be accepted, approved, moved to in_progress and
+	// then left there: no exporter existed, so nothing was ever produced or
+	// sent, and the clock on a statutory deadline ran while the request looked
+	// like it was being handled.
+	ErrExportUnsupported = errors.New("data export is not available in this deployment")
 )
 
 // ErasureExecutor deletes or anonymizes everything the core holds about one
@@ -54,6 +60,18 @@ type ErasureExecutor interface {
 	Erase(ctx context.Context, customerID uuid.UUID) error
 }
 
+// DataExporter produces and delivers everything the core holds about one
+// customer, for the right of access. Like ErasureExecutor the core ships no
+// implementation, and for the same reason: what belongs in an export, what
+// format it takes and how it reaches the customer are the store's decisions,
+// not this software's.
+//
+// Export runs inside the approval transaction, so a failure leaves the request
+// unapproved rather than half-delivered.
+type DataExporter interface {
+	Export(ctx context.Context, customerID uuid.UUID) error
+}
+
 type OrderActivityReader interface {
 	HasActiveOrders(context.Context, uuid.UUID) (bool, error)
 }
@@ -69,6 +87,7 @@ type Repository interface {
 	PublishDocument(context.Context, uuid.UUID) (*LegalDocument, error)
 	ListPrivacyRequests(context.Context, int, int) ([]PrivacyRequest, int64, error)
 	ApprovePrivacyRequest(context.Context, uuid.UUID) (*PrivacyRequest, error)
+	CompletePrivacyRequest(context.Context, uuid.UUID) error
 }
 type TransactionManager interface {
 	WithinTransaction(context.Context, func(context.Context) error) error

@@ -14,9 +14,10 @@ import (
 
 type privacyRepository struct {
 	consent.Repository
-	created  []consent.PrivacyRequest
-	approved *consent.PrivacyRequest
-	request  consent.PrivacyRequest
+	created   []consent.PrivacyRequest
+	approved  *consent.PrivacyRequest
+	request   consent.PrivacyRequest
+	completed []uuid.UUID
 }
 
 func (r *privacyRepository) CreatePrivacyRequest(_ context.Context, request consent.PrivacyRequest) error {
@@ -25,10 +26,17 @@ func (r *privacyRepository) CreatePrivacyRequest(_ context.Context, request cons
 }
 
 func (r *privacyRepository) ApprovePrivacyRequest(_ context.Context, _ uuid.UUID) (*consent.PrivacyRequest, error) {
+	// "in_progress" is what the real repository writes; the fake used to say
+	// "approved", which is not a status the schema allows.
 	approved := r.request
-	approved.Status = "approved"
+	approved.Status = "in_progress"
 	r.approved = &approved
 	return &approved, nil
+}
+
+func (r *privacyRepository) CompletePrivacyRequest(_ context.Context, id uuid.UUID) error {
+	r.completed = append(r.completed, id)
+	return nil
 }
 
 // rollbackTransaction reports whether the unit of work was abandoned, which is
@@ -85,16 +93,81 @@ func TestErasureRequestIsRefusedWhenNothingCanPerformIt(t *testing.T) {
 	}
 }
 
-func TestExportRequestIsUnaffectedByTheErasureGuard(t *testing.T) {
+func TestAnExportIsRefusedAtIntakeWithoutAnExporter(t *testing.T) {
+	// This test used to assert the opposite — that an export is accepted
+	// whatever the deployment can do — and that was the defect: the request
+	// was stored, approved, moved to in_progress and left there forever while
+	// a statutory deadline ran. The right of access gets the same judgement as
+	// the right to erasure.
 	repository := &privacyRepository{}
 	service := newPrivacyService(repository, &rollbackTransaction{}, &countingPublisher{})
+
+	err := service.PrivacyRequest(context.Background(), uuid.New(), "export")
+
+	if !errors.Is(err, consent.ErrExportUnsupported) {
+		t.Fatalf("PrivacyRequest(export) error = %v, want ErrExportUnsupported", err)
+	}
+	if len(repository.created) != 0 {
+		t.Fatal("an export request was queued that nothing can answer")
+	}
+}
+
+func TestAnExportIsAcceptedWhereItCanBeProduced(t *testing.T) {
+	repository := &privacyRepository{}
+	service := newPrivacyService(repository, &rollbackTransaction{}, &countingPublisher{}).WithExport(&recordingExporter{})
 
 	if err := service.PrivacyRequest(context.Background(), uuid.New(), "export"); err != nil {
 		t.Fatalf("PrivacyRequest(export) error = %v", err)
 	}
-	if len(repository.created) != 1 {
-		t.Fatalf("stored %d requests, want the export to still be accepted", len(repository.created))
+	if len(repository.created) != 1 || repository.created[0].RequestType != "export" {
+		t.Fatalf("stored = %+v", repository.created)
 	}
+}
+
+func TestApprovingAnExportProducesItAndClosesTheRequest(t *testing.T) {
+	request := consent.PrivacyRequest{ID: uuid.New(), CustomerID: uuid.New(), RequestType: "export", Status: "pending"}
+	repository := &privacyRepository{request: request}
+	exporter := &recordingExporter{}
+	service := newPrivacyService(repository, &rollbackTransaction{}, &countingPublisher{}).WithExport(exporter)
+
+	approved, err := service.ApprovePrivacyRequest(context.Background(), request.ID)
+	if err != nil {
+		t.Fatalf("ApprovePrivacyRequest() error = %v", err)
+	}
+	if len(exporter.exported) != 1 || exporter.exported[0] != request.CustomerID {
+		t.Fatalf("exported = %v, want the request's customer", exporter.exported)
+	}
+	if len(repository.completed) != 1 || approved.Status != "completed" {
+		t.Fatalf("request left at %q with %d completions", approved.Status, len(repository.completed))
+	}
+}
+
+func TestApprovingAnExportIsRefusedAndRolledBackWithoutAnExporter(t *testing.T) {
+	// Requests stored before the intake guard existed are still in the table.
+	// An administrator must not be able to close one as done.
+	request := consent.PrivacyRequest{ID: uuid.New(), CustomerID: uuid.New(), RequestType: "export", Status: "pending"}
+	repository := &privacyRepository{request: request}
+	transaction := &rollbackTransaction{}
+	service := newPrivacyService(repository, transaction, &countingPublisher{})
+
+	_, err := service.ApprovePrivacyRequest(context.Background(), request.ID)
+
+	if !errors.Is(err, consent.ErrExportUnsupported) {
+		t.Fatalf("ApprovePrivacyRequest() error = %v, want ErrExportUnsupported", err)
+	}
+	if !transaction.rolledBack {
+		t.Fatal("the approval committed; the request would read as handled")
+	}
+	if len(repository.completed) != 0 {
+		t.Fatal("a request nothing answered was closed as completed")
+	}
+}
+
+type recordingExporter struct{ exported []uuid.UUID }
+
+func (e *recordingExporter) Export(_ context.Context, customerID uuid.UUID) error {
+	e.exported = append(e.exported, customerID)
+	return nil
 }
 
 func TestApprovingAnErasureIsRefusedAndRolledBackWithoutAnExecutor(t *testing.T) {
@@ -131,8 +204,11 @@ func TestApprovingAnErasureErasesInTheApprovalTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApprovePrivacyRequest() error = %v", err)
 	}
-	if approved == nil || approved.Status != "approved" {
-		t.Fatalf("ApprovePrivacyRequest() = %+v", approved)
+	if approved == nil || approved.Status != "completed" {
+		t.Fatalf("ApprovePrivacyRequest() = %+v, want the request closed", approved)
+	}
+	if len(repository.completed) != 1 {
+		t.Fatal("the erasure committed but the request stayed in progress")
 	}
 	if len(eraser.erased) != 1 || eraser.erased[0] != repository.request.CustomerID {
 		t.Fatalf("erased = %v, want the request's customer", eraser.erased)

@@ -171,6 +171,10 @@ func abort(e *apiresponse.ErrorRenderer, c *gin.Context, err error) {
 		e.Abort(c, apiresponse.NotImplemented(err, "This store cannot carry out erasure requests. Contact support for how your data is handled."))
 		return
 	}
+	if errors.Is(err, domain.ErrExportUnsupported) {
+		e.Abort(c, apiresponse.NotImplemented(err, "This store cannot produce a data export. Contact support for how your data is handled."))
+		return
+	}
 	if errors.Is(err, domain.ErrDocumentInactive) || errors.Is(err, domain.ErrInvalid) || errors.Is(err, domain.ErrTermsWithdrawalBlocked) {
 		e.Abort(c, apiresponse.ValidationFailed(err))
 		return

@@ -446,12 +446,18 @@ func buildSupport(storeConfig StoreConfig, db *gorm.DB, limiter ratelimit.Servic
 
 // buildConsent wires GDPR consent and privacy requests.
 //
-// No ErasureExecutor is supplied, so this deployment refuses erasure requests
-// at intake and refuses to approve any that predate the refusal. That is
-// deliberate: what a store must delete and what it must retain follows from
+// Neither an ErasureExecutor nor a DataExporter is supplied, so this deployment
+// refuses both request types at intake and refuses to approve any that predate
+// the refusal. That is deliberate: what a store must delete, what it must
+// retain, what belongs in an export and how it reaches the customer follow from
 // its jurisdiction and its own commitments, not from this core. A deployment
-// that has made those decisions attaches its implementation here with
-// .WithErasure(...) and the requests start being accepted.
+// that has made those decisions attaches its implementations here with
+// .WithErasure(...) and .WithExport(...), and those requests start being
+// accepted.
+//
+// Refusing is the honest position. An export used to be accepted whatever the
+// deployment could do: stored, approved, moved to in_progress, and left there
+// while a statutory deadline ran against a request nothing would ever answer.
 func buildConsent(db *gorm.DB) *consentApp.Service {
 	return consentApp.NewService(
 		consentPostgres.NewRepository(db),

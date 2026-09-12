@@ -16,6 +16,7 @@ type Service struct {
 	tx        consent.TransactionManager
 	publisher events.TransactionalEventPublisher
 	eraser    consent.ErasureExecutor
+	exporter  consent.DataExporter
 }
 
 // WithErasure supplies the deployment's implementation of the right to
@@ -32,6 +33,19 @@ func (s *Service) WithErasure(executor consent.ErasureExecutor) *Service {
 // out. Delivery uses it to describe the capability rather than discover it
 // from a failed request.
 func (s *Service) SupportsErasure() bool { return s != nil && s.eraser != nil }
+
+// WithExport supplies the deployment's implementation of the right of access.
+// Without it this service refuses export requests rather than accepting them
+// into a queue nothing drains.
+func (s *Service) WithExport(exporter consent.DataExporter) *Service {
+	if s != nil && exporter != nil {
+		s.exporter = exporter
+	}
+	return s
+}
+
+// SupportsExport reports whether this deployment can carry an export request out.
+func (s *Service) SupportsExport() bool { return s != nil && s.exporter != nil }
 
 func (s *Service) WithAdminWorkflow(tx consent.TransactionManager, p events.TransactionalEventPublisher) *Service {
 	s.tx, s.publisher = tx, p
@@ -72,17 +86,36 @@ func (s *Service) ApprovePrivacyRequest(c context.Context, id uuid.UUID) (*conse
 		if x == nil {
 			return consent.ErrInvalidPrivacyTransition
 		}
-		if x.RequestType != "erasure" {
-			return nil
+		switch x.RequestType {
+		case "erasure":
+			if s.eraser == nil {
+				// Rolls the approval back: the request stays pending.
+				return consent.ErrErasureUnsupported
+			}
+			if e := s.eraser.Erase(tc, x.CustomerID); e != nil {
+				return e
+			}
+			if e := s.publisher.Publish(tc, consent.ErasureRequestedEvent{EventID: x.ID, CustomerID: x.CustomerID, At: s.now()}); e != nil {
+				return e
+			}
+		case "export":
+			if s.exporter == nil {
+				return consent.ErrExportUnsupported
+			}
+			if e := s.exporter.Export(tc, x.CustomerID); e != nil {
+				return e
+			}
+		default:
+			return consent.ErrInvalid
 		}
-		if s.eraser == nil {
-			// Rolls the approval back: the request stays pending.
-			return consent.ErrErasureUnsupported
-		}
-		if e := s.eraser.Erase(tc, x.CustomerID); e != nil {
+		// The work committed, so the request is answered. Leaving it at
+		// in_progress made every completed request look outstanding and gave
+		// an administrator no way to tell the two apart.
+		if e := s.repo.CompletePrivacyRequest(tc, x.ID); e != nil {
 			return e
 		}
-		return s.publisher.Publish(tc, consent.ErasureRequestedEvent{EventID: x.ID, CustomerID: x.CustomerID, At: s.now()})
+		x.Status = "completed"
+		return nil
 	})
 	if e != nil {
 		return nil, e
@@ -174,6 +207,12 @@ func (s *Service) PrivacyRequest(c context.Context, id uuid.UUID, t string) erro
 	// wait for an approval that can never honestly come.
 	if t == "erasure" && s.eraser == nil {
 		return consent.ErrErasureUnsupported
+	}
+	// The same for the right of access. Accepting an export this deployment
+	// cannot produce starts a statutory clock against a request that will
+	// never be answered.
+	if t == "export" && s.exporter == nil {
+		return consent.ErrExportUnsupported
 	}
 	return s.repo.CreatePrivacyRequest(c, consent.PrivacyRequest{ID: uuid.New(), CustomerID: id, RequestType: t, Status: "pending", CreatedAt: s.now()})
 }

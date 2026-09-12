@@ -120,6 +120,28 @@ func (r *Repository) ApprovePrivacyRequest(c context.Context, id uuid.UUID) (*co
 	row.Status = "in_progress"
 	return (*consent.PrivacyRequest)(&row), nil
 }
+
+// CompletePrivacyRequest closes a request whose work has been carried out. It
+// runs in the approval transaction, so the request reaches "completed" only if
+// the export or erasure it describes also committed. Before this existed the
+// only transition implemented was pending -> in_progress, and "completed" and
+// "rejected" were values no row could ever hold.
+func (r *Repository) CompletePrivacyRequest(c context.Context, id uuid.UUID) error {
+	if _, e := transaction.FromContext(c); e != nil {
+		return e
+	}
+	result := r.database(c).Table("privacy_requests").
+		Where("id = ? AND status = ?", id, "in_progress").
+		Update("status", "completed")
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return consent.ErrInvalidPrivacyTransition
+	}
+	return nil
+}
+
 func (r *Repository) database(c context.Context) *gorm.DB {
 	if tx, e := transaction.FromContext(c); e == nil {
 		return tx.WithContext(c)

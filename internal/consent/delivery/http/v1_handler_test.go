@@ -187,15 +187,31 @@ func TestAnErasureRequestIsAcceptedWhereItCanBeCarriedOut(t *testing.T) {
 	}
 }
 
-func TestAnExportRequestIsAccepted(t *testing.T) {
+func TestAnExportRequestIsRefusedWhereNothingCanProduceIt(t *testing.T) {
+	// This asserted a 202 before, which was the defect: the request was stored,
+	// approved, moved to in_progress and never answered. The right of access
+	// gets the same treatment as the right to erasure.
 	world := newWorld(t)
+
+	recorder := world.do(http.MethodPost, "/api/v1/customers/me/privacy-requests", `{"request_type":"export"}`)
+
+	if recorder.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d; body = %s", recorder.Code, http.StatusNotImplemented, recorder.Body.String())
+	}
+	if world.repository.privacyRequest.ID != uuid.Nil {
+		t.Fatal("an export request was queued with no exporter configured")
+	}
+}
+
+func TestAnExportRequestIsAcceptedWhereItCanBeProduced(t *testing.T) {
+	world := newWorld(t, withExport)
 
 	recorder := world.do(http.MethodPost, "/api/v1/customers/me/privacy-requests", `{"request_type":"export"}`)
 
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d; body = %s", recorder.Code, http.StatusAccepted, recorder.Body.String())
 	}
-	if world.repository.privacyRequest.RequestType != "export" {
+	if world.repository.privacyRequest.RequestType != "export" || world.repository.privacyRequest.CustomerID != world.customerID {
 		t.Fatalf("queued request = %+v", world.repository.privacyRequest)
 	}
 }
@@ -375,6 +391,7 @@ type world struct {
 	authorizer   *authorizerStub
 	publisher    *publisherStub
 	eraser       *eraserStub
+	exporter     *exporterStub
 	transactions *transactionStub
 	customerID   uuid.UUID
 	anonymous    bool
@@ -386,6 +403,9 @@ type option func(*world, *consentApp.Service) *consentApp.Service
 // separates a store that can honour a deletion request from one that cannot.
 func withErasure(w *world, s *consentApp.Service) *consentApp.Service { return s.WithErasure(w.eraser) }
 
+// withExport gives the deployment a way to answer a right-of-access request.
+func withExport(w *world, s *consentApp.Service) *consentApp.Service { return s.WithExport(w.exporter) }
+
 func newWorld(t *testing.T, options ...option) *world {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -395,6 +415,7 @@ func newWorld(t *testing.T, options ...option) *world {
 		authorizer:   &authorizerStub{},
 		publisher:    &publisherStub{},
 		eraser:       &eraserStub{},
+		exporter:     &exporterStub{},
 		transactions: &transactionStub{},
 		customerID:   uuid.New(),
 	}
@@ -436,6 +457,7 @@ type repositoryStub struct {
 	withdrewType    string
 	privacyRequest  consent.PrivacyRequest
 	createdDocument consent.LegalDocument
+	completed       bool
 	limit, offset   int
 }
 
@@ -495,6 +517,14 @@ func (r *repositoryStub) ListPrivacyRequests(_ context.Context, limit, offset in
 	return nil, 0, nil
 }
 
+func (r *repositoryStub) CompletePrivacyRequest(_ context.Context, id uuid.UUID) error {
+	if r.privacyRequest.ID != id {
+		return consent.ErrInvalidPrivacyTransition
+	}
+	r.completed = true
+	return nil
+}
+
 func (r *repositoryStub) ApprovePrivacyRequest(_ context.Context, id uuid.UUID) (*consent.PrivacyRequest, error) {
 	r.calls++
 	if r.privacyRequest.ID != id {
@@ -548,6 +578,17 @@ func (e *eraserStub) Erase(_ context.Context, customerID uuid.UUID) error {
 	e.calls++
 	e.erased = customerID
 	return e.err
+}
+
+type exporterStub struct {
+	calls    int
+	exported uuid.UUID
+}
+
+func (e *exporterStub) Export(_ context.Context, customerID uuid.UUID) error {
+	e.calls++
+	e.exported = customerID
+	return nil
 }
 
 type authorizerStub struct {
