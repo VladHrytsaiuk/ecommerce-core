@@ -33,11 +33,13 @@ jobs:
         run: bash scripts/check-clean-architecture.sh
       - name: Verify every package is reachable
         run: bash scripts/check-package-reachability.sh
-      # PostgreSQL indexes the referenced side of a foreign key, never the
-      # referencing side. Four such columns had already cost real time here;
-      # this check found the last two on its first run, both sequential scans
-      # on paths that run per order or per page view.
-      - name: Verify foreign keys are indexed
+      # Two rules. PostgreSQL indexes the referenced side of a foreign key,
+      # never the referencing side, and six such columns here were sequential
+      # scans on paths that run per order or per page view. And a reference
+      # inside one module that is not a foreign key stores a wrong identifier
+      # with no error at all: support_messages carried a zero ticket_id for the
+      # life of the table, so every ticket's opening message was invisible.
+      - name: Verify foreign keys are indexed and declared
         run: python3 scripts/check-foreign-key-indexes.py
       # Neither vet nor staticcheck knows anything about published advisories.
       # The first run of this found nine reachable vulnerabilities in a 2019
