@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"sort"
 	"strings"
 )
@@ -83,11 +84,12 @@ type ModuleSet map[Module]struct{}
 
 // NewModuleSet normalizes raw ENABLED_MODULES values into a set.
 func NewModuleSet(values []string) ModuleSet {
-	set := make(ModuleSet, len(values))
-	for _, value := range values {
-		if normalized := Module(strings.ToLower(strings.TrimSpace(value))); normalized != "" {
-			set[normalized] = struct{}{}
-		}
+	// config.NormalizeModules owns the canonical form. Restating it here is
+	// what let this package and the config guards disagree.
+	normalized := config.NormalizeModules(values)
+	set := make(ModuleSet, len(normalized))
+	for _, value := range normalized {
+		set[Module(value)] = struct{}{}
 	}
 	return set
 }

@@ -79,12 +79,16 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 		FallbackLocale:   normalize(cfg.FallbackLocale),
 		Currency:         strings.ToUpper(strings.TrimSpace(cfg.Currency)),
 		PriceScale:       cfg.PriceScale, TaxMode: normalize(cfg.TaxMode), VATRate: cfg.VATRate,
-		PaymentProviders:              normalizeAll(cfg.PaymentProviders),
-		PaymentDefault:                normalize(cfg.PaymentDefault),
-		ShippingProviders:             normalizeAll(cfg.ShippingProviders),
-		ShippingDefault:               normalize(cfg.ShippingDefault),
-		InventoryMode:                 normalize(cfg.InventoryMode),
-		EnabledModules:                normalizeAll(cfg.EnabledModules),
+		PaymentProviders:  normalizeAll(cfg.PaymentProviders),
+		PaymentDefault:    normalize(cfg.PaymentDefault),
+		ShippingProviders: normalizeAll(cfg.ShippingProviders),
+		ShippingDefault:   normalize(cfg.ShippingDefault),
+		InventoryMode:     normalize(cfg.InventoryMode),
+		// config.NormalizeModules, not normalizeAll: module names have one
+		// canonical form and one place that defines it. normalizeAll happens to
+		// apply the same rule today, and that coincidence is what let the
+		// config guards drift from this package's view.
+		EnabledModules:                config.NormalizeModules(cfg.EnabledModules),
 		CheckoutAllowGuest:            cfg.CheckoutAllowGuest,
 		CheckoutRequirePhone:          cfg.CheckoutRequirePhone,
 		CheckoutRequireVerifiedEmail:  cfg.CheckoutRequireVerifiedEmail,

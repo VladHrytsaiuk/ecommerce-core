@@ -1,8 +1,10 @@
 package app
 
 import (
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -131,5 +133,38 @@ func TestAllModulesListsEveryConstant(t *testing.T) {
 	}
 	if len(declared) != len(allModules) {
 		t.Fatalf("allModules has %d entries for %d constants", len(allModules), len(declared))
+	}
+}
+
+// Three places decide whether a module is enabled: this package's ModuleSet,
+// the config package's guards, and the CLI. They disagreed — ModuleSet and the
+// CLI folded case, config did not — so ENABLED_MODULES=Notifications built the
+// module while the two guards that validate its configuration silently skipped.
+//
+// There is one definition now, config.NormalizeModules, and this calls it
+// rather than restating its rules: a test that reimplements the thing it checks
+// passes while the real code regresses.
+func TestTheConfigAndModuleViewsAgreeOnWhatIsEnabled(t *testing.T) {
+	for _, written := range [][]string{
+		{"notifications", "abandoned_cart"},
+		{"Notifications", "Abandoned_Cart"},
+		{"NOTIFICATIONS", " ABANDONED_CART"},
+		{"  notifications ", "  abandoned_cart  "},
+	} {
+		t.Run(strings.Join(written, ","), func(t *testing.T) {
+			canonical := config.NormalizeModules(written)
+			modules := NewModuleSet(written)
+
+			for _, module := range []Module{ModuleNotifications, ModuleAbandonedCart} {
+				if !modules.Has(module) {
+					t.Fatalf("%q did not enable %s", written, module)
+				}
+				// The config guards compare canonical names exactly, so the
+				// module being enabled has to imply its guards will run.
+				if !slices.Contains(canonical, string(module)) {
+					t.Fatalf("%q enabled %s but its configuration guards would not run", written, module)
+				}
+			}
+		})
 	}
 }

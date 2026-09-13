@@ -87,3 +87,41 @@ func TestValidateNotificationProvider(t *testing.T) {
 		})
 	}
 }
+
+// ENABLED_MODULES is read once and canonicalised at that point, because every
+// consumer downstream compares module names case-insensitively and this file
+// did not. A store writing "Notifications" got the module enabled and both of
+// the guards that validate it silently skipped.
+
+func TestModuleNamesAreCanonicalisedWhenRead(t *testing.T) {
+	for name, raw := range map[string][]string{
+		"already canonical":  {"notifications"},
+		"capitalised":        {"Notifications"},
+		"shouted":            {"NOTIFICATIONS"},
+		"padded":             {"  notifications  "},
+		"padded and shouted": {" Notifications "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !containsModule(NormalizeModules(raw), "notifications") {
+				t.Fatalf("%v did not register as the notifications module; its guards would not run", raw)
+			}
+		})
+	}
+}
+
+func TestCanonicalisationDropsEmptyEntriesAndKeepsTheRest(t *testing.T) {
+	// A trailing comma in the environment variable is an empty entry, not a
+	// module, and must not become one.
+	got := NormalizeModules([]string{"Notifications", "  ", "Abandoned_Cart", ""})
+
+	if len(got) != 2 || got[0] != "notifications" || got[1] != "abandoned_cart" {
+		t.Fatalf("NormalizeModules() = %q", got)
+	}
+}
+
+func TestAnUnrelatedModuleIsStillNotEnabled(t *testing.T) {
+	// The point is canonicalisation, not matching everything.
+	if containsModule(NormalizeModules([]string{"Notifications"}), "abandoned_cart") {
+		t.Fatal("containsModule matched a module that is not in the list")
+	}
+}

@@ -574,7 +574,14 @@ func Load() *Config {
 	shippingProviders := getEnvList("SHIPPING_PROVIDERS", nil)
 	shippingDefault := getEnvString("SHIPPING_DEFAULT", "")
 	inventoryMode := getEnvString("INVENTORY_MODE", "internal")
-	enabledModules := getEnvList("ENABLED_MODULES", nil)
+	// Canonicalised here, once, because every consumer downstream compares
+	// module names case-insensitively: app.NewModuleSet lowercases, the CLI
+	// uses EqualFold, and the migration runner matches lowercase directory
+	// names. containsModule below did not, so ENABLED_MODULES=Notifications
+	// enabled the module and silently skipped both guards that validate it.
+	// Normalising at the boundary removes the divergence rather than patching
+	// one comparison.
+	enabledModules := NormalizeModules(getEnvList("ENABLED_MODULES", nil))
 	checkoutAllowGuest := getEnvBool("CHECKOUT_ALLOW_GUEST", true)
 	checkoutRequirePhone := getEnvBool("CHECKOUT_REQUIRE_PHONE", true)
 	checkoutRequireVerifiedEmail := getEnvBool("CHECKOUT_REQUIRE_VERIFIED_EMAIL", false)
@@ -918,9 +925,29 @@ func getEnvList(key string, defaultValue []string) []string {
 	return result
 }
 
+// NormalizeModules is the single definition of a module name's canonical form:
+// trimmed and lower-case, matching the Module constants, the migration
+// directory names, and what every consumer already compares against.
+//
+// It is exported so the layers above compare against this rule rather than
+// restate it. Three places used to decide whether a module was enabled and one
+// of them folded case differently, which is how ENABLED_MODULES=Notifications
+// came to enable a module whose configuration guards then never ran.
+func NormalizeModules(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		if module := strings.ToLower(strings.TrimSpace(value)); module != "" {
+			normalized = append(normalized, module)
+		}
+	}
+	return normalized
+}
+
+// containsModule reports whether a canonical module name is enabled. It takes
+// the list as normalizeModules left it, so it compares like with like.
 func containsModule(values []string, needle string) bool {
 	for _, value := range values {
-		if strings.TrimSpace(value) == needle {
+		if value == needle {
 			return true
 		}
 	}

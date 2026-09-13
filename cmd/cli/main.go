@@ -109,7 +109,7 @@ func searchReindex() {
 	if err != nil {
 		log.Fatalf("load store configuration: %v", err)
 	}
-	if !moduleEnabled(storeConfig.EnabledModules, "search") {
+	if !storeConfig.Modules().Has(app.ModuleSearch) {
 		log.Fatal("search-reindex requires search in ENABLED_MODULES")
 	}
 	database, err := platformDB.Connect(cfg.DBURL, platformDB.DefaultPoolConfig())
@@ -141,15 +141,6 @@ func searchReindex() {
 		log.Fatalf("reindex search documents: %v", err)
 	}
 	fmt.Printf("search reindex complete: %d products\n", count)
-}
-
-func moduleEnabled(modules []string, target string) bool {
-	for _, module := range modules {
-		if strings.EqualFold(strings.TrimSpace(module), target) {
-			return true
-		}
-	}
-	return false
 }
 
 // grantSuperAdmin is deliberately a local maintenance command: no HTTP route
