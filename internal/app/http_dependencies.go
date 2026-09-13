@@ -26,6 +26,16 @@ func buildHTTPDependencies(cfg *config.Config, storeConfig StoreConfig, tokenMak
 		return HTTPDependencies{}, fmt.Errorf("configure CORS: %w", err)
 	}
 	errorRenderer := apiresponse.NewErrorRenderer(logger.Log)
+	// Two limiters, one middleware. Which policy applies is decided by what is
+	// handed in, not by a flag inside the middleware.
+	//
+	// Login keeps the strict limiter: when it cannot reach its store the
+	// request is refused, because losing brute-force protection is worse than
+	// failing a login. Public browsing takes the same limiter behind a
+	// fallback, so a Redis outage degrades limits to per-process windows
+	// instead of returning 503 for the whole versioned API — catalog, checkout
+	// and orders included.
+	browsingLimiter := ratelimit.NewFallback(loginLimiter, ratelimit.NewLocalService(), logger.Log)
 	return HTTPDependencies{
 		Recovery:      middleware.PanicRecovery(errorRenderer),
 		Observability: observability.Middleware(),
@@ -42,7 +52,7 @@ func buildHTTPDependencies(cfg *config.Config, storeConfig StoreConfig, tokenMak
 		LocaleMiddleware: middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: storeConfig.DefaultLocale, FallbackLocale: storeConfig.FallbackLocale, SupportedLocales: storeConfig.SupportedLocales}),
 		OptionalAuth:     middleware.OptionalAuthMiddleware(tokenMaker),
 		LoginRateLimit:   middleware.LoginRateLimitMiddleware(loginLimiter, cfg.JWTSecret),
-		APIRateLimit:     middleware.RateLimitByIP(loginLimiter, "api:v1", cfg.APIRateLimitPerMin, time.Minute, cfg.JWTSecret, errorRenderer),
+		APIRateLimit:     middleware.RateLimitByIP(browsingLimiter, "api:v1", cfg.APIRateLimitPerMin, time.Minute, cfg.JWTSecret, errorRenderer),
 		RequestBodyLimit: middleware.MaxRequestBodyBytes(1<<20, errorRenderer),
 		// Includes multipart framing while ReadImagePart independently enforces
 		// a strict 15 MiB limit for the file itself.

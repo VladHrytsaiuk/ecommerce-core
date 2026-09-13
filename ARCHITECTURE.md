@@ -209,7 +209,12 @@ injects only a cache or rate-limit port. PostgreSQL remains authoritative for
 orders, payments, inventory, and the transactional Outbox. When Redis is
 disabled, cache calls are no-ops and login limiting uses a documented
 per-process fallback; enabled Redis failures fail startup rather than silently
-degrading distributed protection.
+degrading distributed protection. At runtime the two surfaces it guards are
+treated differently: login refuses the request when the limiter is unreachable,
+because losing brute-force protection is worse than failing a login, while
+public `/v1` traffic falls back to per-process windows and logs the transition.
+Both were strict, which meant a Redis blip returned 503 for the whole versioned
+API — the storefront went down because a cache did.
 
 Search is an optional, eventually-consistent product projection. Catalog writes
 `catalog.product.changed.v1` in the same transaction as an Admin Facade product

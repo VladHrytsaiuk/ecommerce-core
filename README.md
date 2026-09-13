@@ -119,7 +119,10 @@ this file and that contract disagree, the contract is right, because CI
 regenerates it and fails on a difference.
 All v1 request bodies are capped at 1 MiB (`PAYLOAD_TOO_LARGE` on overflow),
 and v1 public traffic uses the Redis-backed distributed limiter when Redis is
-enabled; its in-memory implementation is only the explicit local fallback.
+enabled, falling back to per-process windows if that store becomes unreachable
+so a cache outage degrades limits instead of taking the API down. Login does not
+fall back: it refuses the request rather than run without brute-force
+protection.
 
 The PostgreSQL client uses a bounded production pool (25 open / 10 idle
 connections, 30-minute maximum lifetime and 5-minute maximum idle time).

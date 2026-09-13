@@ -3,6 +3,7 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -11,6 +12,10 @@ type Decision struct {
 	Allowed    bool
 	RetryAfter time.Duration
 }
+
+// errNotConfigured is returned by a decorator built without its dependencies,
+// so a miswiring refuses requests rather than silently removing the limit.
+var errNotConfigured = errors.New("rate limiter is not configured")
 
 type Service interface {
 	Allow(context.Context, string, int, time.Duration) (Decision, error)
