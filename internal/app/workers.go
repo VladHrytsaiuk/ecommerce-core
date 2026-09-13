@@ -91,6 +91,13 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.SyncDispatcher.Run(workerCtx, 5*time.Second) }()
 	}
+	if a.NotificationRetention != nil {
+		a.workerWG.Add(1)
+		go func() {
+			defer a.workerWG.Done()
+			a.NotificationRetention.Run(workerCtx, a.Config.OutboxRetentionInterval)
+		}()
+	}
 	if a.OutboxRetention != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.OutboxRetention.Run(workerCtx, a.Config.OutboxRetentionInterval) }()

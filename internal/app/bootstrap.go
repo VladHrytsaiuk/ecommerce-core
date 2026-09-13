@@ -50,6 +50,7 @@ import (
 	inventoryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/repository/postgres"
 	mediaApp "github.com/VladHrytsaiuk/ecommerce-core/internal/media/application"
 	notificationsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/application"
+	notificationsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/repository/postgres"
 	ordersApp "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/application"
 	ordersDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/domain"
 	ordersPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/orders/repository/postgres"
@@ -119,6 +120,7 @@ type Application struct {
 	MediaOutboxWorker         *eventsApp.OutboxWorker
 	ReportsOutboxWorker       *eventsApp.OutboxWorker
 	OutboxRetention           *eventsApp.RetentionWorker
+	NotificationRetention     *notificationsApp.RetentionWorker
 	SyncDispatcher            *syncApp.Dispatcher
 	MediaOrphanCleanup        *mediaApp.OrphanCleanupWorker
 	SearchService             searchDomain.SearchService
@@ -315,8 +317,20 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	// notifications off with a non-empty queue erased its pending order
 	// confirmations. It is also a database round trip every five seconds for a
 	// module that is not present.
+	// notification_jobs holds one row per message ever sent, with the
+	// recipient's address and, on the scheduled path, the rendered body. It had
+	// no window at all. The worker runs only where the module does, because
+	// without it nothing writes to the table.
+	var notificationRetention *notificationsApp.RetentionWorker
 	var notificationsOutboxWorker *eventsApp.OutboxWorker
 	if notificationsEnabled {
+		retention, retentionErr := notificationsApp.NewRetentionWorker(
+			notificationsPostgres.NewRepository(db),
+			cfg.NotificationSentRetention, cfg.NotificationDeadRetention, 1000, logger.Log)
+		if retentionErr != nil {
+			return nil, fmt.Errorf("configure notification retention: %w", retentionErr)
+		}
+		notificationRetention = retention.WithMetrics(observability.NewNotificationMetrics())
 		notifications, notificationsErr := buildNotifications(cfg, storeConfig, db)
 		if notificationsErr != nil {
 			return nil, notificationsErr
@@ -513,6 +527,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		MediaOutboxWorker:         mediaOutboxWorker,
 		ReportsOutboxWorker:       reportsOutboxWorker,
 		OutboxRetention:           outboxRetention,
+		NotificationRetention:     notificationRetention,
 		SyncDispatcher:            syncDispatcher,
 		MediaOrphanCleanup:        mediaOrphanCleanup,
 		SearchService:             searchService,

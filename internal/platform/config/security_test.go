@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseTrustedProxies(t *testing.T) {
@@ -176,5 +177,34 @@ func TestTheMarketingLinkRefusalNamesWhatToFix(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("refusal %q does not mention %q", err, want)
 		}
+	}
+}
+
+// A notification job is what stops a redelivered outbox event from sending the
+// same message twice: the handler finds the existing job and returns. Purging
+// sent jobs sooner than completed deliveries are archived opens a window where
+// a replay finds no job, creates one, and the customer gets a second copy.
+func TestValidateNotificationRetention(t *testing.T) {
+	day := 24 * time.Hour
+	for name, scenario := range map[string]struct {
+		sent, dead, outbox time.Duration
+		wantRefusal        bool
+	}{
+		"the defaults":                   {30 * day, 90 * day, 30 * day, false},
+		"sent longer than the outbox":    {60 * day, 90 * day, 30 * day, false},
+		"sent shorter than the outbox":   {7 * day, 90 * day, 30 * day, true},
+		"dead shorter than sent is fine": {30 * day, 7 * day, 30 * day, false},
+		"no sent window":                 {0, 90 * day, 30 * day, true},
+		"no dead window":                 {30 * day, 0, 30 * day, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateNotificationRetention(scenario.sent, scenario.dead, scenario.outbox)
+			if scenario.wantRefusal && err == nil {
+				t.Fatal("startup accepted a retention window that can duplicate a customer's email")
+			}
+			if !scenario.wantRefusal && err != nil {
+				t.Fatalf("startup refused a valid configuration: %v", err)
+			}
+		})
 	}
 }

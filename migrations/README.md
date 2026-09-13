@@ -44,6 +44,17 @@ deletion — see `order_items_order_idx`.
 a configurable window (`OUTBOX_DONE_RETENTION`). Terminal deliveries are
 archived once nothing can need them for replay.
 
+**Pruned, with two windows.** `notification_jobs` keeps one row per message
+ever sent, including the recipient's address, so it is bounded by
+`NOTIFICATION_SENT_RETENTION` (30 days) and `NOTIFICATION_DEAD_RETENTION`
+(90 days). Only terminal rows are deleted: `sent` and `dead`. `pending` and
+`sending` are work in progress, and `failed` is the scheduled dispatcher's
+retryable state, so deleting one would silently drop a message that was still
+going to be sent. The sent window may not be shorter than
+`OUTBOX_DONE_RETENTION` — startup refuses that — because the job is what stops a
+replayed delivery from sending the same message twice. `notification_attempts`
+rows leave with their job through its cascade.
+
 **Growing, undecided.** Two tables accumulate operational rows with no window:
 
 - `inventory_reservations` keeps every terminal reservation — released,
@@ -53,8 +64,10 @@ archived once nothing can need them for replay.
   but it must outlive any dispute or chargeback period the store is subject to;
   `release_failed` rows are an operator alert and must not be pruned at all.
 - `notification_attempts` keeps one row per delivery attempt including retries.
-  A window is defensible for the same reason, and must outlive the support
-  window during which someone may ask why an email did not arrive.
+  Attempts belonging to a purged job now leave with it, so what remains
+  unbounded is the attempts of jobs still inside their own window — a far
+  smaller set than before, and one whose length follows from the windows above
+  rather than from a decision of its own.
 
 Neither has been given a window yet: the right length is a store policy rather
 than a property of this core, and pruning on the wrong one destroys evidence.

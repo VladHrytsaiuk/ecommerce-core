@@ -22,6 +22,22 @@ groups:
       # Retries are normal in isolation. A consumer retrying far more than it
       # completes is a handler or a dependency that is down, and it will reach
       # the alert above in minutes rather than hours.
+      # Retention deletes dead notification jobs after its window, so without an
+      # alert the cleanup quietly erases the evidence that a store has been
+      # failing to send mail. The gauge is sampled on each retention pass.
+      - alert: NotificationJobsDead
+        expr: notification_jobs_dead > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $value }} notification jobs were never delivered"
+          description: >-
+            These messages exhausted their retries. Nothing will send them, and
+            retention will delete them once they age out. Find them with:
+            SELECT id, type, template_key, last_error, updated_at
+            FROM notification_jobs WHERE status = 'dead' ORDER BY updated_at DESC;
+
       - alert: OutboxRetriesOutpacingCompletions
         expr: |
           sum by (consumer) (rate(outbox_deliveries_total{outcome="retried"}[10m]))

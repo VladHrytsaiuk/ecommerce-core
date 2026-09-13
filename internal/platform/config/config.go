@@ -70,12 +70,14 @@ type Config struct {
 
 	// Search is an opt-in external read projection. PostgreSQL remains the
 	// source of truth; these credentials are validated only when enabled.
-	SearchURL               string
-	SearchMasterKey         string
-	SearchIndexPrefix       string
-	ReportsTimezone         string
-	OutboxDoneRetention     time.Duration
-	OutboxRetentionInterval time.Duration
+	SearchURL                 string
+	SearchMasterKey           string
+	SearchIndexPrefix         string
+	ReportsTimezone           string
+	OutboxDoneRetention       time.Duration
+	NotificationSentRetention time.Duration
+	NotificationDeadRetention time.Duration
+	OutboxRetentionInterval   time.Duration
 
 	// Media is an optional object-storage capability. S3-compatible providers
 	// share credentials; Cloudinary uses its own provider URL.
@@ -349,6 +351,13 @@ func Load() *Config {
 	outboxRetentionInterval := getEnvDuration("OUTBOX_RETENTION_INTERVAL", time.Hour)
 	if outboxDoneRetention <= 0 || outboxRetentionInterval <= 0 {
 		log.Fatal("Fatal: OUTBOX_DONE_RETENTION and OUTBOX_RETENTION_INTERVAL must be positive durations")
+	}
+	// A sent job is evidence a message went out; a dead one is a message that
+	// never did and an operator may still need to act on, so it is kept longer.
+	notificationSentRetention := getEnvDuration("NOTIFICATION_SENT_RETENTION", 30*24*time.Hour)
+	notificationDeadRetention := getEnvDuration("NOTIFICATION_DEAD_RETENTION", 90*24*time.Hour)
+	if err := validateNotificationRetention(notificationSentRetention, notificationDeadRetention, outboxDoneRetention); err != nil {
+		log.Fatal("Fatal: " + err.Error())
 	}
 	mediaProvider := strings.ToLower(getEnvString("MEDIA_PROVIDER", "s3"))
 	mediaS3Bucket := strings.TrimSpace(os.Getenv("MEDIA_S3_BUCKET"))
@@ -685,6 +694,8 @@ func Load() *Config {
 		SearchURL:                            searchURL,
 		ReportsTimezone:                      reportsTimezone,
 		OutboxDoneRetention:                  outboxDoneRetention,
+		NotificationSentRetention:            notificationSentRetention,
+		NotificationDeadRetention:            notificationDeadRetention,
 		OutboxRetentionInterval:              outboxRetentionInterval,
 		SearchMasterKey:                      searchMasterKey,
 		SearchIndexPrefix:                    searchIndexPrefix,
@@ -852,6 +863,23 @@ func validateNotificationProvider(appEnv, provider string, notificationsEnabled 
 	}
 	if strings.ToLower(strings.TrimSpace(provider)) == "mock" {
 		return fmt.Errorf("NOTIFICATION_EMAIL_PROVIDER must not be \"mock\" when APP_ENV=production and the notifications module is enabled: it discards mail and reports it as sent")
+	}
+	return nil
+}
+
+// validateNotificationRetention keeps the sent window from outliving the outbox.
+//
+// A notification job is what stops a redelivered outbox event from sending the
+// same message twice: the handler finds the existing job and returns. If sent
+// jobs are purged sooner than completed deliveries are archived, a delivery
+// replayed inside that gap finds no job, creates a new one, and the customer
+// receives a second copy of an email they already have.
+func validateNotificationRetention(sent, dead, outboxDone time.Duration) error {
+	if sent <= 0 || dead <= 0 {
+		return fmt.Errorf("NOTIFICATION_SENT_RETENTION and NOTIFICATION_DEAD_RETENTION must be positive durations")
+	}
+	if sent < outboxDone {
+		return fmt.Errorf("NOTIFICATION_SENT_RETENTION (%s) must be at least OUTBOX_DONE_RETENTION (%s), or a replayed delivery could send a duplicate email", sent, outboxDone)
 	}
 	return nil
 }
