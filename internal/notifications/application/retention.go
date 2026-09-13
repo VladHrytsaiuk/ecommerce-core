@@ -62,14 +62,34 @@ func (w *RetentionWorker) WithMetrics(recorder DeadJobRecorder) *RetentionWorker
 	return w
 }
 
-// PurgeOnce reports the dead backlog before deleting anything, so the number an
-// operator sees is never one this pass has already reduced.
-func (w *RetentionWorker) PurgeOnce(ctx context.Context) (int, error) {
-	if dead, err := w.store.CountDead(ctx); err == nil {
-		w.recorder.DeadNotificationJobs(dead)
-	} else if w.logger != nil {
-		w.logger.Errorw("counting dead notification jobs failed", "error", err)
+// PurgeCycle is one tick: report the backlog, then drain it.
+//
+// The report comes first so the number an operator sees is never one this cycle
+// has already reduced, and it comes once — not once per batch. It used to sit
+// inside the batch, which put a full count between every delete: the drain runs
+// up to 256 times a tick, so a single cycle scanned the table hundreds of times
+// for a gauge that changes once.
+func (w *RetentionWorker) PurgeCycle(ctx context.Context) error {
+	w.reportDeadBacklog(ctx)
+	return worker.Drain(ctx, worker.DefaultDrainCeiling, func(ctx context.Context) (bool, error) {
+		purged, err := w.PurgeOnce(ctx)
+		return purged > 0, err
+	})
+}
+
+func (w *RetentionWorker) reportDeadBacklog(ctx context.Context) {
+	dead, err := w.store.CountDead(ctx)
+	if err != nil {
+		if w.logger != nil {
+			w.logger.Errorw("counting dead notification jobs failed", "error", err)
+		}
+		return
 	}
+	w.recorder.DeadNotificationJobs(dead)
+}
+
+// PurgeOnce deletes one bounded batch.
+func (w *RetentionWorker) PurgeOnce(ctx context.Context) (int, error) {
 	now := time.Now().UTC()
 	return w.store.PurgeTerminal(ctx, now.Add(-w.sentRetention), now.Add(-w.deadRetention), w.batchSize)
 }
@@ -77,11 +97,5 @@ func (w *RetentionWorker) PurgeOnce(ctx context.Context) (int, error) {
 // Run drains the backlog rather than deleting one batch per tick, so a table
 // that has grown for months converges instead of shrinking by one batch an hour.
 func (w *RetentionWorker) Run(ctx context.Context, interval time.Duration) {
-	if interval <= 0 {
-		interval = time.Hour
-	}
-	worker.LoopDraining(ctx, interval, time.Hour, w.logger, "notification retention", func(ctx context.Context) (bool, error) {
-		purged, err := w.PurgeOnce(ctx)
-		return purged > 0, err
-	})
+	worker.Loop(ctx, interval, time.Hour, w.logger, "notification retention", w.PurgeCycle)
 }

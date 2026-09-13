@@ -16,14 +16,45 @@ func TestTheDeadBacklogIsReportedBeforeAnythingIsDeleted(t *testing.T) {
 	recorder := &deadJobRecorderStub{}
 	worker := mustRetentionWorker(t, store, 30*24*time.Hour, 90*24*time.Hour).WithMetrics(recorder)
 
-	if _, err := worker.PurgeOnce(context.Background()); err != nil {
-		t.Fatalf("PurgeOnce() error = %v", err)
+	if err := worker.PurgeCycle(context.Background()); err != nil {
+		t.Fatalf("PurgeCycle() error = %v", err)
 	}
 	if recorder.reported != 7 {
 		t.Fatalf("reported %d dead jobs, want 7", recorder.reported)
 	}
 	if !store.countedBeforePurge {
 		t.Fatal("the backlog was counted after the purge, so the number hides what this pass removed")
+	}
+}
+
+// The count is a full scan of the table, and the drain runs up to 256 times a
+// tick. Counting inside the batch put one of those scans between every delete.
+func TestTheBacklogIsCountedOncePerCycleNotOncePerBatch(t *testing.T) {
+	store := &retentionStoreStub{dead: 4, purgeable: 5}
+	worker := mustRetentionWorker(t, store, time.Hour, time.Hour).WithMetrics(&deadJobRecorderStub{})
+
+	if err := worker.PurgeCycle(context.Background()); err != nil {
+		t.Fatalf("PurgeCycle() error = %v", err)
+	}
+	if store.purgeCalls != 6 {
+		t.Fatalf("%d purge batches, want five full batches and one empty", store.purgeCalls)
+	}
+	if store.countCalls != 1 {
+		t.Fatalf("the table was counted %d times in one cycle, want once", store.countCalls)
+	}
+}
+
+func TestACycleDrainsTheBacklogRatherThanOneBatch(t *testing.T) {
+	// A table that grew for months has to converge, not shrink by one batch an
+	// hour.
+	store := &retentionStoreStub{purgeable: 3}
+	worker := mustRetentionWorker(t, store, time.Hour, time.Hour)
+
+	if err := worker.PurgeCycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.purgeCalls < 4 {
+		t.Fatalf("%d batches in one cycle; the drain stopped before the backlog did", store.purgeCalls)
 	}
 }
 
@@ -65,8 +96,8 @@ func TestAFailingCountDoesNotStopThePurge(t *testing.T) {
 	store := &retentionStoreStub{countErr: errors.New("database unavailable")}
 	worker := mustRetentionWorker(t, store, time.Hour, time.Hour)
 
-	if _, err := worker.PurgeOnce(context.Background()); err != nil {
-		t.Fatalf("PurgeOnce() error = %v", err)
+	if err := worker.PurgeCycle(context.Background()); err != nil {
+		t.Fatalf("PurgeCycle() error = %v", err)
 	}
 	if !store.purged {
 		t.Fatal("a failed count stopped the purge")
@@ -75,8 +106,8 @@ func TestAFailingCountDoesNotStopThePurge(t *testing.T) {
 
 func TestAWorkerWithoutMetricsStillPurges(t *testing.T) {
 	store := &retentionStoreStub{dead: 3}
-	if _, err := mustRetentionWorker(t, store, time.Hour, time.Hour).WithMetrics(nil).PurgeOnce(context.Background()); err != nil {
-		t.Fatalf("PurgeOnce() error = %v", err)
+	if err := mustRetentionWorker(t, store, time.Hour, time.Hour).WithMetrics(nil).PurgeCycle(context.Background()); err != nil {
+		t.Fatalf("PurgeCycle() error = %v", err)
 	}
 	if !store.purged {
 		t.Fatal("no purge without a recorder")
@@ -108,15 +139,18 @@ func mustRetentionWorker(t *testing.T, store RetentionStore, sent, dead time.Dur
 
 type retentionStoreStub struct {
 	dead                   int
+	purgeable              int
 	countErr               error
 	sentBefore, deadBefore time.Time
 	limit                  int
 	purged                 bool
 	countedBeforePurge     bool
 	counted                bool
+	countCalls, purgeCalls int
 }
 
 func (s *retentionStoreStub) CountDead(context.Context) (int, error) {
+	s.countCalls++
 	if s.countErr != nil {
 		return 0, s.countErr
 	}
@@ -125,8 +159,15 @@ func (s *retentionStoreStub) CountDead(context.Context) (int, error) {
 }
 
 func (s *retentionStoreStub) PurgeTerminal(_ context.Context, sentBefore, deadBefore time.Time, limit int) (int, error) {
-	s.countedBeforePurge = s.counted
+	if s.purgeCalls == 0 {
+		s.countedBeforePurge = s.counted
+	}
 	s.sentBefore, s.deadBefore, s.limit, s.purged = sentBefore, deadBefore, limit, true
+	s.purgeCalls++
+	if s.purgeable > 0 {
+		s.purgeable--
+		return 1, nil
+	}
 	return 0, nil
 }
 

@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -174,4 +175,83 @@ func jobExists(t *testing.T, db *gorm.DB, id uuid.UUID) bool {
 		t.Fatal(err)
 	}
 	return count == 1
+}
+
+// Both retention queries used to read the whole table: every index here is
+// partial on the statuses the dispatcher claims, which is right for the
+// dispatcher and useless for the purge. At two hundred thousand rows that was a
+// parallel sequential scan plus a top-N sort for the candidates, and another
+// scan for the count — and the count ran once per batch, up to 256 times a
+// tick. These hold the cold-side indexes that fixed it.
+
+func TestTheRetentionQueriesDoNotReadTheWholeTable(t *testing.T) {
+	_, db := newTemplateRepository(t)
+	seedTerminalBacklog(t, db, 20000)
+
+	for name, query := range map[string]struct {
+		sql  string
+		args []any
+	}{
+		"counting the dead backlog": {
+			`SELECT COUNT(*) FROM notification_jobs WHERE status = 'dead'`, nil,
+		},
+		"selecting purge candidates": {
+			`SELECT id FROM notification_jobs
+			 WHERE (status = 'sent' AND updated_at < $1) OR (status = 'dead' AND updated_at < $2)
+			 ORDER BY updated_at ASC LIMIT 1000`,
+			[]any{time.Now().UTC(), time.Now().UTC()},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var plan []string
+			if err := db.Raw("EXPLAIN "+query.sql, query.args...).Scan(&plan).Error; err != nil {
+				t.Fatal(err)
+			}
+			joined := strings.Join(plan, "\n")
+			if strings.Contains(joined, "Seq Scan on notification_jobs") {
+				t.Fatalf("the query reads the whole table:\n%s", joined)
+			}
+			if !strings.Contains(joined, "notification_jobs_terminal_idx") && !strings.Contains(joined, "notification_jobs_dead_idx") {
+				t.Fatalf("neither terminal index was used:\n%s", joined)
+			}
+		})
+	}
+}
+
+func TestTheCandidateQueryNeedsNoSort(t *testing.T) {
+	// The purge orders by updated_at and stops at its batch size. Without an
+	// index in that order the planner sorts everything that matched first,
+	// which is most of the table.
+	_, db := newTemplateRepository(t)
+	seedTerminalBacklog(t, db, 20000)
+
+	var plan []string
+	if err := db.Raw(`EXPLAIN SELECT id FROM notification_jobs
+		WHERE (status = 'sent' AND updated_at < $1) OR (status = 'dead' AND updated_at < $2)
+		ORDER BY updated_at ASC LIMIT 1000`, time.Now().UTC(), time.Now().UTC()).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	if joined := strings.Join(plan, "\n"); strings.Contains(joined, "Sort") {
+		t.Fatalf("the candidate query sorts:\n%s", joined)
+	}
+}
+
+func seedTerminalBacklog(t *testing.T, db *gorm.DB, rows int) {
+	t.Helper()
+	if err := db.Exec(`
+		INSERT INTO notification_jobs
+			(id, event_id, order_id, dedupe_key, channel, recipient_email, locale, template_key,
+			 payload_ciphertext, payload, status, provider, dispatcher, type, retry_count, next_retry_at, created_at, updated_at)
+		SELECT gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'dedupe-' || g, 'email',
+		       'buyer@example.test', 'en', 'order_paid', '{}', '{}',
+		       CASE WHEN g % 500 = 0 THEN 'dead' WHEN g % 97 = 0 THEN 'pending' ELSE 'sent' END,
+		       'smtp', 'scheduler', 'order_paid', 0, CURRENT_TIMESTAMP,
+		       CURRENT_TIMESTAMP - INTERVAL '200 days', CURRENT_TIMESTAMP - INTERVAL '200 days'
+		FROM generate_series(1, ?) g`, rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Without fresh statistics the planner has no reason to prefer the index.
+	if err := db.Exec(`ANALYZE notification_jobs`).Error; err != nil {
+		t.Fatal(err)
+	}
 }
