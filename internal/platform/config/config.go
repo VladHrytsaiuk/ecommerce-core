@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -612,6 +613,9 @@ func Load() *Config {
 	if err := validateNotificationProvider(appEnv, notificationEmailProvider, containsModule(enabledModules, "notifications")); err != nil {
 		log.Fatal("Fatal: " + err.Error())
 	}
+	if err := validateMarketingLinks(appEnv, frontendURL, containsModule(enabledModules, "abandoned_cart")); err != nil {
+		log.Fatal("Fatal: " + err.Error())
+	}
 	defaultWarehouseID := getEnvString("DEFAULT_WAREHOUSE_ID", "")
 	checkoutReservationTTL := 15 * time.Minute
 	if value := os.Getenv("CHECKOUT_RESERVATION_TTL"); value != "" {
@@ -850,6 +854,56 @@ func validateNotificationProvider(appEnv, provider string, notificationsEnabled 
 		return fmt.Errorf("NOTIFICATION_EMAIL_PROVIDER must not be \"mock\" when APP_ENV=production and the notifications module is enabled: it discards mail and reports it as sent")
 	}
 	return nil
+}
+
+// validateMarketingLinks refuses a production store whose marketing mail would
+// carry an opt-out link nobody outside the server can open.
+//
+// FRONTEND_URL defaults to http://localhost:3000, which is right for the
+// storefront redirect it was originally for and wrong for a URL that leaves in
+// somebody's inbox: a store that never set it would mail an unsubscribe link
+// pointing at the recipient's own machine. The address a recipient cannot reach
+// is the same as no way to unsubscribe at all, which is what the signed link
+// exists to fix.
+//
+// Only where marketing is actually sent, and only in production, so a
+// development store keeps working with the default.
+func validateMarketingLinks(appEnv, frontendURL string, marketingEnabled bool) error {
+	if appEnv != "production" || !marketingEnabled {
+		return nil
+	}
+	host, err := absoluteURLHost(frontendURL)
+	if err != nil {
+		return fmt.Errorf("FRONTEND_URL must be the store's absolute public URL when APP_ENV=production and abandoned_cart is enabled, because unsubscribe links are built from it: %w", err)
+	}
+	if isLoopbackHost(host) {
+		return fmt.Errorf("FRONTEND_URL points at %q, so unsubscribe links in marketing email would be unopenable; set it to the store's public URL", host)
+	}
+	return nil
+}
+
+// absoluteURLHost returns the host of an absolute http(s) URL, rejecting
+// anything a mail client could not follow.
+func absoluteURLHost(raw string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", fmt.Errorf("%q is not a URL", raw)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("%q has no http or https scheme", raw)
+	}
+	if parsed.Hostname() == "" {
+		return "", fmt.Errorf("%q has no host", raw)
+	}
+	return parsed.Hostname(), nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	address, err := netip.ParseAddr(host)
+	return err == nil && address.IsLoopback()
 }
 
 // validateStartupSecurity rejects insecure deployment defaults before a

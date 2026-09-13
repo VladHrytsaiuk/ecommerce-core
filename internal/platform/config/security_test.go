@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseTrustedProxies(t *testing.T) {
 	tests := []struct {
@@ -123,5 +126,55 @@ func TestAnUnrelatedModuleIsStillNotEnabled(t *testing.T) {
 	// The point is canonicalisation, not matching everything.
 	if containsModule(NormalizeModules([]string{"Notifications"}), "abandoned_cart") {
 		t.Fatal("containsModule matched a module that is not in the list")
+	}
+}
+
+// FRONTEND_URL defaults to http://localhost:3000, which is right for the
+// storefront redirect it was originally for and wrong for a URL that leaves in
+// somebody's inbox. Unsubscribe links are built from it, so a production store
+// that never set it would mail an opt-out pointing at the recipient's own
+// machine — the same as no way to unsubscribe, which is what the signed link
+// exists to fix.
+
+func TestValidateMarketingLinks(t *testing.T) {
+	for name, scenario := range map[string]struct {
+		env, frontendURL string
+		marketing        bool
+		wantRefusal      bool
+	}{
+		"the default, in production, sending marketing": {"production", "http://localhost:3000", true, true},
+		"loopback by address":                           {"production", "http://127.0.0.1:3000", true, true},
+		"loopback IPv6":                                 {"production", "http://[::1]:3000", true, true},
+		"not a URL":                                     {"production", "store.example.com", true, true},
+		"no scheme a mail client follows":               {"production", "ftp://store.example.com", true, true},
+		"empty":                                         {"production", "   ", true, true},
+
+		"a real public URL":                  {"production", "https://store.example.com", true, false},
+		"a public URL with a path":           {"production", "https://example.com/shop", true, false},
+		"the default, but not in production": {"development", "http://localhost:3000", true, false},
+		"the default, sending no marketing":  {"production", "http://localhost:3000", false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateMarketingLinks(scenario.env, scenario.frontendURL, scenario.marketing)
+			if scenario.wantRefusal && err == nil {
+				t.Fatalf("startup accepted %q, so marketing mail would carry an unopenable opt-out", scenario.frontendURL)
+			}
+			if !scenario.wantRefusal && err != nil {
+				t.Fatalf("startup refused a valid configuration %q: %v", scenario.frontendURL, err)
+			}
+		})
+	}
+}
+
+func TestTheMarketingLinkRefusalNamesWhatToFix(t *testing.T) {
+	// An operator reading this at 3am needs the variable and the reason.
+	err := validateMarketingLinks("production", "http://localhost:3000", true)
+	if err == nil {
+		t.Fatal("no refusal")
+	}
+	for _, want := range []string{"FRONTEND_URL", "localhost", "unsubscribe"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal %q does not mention %q", err, want)
+		}
 	}
 }
