@@ -38,6 +38,11 @@ import (
 // @in header
 // @name Authorization
 // @description Введіть токен у форматі: Bearer {your_token}
+// workerShutdownTimeout covers a worker acknowledging the unit of work it had
+// already claimed. Unlike the HTTP drain this does not scale with request
+// budgets: the workers bound their own finalization at three seconds.
+const workerShutdownTimeout = 5 * time.Second
+
 func main() {
 	// 1. Ініціалізуємо логер ПЕРШИМ
 	logger.Init()
@@ -131,8 +136,11 @@ func main() {
 	<-ctx.Done()
 
 	logger.Log.Info("🛑 Shutting down server...")
-	// Даємо серверу 5 секунд на завершення поточних запитів
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Long enough for a request using its whole budget to finish. This was five
+	// seconds against a thirty-second request timeout, so SIGTERM cut off work
+	// the server itself had said it would allow; the value is derived from that
+	// timeout now rather than typed independently of it.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -140,7 +148,10 @@ func main() {
 		// deadline. Fatalw would call os.Exit and skip that controlled cleanup.
 		logger.Log.Errorw("❌ Server forced to shutdown", "error", err)
 	}
-	workersShutdownCtx, stopWorkers := context.WithTimeout(context.Background(), 5*time.Second)
+	// Workers are cancellable and their transactions roll back, so this only has
+	// to cover a claimed unit of work being acknowledged: both outbox workers
+	// bound that at three seconds on a detached context.
+	workersShutdownCtx, stopWorkers := context.WithTimeout(context.Background(), workerShutdownTimeout)
 	defer stopWorkers()
 	if err := application.StopContext(workersShutdownCtx); err != nil {
 		logger.Log.Errorw("⚠️ Background workers did not stop before deadline", "error", err)

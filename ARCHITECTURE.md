@@ -202,6 +202,13 @@ parsed into typed structures such as `StoreConfig`, `PaymentsConfig`,
 `DeliveryConfig`, `InventoryConfig`, and `CheckoutPolicy`. Application services
 receive only the narrow policy or port they need, never a giant global config.
 
+Shutdown drains HTTP before cancelling workers, so a signal never cancels work
+an in-flight request still needs. The drain is `SHUTDOWN_TIMEOUT`, derived from
+`HTTP_REQUEST_TIMEOUT` rather than typed independently of it, and workers then
+get five seconds to acknowledge work they had already claimed — which is what
+their own three-second finalization budgets need. The sum is what an
+orchestrator's grace period has to accommodate.
+
 Redis is an optional performance and security capability, not a transactional
 integration boundary: `REDIS_ENABLED=true` requires a valid `REDIS_URL` and a
 successful bounded startup `PING`. Bootstrap owns the client lifecycle and

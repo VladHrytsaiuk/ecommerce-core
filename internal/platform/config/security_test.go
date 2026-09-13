@@ -208,3 +208,31 @@ func TestValidateNotificationRetention(t *testing.T) {
 		})
 	}
 }
+
+// The drain and the request timeout are related, so the default is derived from
+// one rather than typed twice. It was five seconds against a thirty-second
+// request budget, which meant SIGTERM cut off work the server itself had said
+// it would allow, and nothing related the two numbers.
+func TestValidateShutdownTimeout(t *testing.T) {
+	for name, scenario := range map[string]struct {
+		shutdown, request time.Duration
+		wantRefusal       bool
+	}{
+		"the derived default":     {35 * time.Second, 30 * time.Second, false},
+		"exactly the budget":      {30 * time.Second, 30 * time.Second, false},
+		"generous override":       {2 * time.Minute, 30 * time.Second, false},
+		"the old hardcoded value": {5 * time.Second, 30 * time.Second, true},
+		"zero":                    {0, 30 * time.Second, true},
+		"negative":                {-time.Second, 30 * time.Second, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateShutdownTimeout(scenario.shutdown, scenario.request)
+			if scenario.wantRefusal && err == nil {
+				t.Fatalf("startup accepted a %s drain for a %s request budget", scenario.shutdown, scenario.request)
+			}
+			if !scenario.wantRefusal && err != nil {
+				t.Fatalf("startup refused a valid configuration: %v", err)
+			}
+		})
+	}
+}

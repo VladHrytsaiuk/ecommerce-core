@@ -46,9 +46,11 @@ type Config struct {
 	// RequestTimeout — верхня межа тривалості обробки HTTP-запиту (context deadline).
 	// Має бути достатньою для повільних операцій (напр., завантаження кількох зображень у Cloudinary).
 	RequestTimeout time.Duration
-	ManagementAddr string
-	OTelEnabled    bool
-	OTelEndpoint   string
+	// ShutdownTimeout bounds the HTTP drain on SIGTERM.
+	ShutdownTimeout time.Duration
+	ManagementAddr  string
+	OTelEnabled     bool
+	OTelEndpoint    string
 
 	// SMTP (Email)
 	SMTPHost     string
@@ -644,6 +646,15 @@ func Load() *Config {
 		comparisonMaxItems = parsed
 	}
 	apiRateLimitPerMin := getEnvInt("API_RATE_LIMIT_PER_MINUTE", 100)
+	// The drain has to outlast a request's own budget, or SIGTERM cuts off work
+	// the server itself said it would allow: it was five seconds against a
+	// thirty-second request timeout, and the two numbers could drift silently
+	// because nothing related them. The margin covers writing the last response
+	// after the handler returns.
+	shutdownTimeout := getEnvDuration("SHUTDOWN_TIMEOUT", requestTimeout+shutdownDrainMargin)
+	if err := validateShutdownTimeout(shutdownTimeout, requestTimeout); err != nil {
+		log.Fatal("Fatal: " + err.Error())
+	}
 	managementAddr := getEnvString("MANAGEMENT_ADDR", "127.0.0.1:9090")
 	otelEnabled := getEnvBool("OTEL_ENABLED", false)
 	otelEndpoint := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
@@ -678,6 +689,7 @@ func Load() *Config {
 		WebhookRatePerMin:                    webhookRatePerMin,
 		SensitiveRatePerMin:                  sensitiveRatePerMin,
 		RequestTimeout:                       requestTimeout,
+		ShutdownTimeout:                      shutdownTimeout,
 		ManagementAddr:                       managementAddr,
 		OTelEnabled:                          otelEnabled,
 		OTelEndpoint:                         otelEndpoint,
@@ -863,6 +875,26 @@ func validateNotificationProvider(appEnv, provider string, notificationsEnabled 
 	}
 	if strings.ToLower(strings.TrimSpace(provider)) == "mock" {
 		return fmt.Errorf("NOTIFICATION_EMAIL_PROVIDER must not be \"mock\" when APP_ENV=production and the notifications module is enabled: it discards mail and reports it as sent")
+	}
+	return nil
+}
+
+// shutdownDrainMargin is how much longer than a request's own budget the drain
+// runs, so a handler that uses all of it can still have its response written.
+const shutdownDrainMargin = 5 * time.Second
+
+// validateShutdownTimeout keeps the drain from cutting off a request the server
+// had already promised to serve.
+//
+// The two values are related, so the default is derived rather than typed
+// twice; an operator who overrides it still cannot set it below the budget the
+// timeout middleware hands each request.
+func validateShutdownTimeout(shutdown, request time.Duration) error {
+	if shutdown <= 0 {
+		return fmt.Errorf("SHUTDOWN_TIMEOUT must be a positive duration")
+	}
+	if shutdown < request {
+		return fmt.Errorf("SHUTDOWN_TIMEOUT (%s) must be at least HTTP_REQUEST_TIMEOUT (%s), or SIGTERM cuts off requests the server is still allowed to be serving", shutdown, request)
 	}
 	return nil
 }
