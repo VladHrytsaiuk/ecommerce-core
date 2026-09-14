@@ -53,7 +53,7 @@ func TestStartPaymentCreatesOrderBeforeGatewayCall(t *testing.T) {
 	price := mustMoney(1000, "EUR")
 	workflow := &fakeWorkflow{}
 	gateway := &fakeGateway{}
-	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, workflow, gateway)
+	service := NewService(inventory, &fakeVariantFinder{price: price}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, AllowedRedirectOrigins: []string{"https://store.example"}}, workflow, gateway)
 	checkoutID := uuid.New()
 
 	started, err := service.StartPayment(context.Background(), checkoutDomain.StartPaymentRequest{Preparation: checkoutDomain.PrepareRequest{CheckoutID: checkoutID, Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}, CustomerEmail: "buyer@example.com", OrderNumber: "ES-200", ReturnURL: "https://store.example/return"})
@@ -98,7 +98,7 @@ func TestStartPaymentReplaysExistingCheckoutWithoutNewOrderOrReservation(t *test
 	workflow := &fakeWorkflow{checkoutAttempt: attempt}
 	inventory := &fakeInventory{}
 	gateway := &fakeGateway{}
-	service := NewService(inventory, &fakeVariantFinder{price: amount}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true}, workflow, gateway)
+	service := NewService(inventory, &fakeVariantFinder{price: amount}, mustTaxPolicy(t, tax.ModeNone, 0), checkoutDomain.Policy{AllowGuest: true, AllowedRedirectOrigins: []string{"https://store.example"}}, workflow, gateway)
 	checkoutID := uuid.New()
 	attempt.IdempotencyKey = checkoutID.String()
 
@@ -516,5 +516,57 @@ func TestPreparePaymentRejectsVariantMissingFromCatalog(t *testing.T) {
 	}
 	if len(inventory.batch) != 0 {
 		t.Fatal("stock must not be reserved for a variant the catalog did not return")
+	}
+}
+
+func TestStartPaymentRefusesAReturnAddressOutsideTheStoreBeforeReservingAnything(t *testing.T) {
+	// The address went to the payment provider exactly as the client sent it,
+	// so a checkout could send a buyer from the store's genuine payment page to
+	// any site. It is refused before stock is held for it.
+	for name, request := range map[string]checkoutDomain.StartPaymentRequest{
+		"return address": {ReturnURL: "https://evil.example/fake-store"},
+		"cancel address": {ReturnURL: "https://store.example/return", CancelURL: "https://evil.example/fake-store"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			inventory := &fakeInventory{}
+			service := NewService(inventory, &fakeVariantFinder{price: mustMoney(1000, "EUR")}, mustTaxPolicy(t, tax.ModeNone, 0),
+				checkoutDomain.Policy{AllowGuest: true, AllowedRedirectOrigins: []string{"https://store.example"}}, &fakeWorkflow{}, &fakeGateway{})
+			request.Preparation = checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}
+			request.CustomerEmail = "buyer@example.com"
+
+			_, err := service.StartPayment(context.Background(), request)
+
+			if !errors.Is(err, checkoutDomain.ErrRedirectNotAllowed) {
+				t.Fatalf("StartPayment() error = %v, want ErrRedirectNotAllowed", err)
+			}
+			if len(inventory.batch) != 0 {
+				t.Fatalf("stock was reserved for a checkout that was refused: %+v", inventory.batch)
+			}
+		})
+	}
+}
+
+func TestARefusedRedirectNamesTheFieldItCameFrom(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		request checkoutDomain.StartPaymentRequest
+		field   string
+	}{
+		"only the cancel address is wrong": {checkoutDomain.StartPaymentRequest{ReturnURL: "https://store.example/return", CancelURL: "https://evil.example/"}, checkoutDomain.RedirectFieldCancel},
+		// Both wrong: the return address is checked first, every time.
+		"both addresses are wrong": {checkoutDomain.StartPaymentRequest{ReturnURL: "https://evil.example/", CancelURL: "https://evil.example/"}, checkoutDomain.RedirectFieldReturn},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service := NewService(&fakeInventory{}, &fakeVariantFinder{price: mustMoney(1000, "EUR")}, mustTaxPolicy(t, tax.ModeNone, 0),
+				checkoutDomain.Policy{AllowGuest: true, AllowedRedirectOrigins: []string{"https://store.example"}}, &fakeWorkflow{}, &fakeGateway{})
+			testCase.request.Preparation = checkoutDomain.PrepareRequest{CheckoutID: uuid.New(), Locale: "es", ExpiresAt: time.Now().Add(time.Minute), Lines: []checkoutDomain.Line{{VariantID: uuid.New(), WarehouseID: uuid.New(), Quantity: 1}}}
+			testCase.request.CustomerEmail = "buyer@example.com"
+
+			_, err := service.StartPayment(context.Background(), testCase.request)
+
+			var refused *checkoutDomain.RedirectNotAllowedError
+			if !errors.As(err, &refused) || refused.Field != testCase.field {
+				t.Fatalf("StartPayment() error = %v, want the refusal reported against %s", err, testCase.field)
+			}
+		})
 	}
 }

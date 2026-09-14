@@ -65,7 +65,7 @@ func main() {
 	}
 
 	// 3. PostgreSQL.
-	database, err := db.Connect(cfg.DBURL, db.DefaultPoolConfig())
+	database, err := db.Connect(cfg.DBURL, db.PoolConfig(cfg.DBPool))
 	if err != nil {
 		logger.Log.Fatal("Cannot connect to PostgreSQL")
 	}

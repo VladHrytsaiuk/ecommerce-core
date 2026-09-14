@@ -117,6 +117,10 @@ func checkoutValidationError(err error) *apiresponse.PublicError {
 		}
 		return apiresponse.ValidationFailed(err, invalid...)
 	}
+	var redirect *checkoutDomain.RedirectNotAllowedError
+	if errors.As(err, &redirect) {
+		return apiresponse.ValidationFailed(err, apiresponse.InvalidParam{Field: redirect.Field, Code: "origin_not_allowed"})
+	}
 	return apiresponse.ValidationFailed(err)
 }
 

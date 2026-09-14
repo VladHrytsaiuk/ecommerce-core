@@ -12,15 +12,16 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/observability"
 )
 
+// PoolConfig mirrors config.DBPool field for field, so a command converts the
+// loaded configuration with db.PoolConfig(cfg.DBPool). Keep the two identical:
+// a field added to one and not the other stops that conversion compiling, which
+// is the point. Defaults live in config, beside every other environment default,
+// rather than being restated here.
 type PoolConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
 	ConnMaxIdleTime time.Duration
-}
-
-func DefaultPoolConfig() PoolConfig {
-	return PoolConfig{MaxOpenConns: 25, MaxIdleConns: 10, ConnMaxLifetime: 30 * time.Minute, ConnMaxIdleTime: 5 * time.Minute}
 }
 
 // Connect creates the production database pool. SQL text and bound values are

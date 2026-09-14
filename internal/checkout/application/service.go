@@ -206,6 +206,18 @@ func (s *Service) StartPayment(ctx context.Context, request checkoutDomain.Start
 	if s.workflow == nil {
 		return nil, fmt.Errorf("checkout payment workflow is not configured")
 	}
+	// Before anything is reserved or created: an address the provider must not
+	// send the buyer to fails the whole request.
+	// In a fixed order, so a request with two refused addresses always names
+	// the same one.
+	for _, redirect := range []struct{ field, address string }{
+		{checkoutDomain.RedirectFieldReturn, request.ReturnURL},
+		{checkoutDomain.RedirectFieldCancel, request.CancelURL},
+	} {
+		if err := s.policy.ValidateRedirectURL(redirect.address); err != nil {
+			return nil, &checkoutDomain.RedirectNotAllowedError{Field: redirect.field}
+		}
+	}
 	if started, found, err := s.replayCheckout(ctx, request); err != nil || found {
 		return started, err
 	}

@@ -27,6 +27,7 @@ const maxAccessTokenDuration = time.Hour
 type Config struct {
 	Port                 string
 	DBURL                string
+	DBPool               DBPool
 	JWTSecret            string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
@@ -258,6 +259,10 @@ func Load() *Config {
 	dbURL := os.Getenv("DB_URL")
 	if dbURL == "" {
 		log.Fatal("Fatal: DB_URL environment variable is not set")
+	}
+	dbPool, err := parseDBPool(os.Getenv)
+	if err != nil {
+		log.Fatal("Fatal: " + err.Error())
 	}
 
 	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
@@ -690,6 +695,7 @@ func Load() *Config {
 	return &Config{
 		Port:                                 port,
 		DBURL:                                dbURL,
+		DBPool:                               dbPool,
 		JWTSecret:                            jwtSecret,
 		AccessTokenDuration:                  accessTokenDuration,
 		RefreshTokenDuration:                 refreshTokenDuration,

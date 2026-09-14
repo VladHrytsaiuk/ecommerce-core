@@ -15,9 +15,8 @@ import (
 )
 
 var (
-	ErrReturnNotFound          = errors.New("return request not found")
-	ErrReturnCustomerForbidden = errors.New("return request does not belong to customer")
-	ErrUnsupportedRefundMode   = errors.New("automatic settlement supports full refunds only")
+	ErrReturnNotFound        = errors.New("return request not found")
+	ErrUnsupportedRefundMode = errors.New("automatic settlement supports full refunds only")
 )
 
 type CreateCommand struct {
@@ -59,6 +58,17 @@ func (s *ReturnService) CreateReturnRequest(ctx context.Context, command CreateC
 	snapshot, err := s.orders.GetOrderSnapshot(ctx, command.OrderID)
 	if err != nil {
 		return nil, err
+	}
+	// Ownership is authorization, so it is checked here, before anything else
+	// looks at the order. It used to live only inside WindowEligibilityPolicy —
+	// and the eligibility policy is an interface a store replaces to set its own
+	// return window and conditions. A replacement that checked only those rules
+	// let a customer open a return against another customer's order, and the
+	// item validation below would then have described that order's contents in
+	// its errors. The policy keeps its own check; this one no longer depends on
+	// every future policy remembering it.
+	if snapshot.CustomerID == nil || *snapshot.CustomerID == uuid.Nil || *snapshot.CustomerID != command.CustomerID {
+		return nil, returns.ErrReturnCustomerMismatch
 	}
 	// Public requests use customer actor facts derived only from JWT in delivery.
 	actorID := command.CustomerID

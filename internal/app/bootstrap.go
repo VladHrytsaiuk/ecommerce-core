@@ -457,6 +457,10 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		OrderNumberPrefix:          storeConfig.Code,
 		SupportedDeliveryProviders: storeConfig.ShippingProviders,
 		DefaultDeliveryProvider:    storeConfig.ShippingDefault,
+		// The storefront's own origins are the only places a payment provider
+		// may return the buyer to. A new slice, so CORSAllowOrigins is not
+		// appended to in place.
+		AllowedRedirectOrigins: checkoutDomain.NormalizeRedirectOrigins(append([]string{cfg.FrontendURL}, cfg.CORSAllowOrigins...)),
 	}, orderWorkflowService, paymentGateways.Default()).WithCarriers(deliveryCarriers).WithPriceCalculator(priceCalculator).WithCustomerVerificationReader(checkoutIdentity.NewVerificationReader(identityPostgres.NewVerificationStatusReader(db)))
 	if customerProfileService != nil {
 		checkoutService.WithCustomerProfileReader(checkoutIdentity.NewCheckoutProfileReader(customerProfileService))

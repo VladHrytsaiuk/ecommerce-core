@@ -77,6 +77,30 @@ func TestStartPaymentRejectsEmptyCart(t *testing.T) {
 	}
 }
 
+// A refused redirect used to come back as a bare "one or more fields are
+// invalid", leaving an integrator to guess between the two addresses.
+func TestARefusedRedirectIsReportedAgainstItsField(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeCheckout{startErr: &checkoutDomain.RedirectNotAllowedError{Field: checkoutDomain.RedirectFieldCancel}}
+	carts := &fakeCart{cart: &cartDomain.Cart{Items: []cartDomain.Item{{VariantID: uuid.New(), Quantity: 1}}}}
+	router, _ := newCheckoutRouter(service, carts, uuid.New())
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/checkout/es/payment", strings.NewReader(`{"customer_email":"buyer@example.com","customer_phone":"+34123456789","cancel_url":"https://evil.example/"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "checkout-test-redirect")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	for _, expected := range []string{`"field":"cancel_url"`, `"code":"origin_not_allowed"`} {
+		if !strings.Contains(recorder.Body.String(), expected) {
+			t.Fatalf("body = %s, want it to contain %s", recorder.Body.String(), expected)
+		}
+	}
+}
+
 func TestStartPaymentRequiresStableIdempotencyKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeCheckout{}
@@ -140,6 +164,8 @@ type fakeCheckout struct {
 	request      checkoutDomain.StartPaymentRequest
 	quote        checkoutDomain.DeliveryQuoteRequest
 	clientSecret string
+	// startErr, when set, is what StartPayment fails with.
+	startErr error
 }
 
 func (s *fakeCheckout) QuoteDelivery(_ context.Context, request checkoutDomain.DeliveryQuoteRequest) (*checkoutDomain.DeliveryQuote, error) {
@@ -172,6 +198,9 @@ func (s *fakeCheckout) PreparePayment(context.Context, checkoutDomain.PrepareReq
 }
 func (s *fakeCheckout) StartPayment(_ context.Context, request checkoutDomain.StartPaymentRequest) (*checkoutDomain.StartedCheckout, error) {
 	s.request = request
+	if s.startErr != nil {
+		return nil, s.startErr
+	}
 	amount := mustMoney(100, "EUR")
 	order := &ordersDomain.Order{ID: uuid.New(), Number: "STORE-1", PaymentProvider: "liqpay"}
 	return &checkoutDomain.StartedCheckout{Prepared: &checkoutDomain.PreparedCheckout{ExpiresAt: request.Preparation.ExpiresAt, Total: amount}, Order: order, Session: paymentsDomain.PaymentSession{ProviderReference: "payment-1", RedirectURL: "https://pay.example", ClientSecret: s.clientSecret}}, nil

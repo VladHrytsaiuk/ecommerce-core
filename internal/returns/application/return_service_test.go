@@ -239,3 +239,45 @@ func mustMoney(t *testing.T, amount int64, currency string) money.Money {
 func ptrTime(value time.Time) *time.Time { return &value }
 
 var _ returns.Repository = (*fakeRepository)(nil)
+
+// permissivePolicy stands for the eligibility policy a store writes for itself:
+// it applies the store's own rules and, reasonably, knows nothing about who is
+// allowed to return what.
+type permissivePolicy struct{}
+
+func (permissivePolicy) IsEligible(returns.OrderSnapshot, returns.ReturnRequest) error { return nil }
+
+func TestAReturnOnAnotherCustomersOrderIsRefusedWhateverThePolicy(t *testing.T) {
+	// Ownership was checked only inside WindowEligibilityPolicy, so replacing
+	// the policy — the first thing a store customises — removed it.
+	owner, requester, variantID, orderID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for name, snapshotOwner := range map[string]*uuid.UUID{
+		"another customer's order": &owner,
+		"a guest order":            nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			repository := &fakeRepository{}
+			snapshot := returns.OrderSnapshot{
+				OrderID: orderID, CustomerID: snapshotOwner, Status: "delivered",
+				DeliveredAt: ptrTime(time.Now().UTC()), Total: mustMoney(t, 1000, "EUR"),
+				Items: []returns.OrderItemSnapshot{{VariantID: &variantID, Quantity: 1}},
+			}
+			service, err := NewReturnService(repository, fakeOrders{snapshot: snapshot}, permissivePolicy{}, fakeTx{}, &fakePublisher{}, &fakePublisher{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = service.CreateReturnRequest(context.Background(), CreateCommand{
+				OrderID: orderID, CustomerID: requester,
+				Items: []returns.ReturnItem{{VariantID: variantID, Quantity: 1, Condition: returns.ItemConditionUnopened}},
+			})
+
+			if !errors.Is(err, returns.ErrReturnCustomerMismatch) {
+				t.Fatalf("CreateReturnRequest() error = %v, want ErrReturnCustomerMismatch", err)
+			}
+			if repository.request != nil {
+				t.Fatal("a return was stored against an order the requester does not own")
+			}
+		})
+	}
+}

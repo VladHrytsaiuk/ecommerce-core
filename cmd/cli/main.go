@@ -119,7 +119,7 @@ func searchReindex() {
 	if !storeConfig.Modules().Has(app.ModuleSearch) {
 		log.Fatal("search-reindex requires search in ENABLED_MODULES")
 	}
-	database, err := platformDB.Connect(cfg.DBURL, platformDB.DefaultPoolConfig())
+	database, err := platformDB.Connect(cfg.DBURL, platformDB.PoolConfig(cfg.DBPool))
 	if err != nil {
 		log.Fatalf("connect PostgreSQL: %v", err)
 	}
@@ -231,7 +231,7 @@ func reencryptNotifications() {
 	if !storeConfig.Modules().Has(app.ModuleNotifications) {
 		log.Fatal("notifications-reencrypt requires notifications in ENABLED_MODULES")
 	}
-	database, err := platformDB.Connect(cfg.DBURL, platformDB.DefaultPoolConfig())
+	database, err := platformDB.Connect(cfg.DBURL, platformDB.PoolConfig(cfg.DBPool))
 	if err != nil {
 		log.Fatalf("connect to database: %v", err)
 	}

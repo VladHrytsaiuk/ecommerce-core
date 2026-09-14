@@ -49,7 +49,7 @@ func TestConnectIntegration(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 5. ТЕСТУЄМО нашу функцію Connect з internal/platform/db/postgres.go
-	pool := DefaultPoolConfig()
+	pool := testPoolConfig()
 	db, err := Connect(connStr, pool)
 
 	// 6. ПЕРЕВІРКИ
@@ -86,10 +86,16 @@ func TestConnectRejectsInvalidPoolConfigIntegration(t *testing.T) {
 
 	// Більше idle- ніж open-з'єднань драйвер мовчки обріже, тож така
 	// конфігурація має бути відхилена на старті, а не проявитись під навантаженням.
-	invalid := DefaultPoolConfig()
+	invalid := testPoolConfig()
 	invalid.MaxIdleConns = invalid.MaxOpenConns + 1
 
 	db, err := Connect(connStr, invalid)
 	assert.Error(t, err)
 	assert.Nil(t, db)
+}
+
+// testPoolConfig is a valid pool for exercising Connect. Production defaults
+// are config's; these tests only need a pool Connect accepts.
+func testPoolConfig() PoolConfig {
+	return PoolConfig{MaxOpenConns: 25, MaxIdleConns: 10, ConnMaxLifetime: 30 * time.Minute, ConnMaxIdleTime: 5 * time.Minute}
 }
