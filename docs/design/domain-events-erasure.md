@@ -45,7 +45,7 @@ Inventoried from each topic's `MarshalPayload`. For the cart topics the
 | Topic | Identifiers in the payload | How it reaches a person |
 | --- | --- | --- |
 | `cart.updated.v1` | `cart_id`, `customer_id` (authenticated carts) | **Directly**, `customer_id` |
-| `privacy.erasure_requested.v1` | `customer_id` | **Directly**, `customer_id` |
+| `privacy.erasure_completed.v1` | request id, outcome, policy version, time — no identifier of the person | Through `privacy_requests.customer_id` |
 | `admin.action.v1` | `actor_user_id`, `ip_address`, `resource_id`, sanitised old/new payload, metadata | **Directly**, actor and IP; the old/new payload may hold customer data |
 | `carts.created.v1` | `cart_id` | Through `carts` |
 | `checkout.email_captured.v1` | `cart_id` — the email itself is not in the payload | Through the cart and `checkout_contacts` |
@@ -60,7 +60,7 @@ Inventoried from each topic's `MarshalPayload`. For the cart topics the
 
 These came out of the inventory and are not yet decided.
 
-**1. Most linkage is transitive, not in the payload.** Only three topics carry a
+**1. Most linkage is transitive, not in the payload.** Only two topics carry a
 person's identifier directly. The rest carry an order or cart id, which
 identifies a person only through `orders.customer_id` or `carts.customer_id`.
 For those topics — both protected financial topics among them — erasure is
@@ -70,11 +70,24 @@ This is what makes "financial events are kept forever" compatible with erasure:
 and whatever `ErasureExecutor` a store attaches must be designed together;
 unlinking one without the other leaves the link in place.
 
-**2. `privacy.erasure_requested.v1` writes the raw `customer_id` today**
-(`internal/consent/domain/consent.go`), which contradicts the audit-fact rule
-above. It is not a live exposure: no `ErasureExecutor` is wired, so approving an
-erasure is refused and no such event can currently be written. It is an ordering
-constraint — the payload must change before any store attaches an executor.
+**2. The erasure record itself — done 2026-09-14.** `privacy.erasure_requested.v1`
+wrote the raw `customer_id`. It is replaced by `privacy.erasure_completed.v1`,
+which carries the request id, outcome, policy version and time and nothing that
+names the person. `ErasureExecutor` gained `PolicyVersion()`, read before
+`Erase`, so an executor that cannot name its policy is refused before it changes
+anything.
+
+Two things remain for the project:
+
+- **Legacy rows may exist.** Before commit `3441882`, approving an erasure
+  published `privacy.erasure_requested.v1` — with the raw `customer_id` — without
+  erasing anything. Any database that ran that code and had an erasure approved
+  can hold such rows. The erasure project must scrub them; nothing writes that
+  topic any more.
+- **The request id still links to the person** through
+  `privacy_requests.customer_id` (`NOT NULL`). Keeping that link is proof the
+  request was honoured; removing it is erasure. Which one applies is a question
+  for the exception matrix, and the event deliberately does not decide it.
 
 **3. `admin.action.v1` is the hardest case and needs the exception matrix most.**
 It carries `actor_user_id` and `ip_address`, and `audit_logs` mirrors both with
@@ -90,5 +103,5 @@ or erased is exactly the question the matrix has to answer.
    unlink, or erase.
 2. Decide whether unlinking `orders` and `carts` and rewriting events happen in
    one transaction, and who owns it — the core or the store's executor.
-3. Change the `privacy.erasure_requested.v1` payload to a non-identifying audit
-   fact before any executor is wired.
+3. Scrub legacy `privacy.erasure_requested.v1` rows, and decide whether
+   `privacy_requests.customer_id` is kept as proof of compliance or removed.

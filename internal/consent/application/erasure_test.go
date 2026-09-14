@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,16 +52,31 @@ func (t *rollbackTransaction) WithinTransaction(ctx context.Context, fn func(con
 	return nil
 }
 
-type countingPublisher struct{ published int }
+type countingPublisher struct {
+	published int
+	events    []events.DomainEvent
+}
 
-func (p *countingPublisher) Publish(context.Context, events.DomainEvent) error {
+func (p *countingPublisher) Publish(_ context.Context, event events.DomainEvent) error {
 	p.published++
+	p.events = append(p.events, event)
 	return nil
 }
 
 type recordingEraser struct {
 	erased []uuid.UUID
 	err    error
+	// unnamedPolicy makes the executor unable to say which policy it applies.
+	unnamedPolicy bool
+}
+
+const testErasurePolicy = "erasure-policy-2026-09"
+
+func (e *recordingEraser) PolicyVersion() string {
+	if e.unnamedPolicy {
+		return "  "
+	}
+	return testErasurePolicy
 }
 
 func (e *recordingEraser) Erase(_ context.Context, customerID uuid.UUID) error {
@@ -247,5 +263,79 @@ func TestSupportsErasureDescribesTheDeployment(t *testing.T) {
 	}
 	if !newPrivacyService(repository, &rollbackTransaction{}, &countingPublisher{}).WithErasure(&recordingEraser{}).SupportsErasure() {
 		t.Fatal("SupportsErasure() = false with an executor configured")
+	}
+}
+
+func TestAnErasureIsRecordedWithItsPolicyAndWithoutTheCustomer(t *testing.T) {
+	// The one record of an erasure used to keep the raw customer_id the
+	// erasure had just removed.
+	request := consent.PrivacyRequest{ID: uuid.New(), CustomerID: uuid.New(), RequestType: "erasure", Status: "pending"}
+	repository := &privacyRepository{request: request}
+	publisher := &countingPublisher{}
+	service := newPrivacyService(repository, &rollbackTransaction{}, publisher).WithErasure(&recordingEraser{})
+
+	if _, err := service.ApprovePrivacyRequest(context.Background(), request.ID); err != nil {
+		t.Fatalf("ApprovePrivacyRequest() error = %v", err)
+	}
+	if len(publisher.events) != 1 {
+		t.Fatalf("published %d events, want one", len(publisher.events))
+	}
+	event := publisher.events[0]
+	if event.Topic() != consent.TopicErasureCompleted {
+		t.Fatalf("topic = %q, want %q", event.Topic(), consent.TopicErasureCompleted)
+	}
+	if event.AggregateID() != request.ID {
+		t.Fatalf("aggregate = %s, want the privacy request %s", event.AggregateID(), request.ID)
+	}
+	raw, err := event.MarshalPayload()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), request.CustomerID.String()) {
+		t.Fatalf("the erasure record carries the erased customer: %s", raw)
+	}
+	if !strings.Contains(string(raw), testErasurePolicy) {
+		t.Fatalf("the erasure record does not name its policy: %s", raw)
+	}
+}
+
+func TestAnExecutorThatCannotNameItsPolicyIsRefusedBeforeItErasesAnything(t *testing.T) {
+	// The policy is read before Erase. Checking it afterwards would roll back
+	// the database, but not whatever the executor had already done elsewhere.
+	request := consent.PrivacyRequest{ID: uuid.New(), CustomerID: uuid.New(), RequestType: "erasure", Status: "pending"}
+	repository := &privacyRepository{request: request}
+	transaction := &rollbackTransaction{}
+	publisher := &countingPublisher{}
+	eraser := &recordingEraser{unnamedPolicy: true}
+	service := newPrivacyService(repository, transaction, publisher).WithErasure(eraser)
+
+	_, err := service.ApprovePrivacyRequest(context.Background(), request.ID)
+
+	if !errors.Is(err, consent.ErrErasurePolicyUnnamed) {
+		t.Fatalf("ApprovePrivacyRequest() error = %v, want ErrErasurePolicyUnnamed", err)
+	}
+	if len(eraser.erased) != 0 {
+		t.Fatal("the executor erased data before its policy was checked")
+	}
+	if !transaction.rolledBack || publisher.published != 0 || len(repository.completed) != 0 {
+		t.Fatalf("rolledBack=%v published=%d completed=%d, want a refused, unrecorded, open request",
+			transaction.rolledBack, publisher.published, len(repository.completed))
+	}
+}
+
+func TestAnUnnamedPolicyRefusesTheRequestAtIntake(t *testing.T) {
+	// Accepting a request every approval would reject is the promise the
+	// intake guard exists to avoid making.
+	repository := &privacyRepository{}
+	service := newPrivacyService(repository, &rollbackTransaction{}, &countingPublisher{}).WithErasure(&recordingEraser{unnamedPolicy: true})
+
+	if err := service.PrivacyRequest(context.Background(), uuid.New(), "erasure"); !errors.Is(err, consent.ErrErasurePolicyUnnamed) {
+		t.Fatalf("PrivacyRequest() error = %v, want ErrErasurePolicyUnnamed", err)
+	}
+	if len(repository.created) != 0 {
+		t.Fatal("a request was stored that no approval could honour")
+	}
+	if service.SupportsErasure() {
+		t.Fatal("SupportsErasure() = true for an executor that cannot name its policy")
 	}
 }

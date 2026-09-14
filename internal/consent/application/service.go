@@ -33,7 +33,26 @@ func (s *Service) WithErasure(executor consent.ErasureExecutor) *Service {
 // SupportsErasure reports whether this deployment can carry an erasure request
 // out. Delivery uses it to describe the capability rather than discover it
 // from a failed request.
-func (s *Service) SupportsErasure() bool { return s != nil && s.eraser != nil }
+func (s *Service) SupportsErasure() bool {
+	_, err := s.erasurePolicy()
+	return err == nil
+}
+
+// erasurePolicy is the one check that this deployment can honour an erasure:
+// an executor exists, and it names the policy it applies. Intake, approval and
+// SupportsErasure all go through it, so a store whose executor cannot name its
+// policy refuses requests at the door instead of accepting ones every approval
+// would then reject.
+func (s *Service) erasurePolicy() (string, error) {
+	if s == nil || s.eraser == nil {
+		return "", consent.ErrErasureUnsupported
+	}
+	policy := strings.TrimSpace(s.eraser.PolicyVersion())
+	if policy == "" {
+		return "", consent.ErrErasurePolicyUnnamed
+	}
+	return policy, nil
+}
 
 // WithExport supplies the deployment's implementation of the right of access.
 // Without it this service refuses export requests rather than accepting them
@@ -89,14 +108,21 @@ func (s *Service) ApprovePrivacyRequest(c context.Context, id uuid.UUID) (*conse
 		}
 		switch x.RequestType {
 		case "erasure":
-			if s.eraser == nil {
-				// Rolls the approval back: the request stays pending.
-				return consent.ErrErasureUnsupported
+			// Either failure rolls the approval back: the request stays pending.
+			policy, e := s.erasurePolicy()
+			if e != nil {
+				return e
+			}
+			// Built before anything is erased, so an erasure that could not be
+			// recorded is stopped rather than left without its audit fact.
+			completed, e := consent.NewErasureCompletedEvent(x.ID, policy, s.now())
+			if e != nil {
+				return e
 			}
 			if e := s.eraser.Erase(tc, x.CustomerID); e != nil {
 				return e
 			}
-			if e := s.publisher.Publish(tc, consent.ErasureRequestedEvent{EventID: x.ID, CustomerID: x.CustomerID, At: s.now()}); e != nil {
+			if e := s.publisher.Publish(tc, completed); e != nil {
 				return e
 			}
 		case "export":
@@ -238,8 +264,10 @@ func (s *Service) PrivacyRequest(c context.Context, id uuid.UUID, t string) erro
 	// Refused at intake, not only at approval: a customer who asks to be
 	// deleted should be told now that this store cannot do it, rather than
 	// wait for an approval that can never honestly come.
-	if t == "erasure" && s.eraser == nil {
-		return consent.ErrErasureUnsupported
+	if t == "erasure" {
+		if _, err := s.erasurePolicy(); err != nil {
+			return err
+		}
 	}
 	// The same for the right of access. Accepting an export this deployment
 	// cannot produce starts a statutory clock against a request that will

@@ -41,7 +41,8 @@ not business logic embedded in the order flow.
   references, customer-consent history, and privacy-request intake. Erasure is
   a port, not an implementation: what a store must delete and what it must
   retain follows from its jurisdiction and its own commitments, so the core
-  refuses erasure requests until a deployment supplies an `ErasureExecutor`.
+  refuses erasure requests until a deployment supplies an `ErasureExecutor`
+  that names the policy it applies.
 
 ## Architecture and Roadmap
 

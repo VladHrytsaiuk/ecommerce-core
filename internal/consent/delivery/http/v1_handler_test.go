@@ -658,6 +658,8 @@ type eraserStub struct {
 	err    error
 }
 
+func (e *eraserStub) PolicyVersion() string { return "handler-test-policy" }
+
 func (e *eraserStub) Erase(_ context.Context, customerID uuid.UUID) error {
 	e.calls++
 	e.erased = customerID

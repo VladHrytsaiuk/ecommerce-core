@@ -2,9 +2,11 @@ package domain
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	events "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	"github.com/google/uuid"
+	"strings"
 	"time"
 )
 
@@ -43,6 +45,10 @@ var (
 	// sent, and the clock on a statutory deadline ran while the request looked
 	// like it was being handled.
 	ErrExportUnsupported = errors.New("data export is not available in this deployment")
+	// ErrErasurePolicyUnnamed refuses an executor that cannot say which policy it
+	// applies. The erasure record is only an audit fact if it names the rules
+	// the erasure followed.
+	ErrErasurePolicyUnnamed = errors.New("the erasure executor does not name the policy it applies")
 )
 
 // ErasureExecutor deletes or anonymizes everything the core holds about one
@@ -57,6 +63,12 @@ var (
 // Erase runs inside the approval transaction, so a failure leaves the request
 // unapproved rather than half-erased.
 type ErasureExecutor interface {
+	// PolicyVersion names the erasure and retention policy this executor
+	// applies, as the store's own records identify it. It is recorded with
+	// every erasure, so a later audit can tell which rules a given erasure
+	// followed. It is read before anything is erased: an executor that cannot
+	// name its policy is refused before it has changed a single row.
+	PolicyVersion() string
 	Erase(ctx context.Context, customerID uuid.UUID) error
 }
 
@@ -93,25 +105,72 @@ type TransactionManager interface {
 	WithinTransaction(context.Context, func(context.Context) error) error
 }
 
-// TopicErasureRequested records an erasure that an administrator approved and
-// the deployment's ErasureExecutor carried out, in the same transaction as
-// both. It is an audit record of work done, not a work item: nothing consumes
-// it, and nothing is waiting to. Approval is refused outright where no
-// executor is configured, so this event never stands for a promise unkept.
-const TopicErasureRequested = "privacy.erasure_requested.v1"
+// TopicErasureCompleted records that an administrator approved an erasure and
+// the deployment's ErasureExecutor carried it out, in the same transaction as
+// both. It is an audit fact, not a work item: nothing consumes it.
+//
+// It carries no identifier of the person. It replaces
+// privacy.erasure_requested.v1, which wrote the raw customer_id into an
+// append-only table — so the one record of an erasure kept the very identifier
+// the erasure removed. The name changed with it: the event is written after the
+// erasure has happened, and "requested" described something it never was. The
+// topic is renamed now rather than versioned in place because this core is
+// copied to start stores, and every later moment is more expensive.
+//
+// The request id still reaches the person through privacy_requests.customer_id.
+// Whether that link is kept as proof the request was honoured, or removed, is a
+// question for the store's legal exception matrix rather than for this event;
+// see docs/design/domain-events-erasure.md.
+const TopicErasureCompleted = "privacy.erasure_completed.v1"
 
-type ErasureRequestedEvent struct {
-	EventID, CustomerID uuid.UUID
-	At                  time.Time
+// ErasureOutcomeCompleted is the only outcome ever recorded. A failed erasure
+// rolls its approval back, so no event is written for it.
+const ErasureOutcomeCompleted = "completed"
+
+// maxPolicyVersionLength bounds an operator-supplied label that lands in an
+// append-only table forever.
+const maxPolicyVersionLength = 64
+
+// ErasureCompletedEvent is built only through NewErasureCompletedEvent. Its
+// fields are unexported so no caller can attach a customer identifier or skip
+// the policy check.
+type ErasureCompletedEvent struct {
+	requestID     uuid.UUID
+	policyVersion string
+	completedAt   time.Time
 }
 
-func (ErasureRequestedEvent) Topic() string               { return TopicErasureRequested }
-func (ErasureRequestedEvent) AggregateType() string       { return "privacy_request" }
-func (e ErasureRequestedEvent) AggregateID() uuid.UUID    { return e.EventID }
-func (e ErasureRequestedEvent) IdempotencyKey() uuid.UUID { return e.EventID }
-func (e ErasureRequestedEvent) OccurredAt() time.Time     { return e.At }
-func (e ErasureRequestedEvent) MarshalPayload() ([]byte, error) {
-	return []byte(`{"version":1,"customer_id":"` + e.CustomerID.String() + `"}`), nil
+// NewErasureCompletedEvent validates the audit fact before anything is erased:
+// the service builds it first, so an erasure that could not be recorded never
+// happens.
+func NewErasureCompletedEvent(requestID uuid.UUID, policyVersion string, completedAt time.Time) (ErasureCompletedEvent, error) {
+	policyVersion = strings.TrimSpace(policyVersion)
+	if policyVersion == "" {
+		return ErasureCompletedEvent{}, ErrErasurePolicyUnnamed
+	}
+	if requestID == uuid.Nil || completedAt.IsZero() || len(policyVersion) > maxPolicyVersionLength {
+		return ErasureCompletedEvent{}, ErrInvalid
+	}
+	return ErasureCompletedEvent{requestID: requestID, policyVersion: policyVersion, completedAt: completedAt.UTC()}, nil
 }
 
-var _ events.DomainEvent = ErasureRequestedEvent{}
+func (ErasureCompletedEvent) Topic() string               { return TopicErasureCompleted }
+func (ErasureCompletedEvent) AggregateType() string       { return "privacy_request" }
+func (e ErasureCompletedEvent) AggregateID() uuid.UUID    { return e.requestID }
+func (e ErasureCompletedEvent) IdempotencyKey() uuid.UUID { return e.requestID }
+func (e ErasureCompletedEvent) OccurredAt() time.Time     { return e.completedAt }
+
+// MarshalPayload goes through encoding/json. The old payload was assembled by
+// string concatenation, which was only safe because a UUID cannot contain a
+// quote; a policy label can.
+func (e ErasureCompletedEvent) MarshalPayload() ([]byte, error) {
+	return json.Marshal(struct {
+		Version       int       `json:"version"`
+		RequestID     uuid.UUID `json:"request_id"`
+		Outcome       string    `json:"outcome"`
+		PolicyVersion string    `json:"policy_version"`
+		CompletedAt   time.Time `json:"completed_at"`
+	}{Version: 1, RequestID: e.requestID, Outcome: ErasureOutcomeCompleted, PolicyVersion: e.policyVersion, CompletedAt: e.completedAt})
+}
+
+var _ events.DomainEvent = ErasureCompletedEvent{}
