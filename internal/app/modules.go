@@ -18,6 +18,7 @@ const (
 	ModuleAdmin         Module = "admin"
 	ModuleAvailability  Module = "availability_notifications"
 	ModuleBadges        Module = "badges"
+	ModuleCatalog       Module = "catalog"
 	ModuleCheckout      Module = "checkout"
 	ModuleComparison    Module = "comparison"
 	ModuleConsent       Module = "consent"
@@ -49,11 +50,27 @@ const (
 // adding it here cannot silently start rejecting a valid configuration.
 var allModules = []Module{
 	ModuleAbandonedCart, ModuleAdmin, ModuleAvailability, ModuleBadges,
-	ModuleCheckout, ModuleComparison, ModuleConsent, ModuleCustomers,
+	ModuleCatalog, ModuleCheckout, ModuleComparison, ModuleConsent, ModuleCustomers,
 	ModuleInventory, ModuleMedia, ModuleNotifications, ModuleOrders,
 	ModulePromos, ModuleReports, ModuleReturns, ModuleReviews, ModuleSearch,
 	ModuleSEO, ModuleSupport, ModuleSync, ModuleUserProfiles, ModuleVideo,
 	ModuleWishlist,
+}
+
+// requiredModules are the modules no store can run without, with the reason
+// each one is not optional. They are listed here rather than checked inline so
+// that "which modules must be on" has the same single declarative home as
+// "which modules need which", and so a missing one is reported in the same pass.
+//
+// catalog is on this list because the product repository unconditionally reads
+// product_media, and the four tables the catalog migrations create exist only
+// where that module is enabled. It was not a module name at all until this
+// list needed one: its migrations sat in migrations/modules/catalog while
+// ENABLED_MODULES rejected "catalog" as unknown, so nothing ever created those
+// tables and every product read failed on a table that does not exist.
+var requiredModules = map[Module]string{
+	ModuleCatalog:   "every product read preloads product_media",
+	ModuleInventory: "checkout reservations require it",
 }
 
 // moduleRequirements is the single declarative source of truth for
@@ -120,6 +137,18 @@ func (m ModuleSet) Validate() error {
 			strings.Join(unknown, ", "), strings.Join(moduleNames(), ", "))
 	}
 
+	problems := make([]string, 0, len(moduleRequirements)+len(requiredModules))
+	missingRequired := make([]Module, 0, len(requiredModules))
+	for module := range requiredModules {
+		if !m.Has(module) {
+			missingRequired = append(missingRequired, module)
+		}
+	}
+	sort.Slice(missingRequired, func(i, j int) bool { return missingRequired[i] < missingRequired[j] })
+	for _, module := range missingRequired {
+		problems = append(problems, fmt.Sprintf("%s is required because %s", module, requiredModules[module]))
+	}
+
 	dependents := make([]Module, 0, len(moduleRequirements))
 	for module := range moduleRequirements {
 		if m.Has(module) {
@@ -128,7 +157,6 @@ func (m ModuleSet) Validate() error {
 	}
 	sort.Slice(dependents, func(i, j int) bool { return dependents[i] < dependents[j] })
 
-	problems := make([]string, 0, len(dependents))
 	for _, module := range dependents {
 		missing := make([]string, 0, len(moduleRequirements[module]))
 		for _, required := range moduleRequirements[module] {

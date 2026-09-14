@@ -12,13 +12,30 @@ type sweepStore struct {
 	mu    sync.Mutex
 	calls int
 	err   error
+	// released is what a sweep reports, and releaseUntil is how many sweeps
+	// report it before the store runs dry. Together they describe a backlog
+	// deeper than one batch.
+	released     int
+	releaseUntil int
 }
 
 func (s *sweepStore) ReleaseExpiredUnattached(context.Context, time.Time, int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
-	return 0, s.err
+	if s.err != nil {
+		return 0, s.err
+	}
+	if s.calls <= s.releaseUntil {
+		return s.released, nil
+	}
+	return 0, nil
+}
+
+func (s *sweepStore) sweeps() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }
 
 type recordingLogger struct {
@@ -80,12 +97,61 @@ func TestCleanupWithoutALoggerStillSweeps(t *testing.T) {
 	// and tooling construct this worker directly.
 	store := &sweepStore{err: errors.New("connection reset by peer")}
 	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		NewCleanup(store).Run(ctx, time.Hour)
+		close(done)
+	}()
+	waitFor(t, func() bool { return store.sweeps() > 0 })
 	cancel()
+	<-done
+}
 
-	NewCleanup(store).Run(ctx, time.Hour)
+func TestCleanupDrainsTheBacklogWithinOneTick(t *testing.T) {
+	// It used to take one page of a hundred per minute and stop. Above that
+	// rate — a flash sale, a payment outage — the sweep fell permanently
+	// behind and stock stayed reserved for orders that no longer existed.
+	//
+	// The interval is an hour, so anything past the first sweep here happened
+	// inside a single tick.
+	store := &sweepStore{released: releaseBatch, releaseUntil: 3}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	if store.calls != 1 {
-		t.Fatalf("sweeps = %d, want 1", store.calls)
+	done := make(chan struct{})
+	go func() {
+		NewCleanup(store).Run(ctx, time.Hour)
+		close(done)
+	}()
+	waitFor(t, func() bool { return store.sweeps() >= 4 })
+	cancel()
+	<-done
+
+	// Three full batches, then a short one that ends the drain.
+	if swept := store.sweeps(); swept != 4 {
+		t.Fatalf("sweeps = %d, want the drain to stop at the first short batch", swept)
+	}
+}
+
+func TestCleanupStopsDrainingWhenABatchFails(t *testing.T) {
+	// A failing store must end the pass, not spin through the ceiling against
+	// a database it cannot reach.
+	store := &sweepStore{released: releaseBatch, err: errors.New("connection reset by peer")}
+	logger := &recordingLogger{}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		NewCleanup(store).WithLogger(logger).Run(ctx, time.Hour)
+		close(done)
+	}()
+	waitFor(t, func() bool { return logger.count() > 0 })
+	cancel()
+	<-done
+
+	if swept := store.sweeps(); swept != 1 {
+		t.Fatalf("sweeps = %d, want the pass to end on the first failure", swept)
 	}
 }
 

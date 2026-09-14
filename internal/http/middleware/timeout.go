@@ -9,20 +9,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TimeoutMiddleware додає таймаут до контексту запиту.
-// Це дозволяє GORM та іншим сервісам перервати виконання при перевищенні ліміту.
+// TimeoutMiddleware bounds how long one request may run.
+//
+// The deadline goes on the request context, so GORM and every adapter that
+// honours cancellation stop with it rather than holding a connection for a
+// client that has already gone.
 func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Створюємо контекст з таймаутом на основі існуючого контексту запиту
+		// Derived from the request's own context, so a client disconnect still
+		// cancels everything below.
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
 
-		// Оновлюємо контекст запиту
+		// Hand the bounded context to the rest of the chain.
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
 
-		// Якщо після виконання хендлерів виявлено таймаут, і відповідь ще не відправлена
+		// Only when nothing has been written yet: a handler that already began
+		// streaming cannot be given a status code now.
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			if !c.Writer.Written() {
 				c.AbortWithStatusJSON(http.StatusGatewayTimeout, gin.H{

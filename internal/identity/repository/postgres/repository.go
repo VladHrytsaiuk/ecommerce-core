@@ -306,6 +306,35 @@ func (r *OAuthAttemptStore) Consume(ctx context.Context, provider, state string,
 	return record.toDomain(), nil
 }
 
+// PurgeSettled deletes attempts that can no longer be consumed: the ones
+// already exchanged for a session and the ones whose window closed.
+//
+// Nothing deleted these. An attempt lives ten minutes by contract, but the row
+// stayed forever — one per "sign in with Google" click, each holding that
+// exchange's PKCE code_verifier and OIDC nonce in the clear, in a table whose
+// only other job is a unique index that can never shrink. Consumed secrets are
+// not a capability anyone can use, but keeping them is a cost with no reader.
+//
+// Bounded, and ordered oldest-first so a backlog is worked off from the end
+// that will never be needed again.
+func (r *OAuthAttemptStore) PurgeSettled(ctx context.Context, now time.Time, limit int) (int, error) {
+	if r == nil || r.db == nil || now.IsZero() || limit < 1 || limit > 10000 {
+		return 0, fmt.Errorf("invalid OAuth attempt purge request")
+	}
+	result := r.db.WithContext(ctx).Exec(`
+DELETE FROM oauth_authorization_attempts
+WHERE id IN (
+    SELECT id FROM oauth_authorization_attempts
+    WHERE consumed_at IS NOT NULL OR expires_at <= ?
+    ORDER BY expires_at
+    LIMIT ?
+)`, now, limit)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return int(result.RowsAffected), nil
+}
+
 // AuthTransaction wires independent repository ports to the same local
 // PostgreSQL transaction. It never executes provider HTTP calls.
 type AuthTransaction struct{ db *gorm.DB }

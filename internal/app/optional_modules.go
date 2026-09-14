@@ -394,6 +394,9 @@ type identityRuntime struct {
 	Auth            *identityService.AuthService
 	Profiles        identityDomain.ProfileService
 	CustomerProfile identityDomain.CustomerProfileService
+	// AttemptCleanup is not optional and not module-gated: every deployment
+	// signs people in, and oauth_authorization_attempts had no sweep at all.
+	AttemptCleanup *identityApplication.OAuthAttemptCleanup
 }
 
 func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker, modules ModuleSet, observer identityDomain.UserLoginObserver) (identityRuntime, error) {
@@ -422,7 +425,12 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 	if observer != nil {
 		auth.WithUserLoginObserver(observer)
 	}
-	runtime := identityRuntime{Auth: auth}
+	attemptStore := identityPostgres.NewOAuthAttemptStore(db)
+	attemptCleanup, err := identityApplication.NewOAuthAttemptCleanup(attemptStore)
+	if err != nil {
+		return identityRuntime{}, fmt.Errorf("configure OAuth attempt cleanup: %w", err)
+	}
+	runtime := identityRuntime{Auth: auth, AttemptCleanup: attemptCleanup.WithLogger(logger.Log)}
 	if modules.Has(ModuleCustomers) {
 		runtime.CustomerProfile = identityApplication.NewCustomerProfileService(identityPostgres.NewCustomerProfileRepository(db))
 	}

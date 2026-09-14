@@ -78,9 +78,41 @@ go run ./cmd/api
 Update `DB_URL` and other required values in `.env` before running migrations.
 Never commit `.env`; use `.env.example` for safe placeholders.
 
-After the Inventory migration, create an active warehouse and put its UUID in
-`DEFAULT_WAREHOUSE_ID`. This selects the stock-reservation warehouse for the
-initial checkout policy; it is separate from a carrier's sender address.
+### Licence
+
+This software is proprietary; see [LICENSE](LICENSE). Using it for a deployment
+requires written permission from the copyright holder. Third-party dependencies
+keep their own licences.
+
+### Renaming the module for your own deployment
+
+The import path is `github.com/VladHrytsaiuk/ecommerce-core`. A fork under a
+different organization renames it in one pass:
+
+```bash
+NEW=github.com/your-org/your-store
+OLD=github.com/VladHrytsaiuk/ecommerce-core
+go mod edit -module "$NEW"
+grep -rl "$OLD" --include='*.go' . | xargs sed -i '' "s|$OLD|$NEW|g"   # GNU sed: -i without ''
+go build ./... && go test ./...
+```
+
+Nothing outside Go imports carries the path: `scripts/check-package-reachability.sh`
+reads it from `go list -m`, and the Dockerfile, Compose file and migrations do
+not mention it. Rename `go.mod` and the imports together — a half-done rename
+leaves that script comparing an empty set and silently checking nothing.
+
+The Inventory migrations seed the warehouse that `.env.example` already names in
+`DEFAULT_WAREHOUSE_ID`, so a fresh database needs no manual step here. That
+warehouse is where checkout reserves, where the admin catalog facade adjusts
+stock, and where returns restock; it is separate from a carrier's sender
+address. A store with its own warehouse inserts that row and points
+`DEFAULT_WAREHOUSE_ID` at it instead.
+
+`ENABLED_MODULES` ships as `catalog,inventory,admin`. The first two are
+mandatory — startup refuses a list without them and says why — and `admin` is
+what the next two steps need: its migrations create the RBAC tables, and
+without it none of the `/api/v1/admin/...` routes are registered.
 
 Create the first store owner after migrations, before using the protected
 admin catalog endpoints. In the Docker starter use the CLI container, which

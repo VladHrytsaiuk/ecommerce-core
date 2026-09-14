@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// CustomClaims містить корисне навантаження для JWT.
+// CustomClaims is the payload carried by an issued JWT.
 type CustomClaims struct {
 	UserID uuid.UUID `json:"user_id"`
 	Role   string    `json:"role"`
@@ -63,7 +63,7 @@ const (
 	RoleOwner    = "owner"
 )
 
-// Maker визначає інтерфейс для створення та перевірки токенів.
+// Maker is the port for issuing and verifying tokens.
 type Maker interface {
 	// CreateTokenForRole is the clean token API. Role codes mirror the Core
 	// users.role vocabulary and are the only values authorization consumes.
@@ -73,16 +73,16 @@ type Maker interface {
 	VerifyToken(token string) (*CustomClaims, error)
 }
 
-// JWTMaker - реалізація до інтерфейсу Maker за допомогою JWT.
+// JWTMaker implements Maker with JSON Web Tokens.
 type JWTMaker struct {
 	secretKey string
 	issuer    string
 	audience  string
 }
 
-// NewJWTMaker створює нового JWTMaker для роботи з токенами.
+// NewJWTMaker builds a token maker over the configured signing secret.
 func NewJWTMaker(secretKey string) (Maker, error) {
-	// Базова перевірка довжини ключа
+	// A short HMAC secret is brute-forceable offline once a token leaks.
 	if len(secretKey) < 32 {
 		return nil, fmt.Errorf("invalid key size: must be at least 32 characters")
 	}
@@ -106,7 +106,7 @@ func NewJWTMakerFor(secretKey, issuer, audience string) (Maker, error) {
 	return concrete, nil
 }
 
-// CreateToken генерує новий JWT токен для заданого userID, ролі та терміну.
+// CreateToken issues a token for one subject, role and lifetime.
 func (maker *JWTMaker) CreateToken(userID uuid.UUID, roleID int, duration time.Duration) (string, *CustomClaims, error) {
 	return maker.CreateTokenForRole(userID, roleCode(roleID), duration)
 }
@@ -122,7 +122,7 @@ func (maker *JWTMaker) CreateTokenForRole(userID uuid.UUID, role string, duratio
 		Role:      role,
 		TokenType: TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        uuid.NewString(), // JWT ID, унікальний для кожного токена (практично запобігає reuse-атакам)
+			ID:        uuid.NewString(), // Unique per token, so an issued token can be told apart from a replay.
 			Issuer:    maker.issuer,
 			Audience:  jwt.ClaimStrings{maker.audience},
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -161,10 +161,11 @@ func validRole(role string) bool {
 	}
 }
 
-// VerifyToken перевіряє криптографічний підпис токена та його життєздатність.
+// VerifyToken checks the signature and the token's validity window.
 func (maker *JWTMaker) VerifyToken(token string) (*CustomClaims, error) {
 	keyFunc := func(token *jwt.Token) (interface{}, error) {
-		// Очікуваний алгоритм — HMAC (HS256)
+		// HMAC only: accepting the algorithm named in the header is how a
+		// token signed with "none" — or with the public key — gets accepted.
 		_, ok := token.Method.(*jwt.SigningMethodHMAC)
 		if !ok {
 			return nil, errors.New("invalid token signing method")

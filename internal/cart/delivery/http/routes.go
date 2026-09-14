@@ -1,5 +1,3 @@
-//go:build !legacy
-
 package http
 
 import (

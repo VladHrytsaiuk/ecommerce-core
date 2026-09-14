@@ -100,7 +100,7 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			want:   "DEFAULT_WAREHOUSE_ID",
 		},
 		{
-			name:   "inventory module is required by checkout",
+			name:   "a store with no modules at all",
 			mutate: func(cfg *config.Config) { cfg.EnabledModules = nil },
 			want:   "ENABLED_MODULES",
 		},
@@ -111,13 +111,13 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 		},
 		{
 			name:   "profile module requires policy",
-			mutate: func(cfg *config.Config) { cfg.EnabledModules = []string{"inventory", "user_profiles"} },
+			mutate: func(cfg *config.Config) { cfg.EnabledModules = withRequiredModules("user_profiles") },
 			want:   "PROFILE_POLICY_JSON",
 		},
 		{
 			name: "comparison module requires positive limit",
 			mutate: func(cfg *config.Config) {
-				cfg.EnabledModules = []string{"inventory", "comparison"}
+				cfg.EnabledModules = withRequiredModules("comparison")
 				cfg.ComparisonMaxItems = 0
 			},
 			want: "COMPARISON_MAX_ITEMS",
@@ -127,7 +127,7 @@ func TestNewStoreConfigRejectsInvalidCombinations(t *testing.T) {
 			mutate: func(cfg *config.Config) {
 				// Its module dependencies are satisfied so the window itself is
 				// what fails; otherwise the dependency check reports first.
-				cfg.EnabledModules = []string{"inventory", "returns", "orders", "admin"}
+				cfg.EnabledModules = withRequiredModules("returns", "orders", "admin")
 				cfg.ReturnWindowDays = 0
 			},
 			want: "RETURN_WINDOW",
@@ -153,7 +153,7 @@ func TestNewStoreConfigAcceptsGoogleOAuthAndProfilePolicy(t *testing.T) {
 	cfg.GoogleClientID = "client-id"
 	cfg.GoogleClientSecret = "client-secret"
 	cfg.GoogleRedirectURI = "https://api.example.test/api/auth/oauth/google/callback"
-	cfg.EnabledModules = []string{"inventory", "user_profiles"}
+	cfg.EnabledModules = withRequiredModules("user_profiles")
 	cfg.ProfilePolicyJSON = `{"schema_version":1,"fields":[{"key":"birth_date","type":"date","customer_writable":true}]}`
 
 	got, err := NewStoreConfig(cfg)
@@ -167,7 +167,7 @@ func TestNewStoreConfigAcceptsGoogleOAuthAndProfilePolicy(t *testing.T) {
 
 func TestNewStoreConfigAcceptsComparison(t *testing.T) {
 	cfg := validConfig()
-	cfg.EnabledModules = []string{"inventory", "comparison"}
+	cfg.EnabledModules = withRequiredModules("comparison")
 	cfg.ComparisonMaxItems = 5
 
 	got, err := NewStoreConfig(cfg)
@@ -178,7 +178,7 @@ func TestNewStoreConfigAcceptsComparison(t *testing.T) {
 
 func TestNewStoreConfigAcceptsReturnsPolicy(t *testing.T) {
 	cfg := validConfig()
-	cfg.EnabledModules = []string{"inventory", "orders", "admin", "returns"}
+	cfg.EnabledModules = withRequiredModules("orders", "admin", "returns")
 	cfg.ReturnWindowDays = 14
 	cfg.PaymentProviders, cfg.PaymentDefault = []string{"stripe"}, "stripe"
 	cfg.StripeSecretKey, cfg.StripeWebhookSecret = "sk_test", "whsec_test"
@@ -191,7 +191,7 @@ func TestNewStoreConfigAcceptsReturnsPolicy(t *testing.T) {
 
 func TestNewStoreConfigValidatesOptionalSearch(t *testing.T) {
 	cfg := validConfig()
-	cfg.EnabledModules = []string{"inventory", "search"}
+	cfg.EnabledModules = withRequiredModules("search")
 	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "SEARCH_URL") {
 		t.Fatalf("NewStoreConfig() error = %v, want missing Search configuration", err)
 	}
@@ -205,7 +205,7 @@ func TestNewStoreConfigValidatesOptionalSearch(t *testing.T) {
 
 func TestNewStoreConfigValidatesReportsTimezone(t *testing.T) {
 	cfg := validConfig()
-	cfg.EnabledModules = []string{"inventory", "admin", "reports"}
+	cfg.EnabledModules = withRequiredModules("admin", "reports")
 	cfg.ReportsTimezone = "not/a-timezone"
 	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "REPORTS_TIMEZONE") {
 		t.Fatalf("NewStoreConfig() error = %v, want invalid reports timezone", err)
@@ -218,7 +218,7 @@ func TestNewStoreConfigValidatesReportsTimezone(t *testing.T) {
 
 func TestNewStoreConfigRequiresAdminForReports(t *testing.T) {
 	cfg := validConfig()
-	cfg.EnabledModules = []string{"inventory", "reports"}
+	cfg.EnabledModules = withRequiredModules("reports")
 	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "admin") {
 		t.Fatalf("NewStoreConfig() error = %v, want reports admin dependency", err)
 	}
@@ -226,11 +226,11 @@ func TestNewStoreConfigRequiresAdminForReports(t *testing.T) {
 
 func TestNewStoreConfigValidatesOptionalMedia(t *testing.T) {
 	cfg := validConfig()
-	cfg.EnabledModules = []string{"inventory", "media"}
+	cfg.EnabledModules = withRequiredModules("media")
 	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "admin") {
 		t.Fatalf("NewStoreConfig() error = %v, want media admin dependency", err)
 	}
-	cfg.EnabledModules = []string{"inventory", "admin", "media"}
+	cfg.EnabledModules = withRequiredModules("admin", "media")
 	cfg.MediaProvider, cfg.MediaS3Bucket, cfg.MediaS3Region = "minio", "media", "us-east-1"
 	cfg.MediaS3Endpoint = "http://minio:9000"
 	cfg.MediaS3PublicBaseURL = "http://minio.local/media"
@@ -255,11 +255,11 @@ func TestNewStoreConfigValidatesOptionalMedia(t *testing.T) {
 
 func TestNewStoreConfigValidatesOptionalVideo(t *testing.T) {
 	cfg := validConfig()
-	cfg.EnabledModules = []string{"inventory", "video"}
+	cfg.EnabledModules = withRequiredModules("video")
 	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "admin") {
 		t.Fatalf("NewStoreConfig() error = %v, want admin dependency", err)
 	}
-	cfg.EnabledModules = []string{"inventory", "admin", "video"}
+	cfg.EnabledModules = withRequiredModules("admin", "video")
 	cfg.VideoProvider = "cloudflare"
 	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "CLOUDFLARE_STREAM") {
 		t.Fatalf("NewStoreConfig() error = %v, want Cloudflare Stream configuration", err)
@@ -291,7 +291,7 @@ func TestNewMediaObjectStoreRejectsUnknownProviderEvenWithoutPriorValidation(t *
 
 func TestNewStoreConfigRejectsTrailingProfilePolicyJSON(t *testing.T) {
 	cfg := validConfig()
-	cfg.EnabledModules = []string{"inventory", "user_profiles"}
+	cfg.EnabledModules = withRequiredModules("user_profiles")
 	cfg.ProfilePolicyJSON = `{"schema_version":1,"fields":[]} {}`
 	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "PROFILE_POLICY_JSON") {
 		t.Fatalf("NewStoreConfig() error = %v, want invalid JSON error", err)
@@ -490,7 +490,7 @@ func validConfig() *config.Config {
 		PaymentProviders: nil, PaymentDefault: "",
 		ShippingProviders: nil, ShippingDefault: "",
 		InventoryMode:          "internal",
-		EnabledModules:         []string{"inventory"},
+		EnabledModules:         withRequiredModules(),
 		CheckoutReservationTTL: 15 * time.Minute,
 		ReturnWindowDays:       14,
 		OAuthAttemptTTL:        10 * time.Minute,

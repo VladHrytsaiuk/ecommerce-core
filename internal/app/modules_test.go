@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -44,11 +45,11 @@ func TestModuleSetExplainsWhyADependencyExists(t *testing.T) {
 }
 
 func TestModuleSetAcceptsASatisfiedConfiguration(t *testing.T) {
-	modules := NewModuleSet([]string{
-		"admin", "notifications", "consent", "checkout", "inventory", "orders",
+	modules := NewModuleSet(withRequiredModules(
+		"admin", "notifications", "consent", "checkout", "orders",
 		"support", "reports", "media", "video", "abandoned_cart",
 		"availability_notifications", "returns",
-	})
+	))
 	if err := modules.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want a fully satisfied set to pass", err)
 	}
@@ -56,9 +57,37 @@ func TestModuleSetAcceptsASatisfiedConfiguration(t *testing.T) {
 
 func TestModuleSetIgnoresDependenciesOfDisabledModules(t *testing.T) {
 	// admin alone must not drag in the modules that depend on it.
-	if err := NewModuleSet([]string{"admin"}).Validate(); err != nil {
+	if err := NewModuleSet(withRequiredModules("admin")).Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want no requirement from a disabled dependent", err)
 	}
+}
+
+func TestModuleSetReportsEveryMissingMandatoryModule(t *testing.T) {
+	// Both are reported together, and each says why it is not optional. An
+	// operator who left them both out used to be told about one.
+	err := NewModuleSet([]string{"admin"}).Validate()
+	if err == nil {
+		t.Fatal("Validate() accepted a store with no catalog and no inventory")
+	}
+	for _, expected := range []string{
+		"catalog is required because every product read preloads product_media",
+		"inventory is required because checkout reservations require it",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("Validate() error = %q, want it to mention %q", err, expected)
+		}
+	}
+}
+
+// withRequiredModules prepends the modules no store may omit, so a test about
+// dependency rules is not also a test about the mandatory list.
+func withRequiredModules(modules ...string) []string {
+	required := make([]string, 0, len(requiredModules)+len(modules))
+	for module := range requiredModules {
+		required = append(required, string(module))
+	}
+	slices.Sort(required)
+	return append(required, modules...)
 }
 
 func TestModuleSetCoversEveryDependencyThatUsedToBeInline(t *testing.T) {
@@ -167,4 +196,63 @@ func TestTheConfigAndModuleViewsAgreeOnWhatIsEnabled(t *testing.T) {
 			}
 		})
 	}
+}
+
+// modulesWithoutSchema are the modules that deliberately own no tables. It is
+// the only thing that may explain a module with no migrations directory, and it
+// is short on purpose: search projects into Meilisearch, and checkout's tables
+// arrived later under its own name.
+var modulesWithoutSchema = map[Module]string{
+	ModuleSearch: "projects into Meilisearch; owns no SQL",
+}
+
+func TestEveryModuleMigrationDirectoryIsAModuleNameEnabledModulesAccepts(t *testing.T) {
+	// This is the invariant that was missing. migrations/modules/catalog
+	// existed while "catalog" was not a module name at all, so ENABLED_MODULES
+	// rejected it, cmd/migrate could never plan it, and the four tables it
+	// creates — product_media among them — were created by no valid
+	// configuration. Every product read then failed on a missing table.
+	for _, entry := range moduleMigrationDirectories(t) {
+		if !Module(entry).known() {
+			t.Fatalf("migrations/modules/%s has no module name in ENABLED_MODULES, so nothing can ever apply it", entry)
+		}
+	}
+}
+
+func TestEveryModuleEitherOwnsSchemaOrSaysWhyItDoesNot(t *testing.T) {
+	// The other direction. cmd/migrate skips a module with no migrations
+	// directory, which is right for search and would silently hide the
+	// accidental deletion of any other module's schema.
+	directories := make(map[string]struct{})
+	for _, entry := range moduleMigrationDirectories(t) {
+		directories[entry] = struct{}{}
+	}
+	for _, module := range allModules {
+		_, hasSchema := directories[string(module)]
+		_, exempt := modulesWithoutSchema[module]
+		if hasSchema && exempt {
+			t.Fatalf("%s is listed as owning no schema but migrations/modules/%s exists", module, module)
+		}
+		if !hasSchema && !exempt {
+			t.Fatalf("%s has no migrations directory and no entry in modulesWithoutSchema; cmd/migrate would skip it and the store would boot without its tables", module)
+		}
+	}
+}
+
+func moduleMigrationDirectories(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join("..", "..", "migrations", "modules"))
+	if err != nil {
+		t.Fatalf("read module migrations: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no module migration directories found; this test would assert nothing")
+	}
+	return names
 }

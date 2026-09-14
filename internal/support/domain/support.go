@@ -34,6 +34,21 @@ var (
 	ErrMessageForbidden = errors.New("support ticket message forbidden")
 )
 
+// MaxSubjectRunes, MaxCustomerMessageRunes and MaxAgentReplyRunes bound what
+// reaches support_messages.body, whose only constraint is that it is not empty.
+//
+// The customer bound is the one that was missing: the agent's reply was checked
+// at 2000 runes in the service, while a ticket body and a customer follow-up
+// were bounded only by the HTTP handler's 32 KiB request cap — so any caller
+// that was not that handler had no bound at all. The agent's stays stricter
+// because a reply is rendered into an outbound email; a customer describing a
+// problem is given more room.
+const (
+	MaxSubjectRunes         = 255
+	MaxCustomerMessageRunes = 5000
+	MaxAgentReplyRunes      = 2000
+)
+
 const (
 	StatusNew             = "new"
 	StatusOpen            = "open"

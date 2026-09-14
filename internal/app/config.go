@@ -292,11 +292,11 @@ func (c StoreConfig) Validate() error {
 	if c.InventoryMode != "internal" {
 		return fmt.Errorf("INVENTORY_MODE %q is not implemented yet", c.InventoryMode)
 	}
-	if !c.Modules().Has(ModuleInventory) {
-		return fmt.Errorf("ENABLED_MODULES must include inventory because checkout reservations require it")
-	}
-	// Every module-to-module dependency is checked here, in one pass, so a
-	// misconfigured deployment learns all of its problems at once.
+	// Every module rule — which modules are mandatory and which need which —
+	// is checked here, in one pass, so a misconfigured deployment learns all of
+	// its problems at once. The inventory requirement used to sit above as its
+	// own early return, which meant a store missing two modules was told about
+	// one of them.
 	if err := c.Modules().Validate(); err != nil {
 		return err
 	}

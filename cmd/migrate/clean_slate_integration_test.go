@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -238,15 +237,6 @@ func assertTablesAbsent(t *testing.T, db *gorm.DB, tables ...string) {
 			t.Fatalf("expected rolled-back table %q to be absent", table)
 		}
 	}
-}
-
-func repositoryRoot(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("discover repository root")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
 // allModuleNames reads the module directories rather than listing them, so a

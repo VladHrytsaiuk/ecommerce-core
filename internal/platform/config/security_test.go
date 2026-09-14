@@ -236,3 +236,45 @@ func TestValidateShutdownTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateOutboxArchiveRetention(t *testing.T) {
+	// The archive receives a delivery only after OUTBOX_DONE_RETENTION has
+	// elapsed, so a shorter archive window deletes it on arrival and keeps no
+	// forensic trail at all — silently, since both values look reasonable
+	// on their own.
+	done := 30 * 24 * time.Hour
+	for name, testCase := range map[string]struct {
+		archive time.Duration
+		wantErr bool
+	}{
+		"longer than the done window":  {90 * 24 * time.Hour, false},
+		"equal to the done window":     {done, false},
+		"shorter than the done window": {7 * 24 * time.Hour, true},
+		"zero":                         {0, true},
+		"negative":                     {-time.Hour, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateOutboxArchiveRetention(testCase.archive, done)
+			if testCase.wantErr && err == nil {
+				t.Fatalf("validateOutboxArchiveRetention(%s, %s) = nil, want an error", testCase.archive, done)
+			}
+			if !testCase.wantErr && err != nil {
+				t.Fatalf("validateOutboxArchiveRetention(%s, %s) = %v", testCase.archive, done, err)
+			}
+		})
+	}
+}
+
+func TestTheArchiveRetentionRefusalNamesBothWindows(t *testing.T) {
+	// An operator who set one of them needs to see which other value it has to
+	// clear, not just that the value is wrong.
+	err := validateOutboxArchiveRetention(time.Hour, 24*time.Hour)
+	if err == nil {
+		t.Fatal("validateOutboxArchiveRetention() accepted an archive window that deletes on arrival")
+	}
+	for _, expected := range []string{"OUTBOX_ARCHIVE_RETENTION", "OUTBOX_DONE_RETENTION"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("error = %q, want it to name %q", err, expected)
+		}
+	}
+}

@@ -4,8 +4,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -64,7 +66,7 @@ func runMigrations(root, databaseURL string, enabledModules []string, direction 
 }
 
 func migrationSteps(root string, enabledModules []string, direction string) ([]migrationStep, error) {
-	plans, err := modulePlans(enabledModules)
+	plans, err := modulePlans(root, enabledModules)
 	if err != nil {
 		return nil, err
 	}
@@ -84,9 +86,18 @@ func migrationSteps(root string, enabledModules []string, direction string) ([]m
 	return append(steps, core), nil
 }
 
-// modulePlans gives every enabled module an isolated migration history and a
-// stable execution order independent of the order used in .env.
-func modulePlans(enabledModules []string) ([]modulePlan, error) {
+// modulePlans gives every enabled module that has a schema an isolated
+// migration history and a stable execution order independent of the order used
+// in .env.
+//
+// A module with no migrations directory is skipped rather than failed. Not
+// every module owns tables: search projects into Meilisearch and has no SQL at
+// all, and ENABLED_MODULES=...,search — which the README tells operators to
+// use — used to abort the migration half way through core, leaving a partially
+// applied database. The directory listing is the only thing that knows which
+// modules carry schema, so it is what decides; the name itself was already
+// checked against the module vocabulary before this runs.
+func modulePlans(root string, enabledModules []string) ([]modulePlan, error) {
 	modules := append([]string(nil), enabledModules...)
 	sort.Strings(modules)
 	plans := make([]modulePlan, 0, len(modules))
@@ -97,10 +108,18 @@ func modulePlans(enabledModules []string) ([]modulePlan, error) {
 		if index > 0 && modules[index-1] == module {
 			return nil, fmt.Errorf("duplicate enabled module %q", module)
 		}
-		plans = append(plans, modulePlan{
-			dir:   filepath.Join("migrations", "modules", module),
-			table: "schema_migrations_module_" + module,
-		})
+		dir := filepath.Join("migrations", "modules", module)
+		info, err := os.Stat(filepath.Join(root, dir))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("inspect migrations for module %q: %w", module, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("migrations path for module %q is not a directory", module)
+		}
+		plans = append(plans, modulePlan{dir: dir, table: "schema_migrations_module_" + module})
 	}
 	return plans, nil
 }

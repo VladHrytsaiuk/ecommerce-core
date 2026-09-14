@@ -10,13 +10,17 @@ import (
 const (
 	GuestSessionCookie = "guest_session"
 	GuestSessionKey    = "guest_session_id"
-	CookieMaxAge       = 14 * 24 * 60 * 60 // 14 днів у секундах
+	CookieMaxAge       = 14 * 24 * 60 * 60 // 14 days, in seconds
 )
 
-// SessionMiddleware перевіряє наявність куки сесії для анонімного кошика/вішліста.
-// Якщо куки немає — генерує нову і встановлює її.
-// Параметр secure вказує, чи встановлювати прапорець Secure для cookie (true для HTTPS у production).
-// Для cross-origin (фронт на іншому домені) Secure=true → SameSite=None, інакше SameSite=Lax.
+// SessionMiddleware gives an anonymous visitor the stable identity their cart,
+// wishlist and comparison list are keyed by, minting one when the cookie is
+// absent.
+//
+// secure sets the cookie's Secure flag, which production requires. It also
+// decides SameSite: a storefront on another origin needs SameSite=None, and a
+// browser only accepts that together with Secure, so the two are chosen as a
+// pair rather than independently.
 func SessionMiddleware(secure bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID := c.GetHeader("X-Session-ID")
@@ -24,12 +28,12 @@ func SessionMiddleware(secure bool) gin.HandlerFunc {
 			sessionID, _ = c.Cookie(GuestSessionCookie)
 		}
 
-		// Якщо куки/заголовка немає або вона порожня — генеруємо нову
+		// Absent or blank: mint one.
 		if sessionID == "" {
 			sessionID = uuid.New().String()
 
-			// SameSite=None потрібен для cross-origin запитів (фронт на Vercel, бекенд на іншому домені)
-			// SameSite=None вимагає Secure=true
+			// SameSite=None is what lets a storefront on another origin send this
+			// cookie at all, and no browser accepts it without Secure.
 			sameSite := http.SameSiteLaxMode
 			if secure {
 				sameSite = http.SameSiteNoneMode
@@ -46,10 +50,10 @@ func SessionMiddleware(secure bool) gin.HandlerFunc {
 			})
 		}
 
-		// Додаємо заголовок X-Session-ID до відповіді
+		// Echoed so a non-browser client can carry the session itself.
 		c.Header("X-Session-ID", sessionID)
 
-		// Зберігаємо в контексті
+		// Publish it for the handlers below.
 		c.Set(GuestSessionKey, sessionID)
 
 		c.Next()

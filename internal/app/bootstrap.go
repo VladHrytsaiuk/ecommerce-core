@@ -43,6 +43,7 @@ import (
 	deliveryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/application"
 	deliveryPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/repository/postgres"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
+	identityApplication "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/application"
 	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
 	identityPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/repository/postgres"
 	inventoryApp "github.com/VladHrytsaiuk/ecommerce-core/internal/inventory/application"
@@ -99,6 +100,7 @@ type Application struct {
 	InventoryService          inventoryDomain.Service
 	InventoryAvailability     catalogDomain.VariantAvailabilityReader
 	InventoryCleanup          *inventoryApp.Cleanup
+	OAuthAttemptCleanup       *identityApplication.OAuthAttemptCleanup
 	OrderService              ordersDomain.Service
 	IdentityAuthService       identityDomain.AuthService
 	IdentityProfileService    identityDomain.ProfileService
@@ -322,6 +324,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		return nil, identityErr
 	}
 	identityAuthService := identity.Auth
+	oauthAttemptCleanup := identity.AttemptCleanup
 	identityProfileService, customerProfileService := identity.Profiles, identity.CustomerProfile
 	outboxHandlers := make([]eventsApp.Consumer, 0, 1)
 	var notificationWorker *notificationsApp.DurableWorker
@@ -361,7 +364,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var searchOutboxWorker *eventsApp.OutboxWorker
 	var mediaOutboxWorker *eventsApp.OutboxWorker
 	var reportsOutboxWorker *eventsApp.OutboxWorker
-	outboxRetention, err := eventsApp.NewRetentionWorker(eventsPostgres.NewRetentionStore(db), cfg.OutboxDoneRetention, 1000, logger.Log)
+	outboxRetention, err := eventsApp.NewRetentionWorker(eventsPostgres.NewRetentionStore(db), cfg.OutboxDoneRetention, cfg.OutboxArchiveRetention, 1000, logger.Log)
 	if err != nil {
 		return nil, fmt.Errorf("configure outbox retention: %w", err)
 	}
@@ -520,6 +523,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		InventoryService:          inventoryService,
 		InventoryAvailability:     inventoryRepository,
 		InventoryCleanup:          inventoryApp.NewCleanup(inventoryRepository).WithLogger(logger.Log),
+		OAuthAttemptCleanup:       oauthAttemptCleanup,
 		OrderService:              ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		IdentityAuthService:       identityAuthService,
 		IdentityProfileService:    identityProfileService,

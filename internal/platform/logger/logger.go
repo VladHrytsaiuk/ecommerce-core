@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// Logger визначає основний контракт для логування в проекті (згідно з docs/infra/logger.md)
+// Logger is the logging contract used across this core (see docs/infra/logger.md).
 type Logger interface {
 	Debug(msg string, fields ...zap.Field)
 	Info(msg string, fields ...zap.Field)
@@ -17,14 +17,14 @@ type Logger interface {
 	Error(msg string, fields ...zap.Field)
 	Fatal(msg string, fields ...zap.Field)
 
-	// Цукрові методи (Printf-style)
+	// Printf-style
 	Debugf(template string, args ...interface{})
 	Infof(template string, args ...interface{})
 	Warnf(template string, args ...interface{})
 	Errorf(template string, args ...interface{})
 	Fatalf(template string, args ...interface{})
 
-	// Цукрові методи (Structured-style)
+	// Structured key/value style
 	Debugw(msg string, keysAndValues ...interface{})
 	Infow(msg string, keysAndValues ...interface{})
 	Warnw(msg string, keysAndValues ...interface{})
@@ -43,10 +43,11 @@ type ContextLogger interface {
 	WithContext(context.Context) Logger
 }
 
-// Log — це глобальний логер, який можна використовувати без DI (для main, ініціалізацій тощо).
+// Log is the process-wide logger, for main and for composition where there is
+// nothing yet to inject one into. Modules take a logger through a port.
 var Log Logger
 
-// Init ініціалізує глобальний логер
+// Init builds the process-wide logger. main calls it before anything else.
 func Init() {
 	config := zap.NewProductionEncoderConfig()
 	config.EncodeTime = zapcore.ISO8601TimeEncoder
@@ -62,7 +63,7 @@ func Init() {
 	Log = &zapLogger{l.Sugar()}
 }
 
-// zapLogger — обгортка над SugaredLogger для підтримки як структурованого, так і "цукрового" логування.
+// zapLogger adapts zap's SugaredLogger to both halves of the Logger contract.
 type zapLogger struct {
 	s *zap.SugaredLogger
 }

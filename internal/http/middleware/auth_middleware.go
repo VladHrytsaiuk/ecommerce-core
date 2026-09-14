@@ -16,7 +16,7 @@ const (
 	authorizationPayloadKey = "user_id"
 )
 
-// AuthMiddleware створює gin-middleware для перевірки JWT токена.
+// AuthMiddleware refuses any request without a valid bearer token.
 func AuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authorizationHeader := c.GetHeader(authorizationHeaderKey)

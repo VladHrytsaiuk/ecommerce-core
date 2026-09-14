@@ -6,7 +6,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// HashPassword перетворює звичайний пароль у bcrypt хеш.
+// HashPassword turns a plaintext password into a bcrypt hash.
 func HashPassword(password string) (string, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -15,7 +15,7 @@ func HashPassword(password string) (string, error) {
 	return string(hashedPassword), nil
 }
 
-// CheckPassword перевіряє, чи збігається введений пароль з його хешем.
+// CheckPassword reports whether a plaintext password matches its hash.
 func CheckPassword(password string, hashedPassword string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 }

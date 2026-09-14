@@ -1,5 +1,3 @@
-//go:build !legacy
-
 // Package domain defines the clean, provider-neutral shopping cart boundary.
 package domain
 

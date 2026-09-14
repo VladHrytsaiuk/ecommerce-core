@@ -1,5 +1,6 @@
-// Package config відповідає за завантаження та зберігання
-// всіх налаштувань середовища (environment variables) для нашого застосунку.
+// Package config loads and holds every environment-provided setting this
+// application starts from. A value that cannot be honoured fails the boot here
+// rather than at the call site that needed it.
 package config
 
 import (
@@ -21,7 +22,8 @@ const insecureDefaultJWTSecret = "very_secret_key_change_me_in_prod"
 // is generous for an access token whose refresh lifetime is measured in days.
 const maxAccessTokenDuration = time.Hour
 
-// Config містить основні налаштування для запуску сервера та підключення до БД.
+// Config is the whole environment-provided configuration, already parsed and
+// validated.
 type Config struct {
 	Port                 string
 	DBURL                string
@@ -43,8 +45,10 @@ type Config struct {
 	SensitiveRatePerMin  int
 
 	// HTTP server
-	// RequestTimeout — верхня межа тривалості обробки HTTP-запиту (context deadline).
-	// Має бути достатньою для повільних операцій (напр., завантаження кількох зображень у Cloudinary).
+	// RequestTimeout is the upper bound on one HTTP request, applied as a
+	// context deadline. It has to cover the slowest legitimate request — an
+	// image upload that reaches object storage — without letting a stuck one
+	// hold a connection indefinitely.
 	RequestTimeout time.Duration
 	// ShutdownTimeout bounds the HTTP drain on SIGTERM.
 	ShutdownTimeout time.Duration
@@ -77,6 +81,7 @@ type Config struct {
 	SearchIndexPrefix         string
 	ReportsTimezone           string
 	OutboxDoneRetention       time.Duration
+	OutboxArchiveRetention    time.Duration
 	NotificationSentRetention time.Duration
 	NotificationDeadRetention time.Duration
 	OutboxRetentionInterval   time.Duration
@@ -189,7 +194,7 @@ type Config struct {
 	// Manager
 	ManagerBaseURL string
 
-	// Vodafone OBM (SMS / верифікація телефону)
+	// Vodafone OBM (SMS / phone verification)
 	OBMBaseURL         string
 	OBMTokenPath       string
 	OBMBasicAuthHeader string
@@ -235,8 +240,11 @@ type Config struct {
 	DefaultWarehouseID                   string
 }
 
-// Load читає файл .env (якщо він існує) та повертає готову структуру Config.
-// Якщо обов'язкові змінні (наприклад, DB_URL) відсутні, програма завершить роботу з помилкою (log.Fatal).
+// Load reads .env when present and returns a fully validated Config.
+//
+// A missing or unusable required value ends the process here, by design: a
+// store that starts with a setting it cannot honour fails later, in front of a
+// customer, instead of at boot in front of whoever deployed it.
 func Load() *Config {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Info: .env file not found, using system environment variables")
@@ -312,8 +320,9 @@ func Load() *Config {
 		appEnv = "production"
 	}
 
-	// Таймаут обробки HTTP-запиту. За замовчуванням 30s — достатньо для завантаження
-	// кількох зображень у Cloudinary в межах одного запиту (створення/оновлення товару).
+	// 30s by default: enough for the slowest legitimate request, which is a
+	// product create or update that carries several images through to object
+	// storage.
 	requestTimeout := 30 * time.Second
 	if v := os.Getenv("HTTP_REQUEST_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -353,6 +362,14 @@ func Load() *Config {
 	outboxRetentionInterval := getEnvDuration("OUTBOX_RETENTION_INTERVAL", time.Hour)
 	if outboxDoneRetention <= 0 || outboxRetentionInterval <= 0 {
 		log.Fatal("Fatal: OUTBOX_DONE_RETENTION and OUTBOX_RETENTION_INTERVAL must be positive durations")
+	}
+	// Archiving only moved a delivery between two tables; nothing ever emptied
+	// the second one, so "retention" made the hot table small and the database
+	// no smaller. The archive exists for forensics after the fact, which is a
+	// question asked in weeks, not years.
+	outboxArchiveRetention := getEnvDuration("OUTBOX_ARCHIVE_RETENTION", 90*24*time.Hour)
+	if err := validateOutboxArchiveRetention(outboxArchiveRetention, outboxDoneRetention); err != nil {
+		log.Fatal("Fatal: " + err.Error())
 	}
 	// A sent job is evidence a message went out; a dead one is a message that
 	// never did and an operator may still need to act on, so it is kept longer.
@@ -545,7 +562,8 @@ func Load() *Config {
 	if obmValidityMinutes == "" {
 		obmValidityMinutes = "2"
 	}
-	// Перевірка статусу доставки увімкнена за замовчуванням (вимкнути: OBM_STATUS_CHECK=false)
+	// Delivery-status checking is on by default; set OBM_STATUS_CHECK=false to
+	// turn it off.
 	obmStatusCheck := os.Getenv("OBM_STATUS_CHECK") != "false"
 	if obmUsername == "" || obmPassword == "" || obmSenderID == 0 {
 		log.Println("Warning: OBM_USERNAME / OBM_PASSWORD / OBM_SENDER_ID not set. SMS verification will fall back to console (mock) sender.")
@@ -706,6 +724,7 @@ func Load() *Config {
 		SearchURL:                            searchURL,
 		ReportsTimezone:                      reportsTimezone,
 		OutboxDoneRetention:                  outboxDoneRetention,
+		OutboxArchiveRetention:               outboxArchiveRetention,
 		NotificationSentRetention:            notificationSentRetention,
 		NotificationDeadRetention:            notificationDeadRetention,
 		OutboxRetentionInterval:              outboxRetentionInterval,
@@ -906,6 +925,20 @@ func validateShutdownTimeout(shutdown, request time.Duration) error {
 // jobs are purged sooner than completed deliveries are archived, a delivery
 // replayed inside that gap finds no job, creates a new one, and the customer
 // receives a second copy of an email they already have.
+// validateOutboxArchiveRetention keeps the two windows in the only order that
+// makes sense: a delivery reaches the archive after OUTBOX_DONE_RETENTION, so
+// an archive window shorter than that would delete rows the moment they arrive
+// and leave no forensic trail at all.
+func validateOutboxArchiveRetention(archive, outboxDone time.Duration) error {
+	if archive <= 0 {
+		return fmt.Errorf("OUTBOX_ARCHIVE_RETENTION must be a positive duration")
+	}
+	if archive < outboxDone {
+		return fmt.Errorf("OUTBOX_ARCHIVE_RETENTION (%s) must be at least OUTBOX_DONE_RETENTION (%s), or a delivery would be deleted as soon as it is archived", archive, outboxDone)
+	}
+	return nil
+}
+
 func validateNotificationRetention(sent, dead, outboxDone time.Duration) error {
 	if sent <= 0 || dead <= 0 {
 		return fmt.Errorf("NOTIFICATION_SENT_RETENTION and NOTIFICATION_DEAD_RETENTION must be positive durations")

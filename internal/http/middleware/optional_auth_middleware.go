@@ -8,15 +8,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OptionalAuthMiddleware працює як AuthMiddleware, але не блокує запит
-// якщо токен відсутній. Якщо токен присутній і валідний — встановлює
-// user_id та role_id в контекст. Якщо токен відсутній — просто пропускає далі.
-// Корисно для ендпоінтів, які доступні і анонімним, і авторизованим юзерам (наприклад, вішліст).
+// OptionalAuthMiddleware authenticates when a token is present and lets the
+// request through when it is not.
+//
+// It is for routes a guest and a signed-in customer both reach — wishlist,
+// comparison, checkout — where the identity changes what is returned but its
+// absence is not an error. A malformed or invalid token is treated as
+// anonymous rather than refused, because the route works either way.
 func OptionalAuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authorizationHeader := c.GetHeader(authorizationHeaderKey)
 
-		// Якщо заголовка немає — просто пропускаємо
+		// No header at all: an ordinary guest.
 		if len(authorizationHeader) == 0 {
 			c.Next()
 			return
@@ -24,7 +27,7 @@ func OptionalAuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 
 		fields := strings.Fields(authorizationHeader)
 		if len(fields) < 2 {
-			// Невалідний формат — пропускаємо як anonymous
+			// Malformed header: anonymous, not a 401.
 			c.Next()
 			return
 		}
@@ -43,8 +46,8 @@ func OptionalAuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 			return
 		}
 
-		// Токен валідний — зберігаємо лише суб'єкт. Роль навмисно не
-		// публікується: див. AuthMiddleware.
+		// Valid: publish the subject only. The role is deliberately not put in
+		// the context — see AuthMiddleware.
 		c.Set(authorizationPayloadKey, claims.UserID)
 		c.Next()
 	}

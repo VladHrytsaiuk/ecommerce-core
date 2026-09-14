@@ -26,8 +26,9 @@ func DefaultPoolConfig() PoolConfig {
 // Connect creates the production database pool. SQL text and bound values are
 // deliberately disabled because they may contain PII or credentials.
 func Connect(dsn string, pool PoolConfig) (*gorm.DB, error) {
-	// PreferSimpleProtocol вимикає неявне кешування prepared statements у драйвері pgx,
-	// що вирішує помилку "prepared statement already exists (SQLSTATE 42P05)".
+	// PreferSimpleProtocol turns off pgx's implicit prepared-statement cache,
+	// which is what produced "prepared statement already exists (SQLSTATE 42P05)"
+	// against a connection pooler that reuses server-side connections.
 	db, err := gorm.Open(postgres.New(postgres.Config{
 		DSN:                  dsn,
 		PreferSimpleProtocol: true,
@@ -54,11 +55,12 @@ func Connect(dsn string, pool PoolConfig) (*gorm.DB, error) {
 	return db, nil
 }
 
-// TxKey — ключ для зберігання транзакції GORM у контексті.
-// Використовується для прозорої передачі транзакції між різними репозиторіями.
+// TxKey carries a GORM transaction through the context, so repositories in
+// different modules can join one transaction without passing it as an argument.
 type TxKey struct{}
 
-// GetTx повертає транзакцію з контексту, якщо вона там є. Інакше повертає defaultDB.
+// GetTx returns the transaction held in the context, or defaultDB when there
+// is none.
 func GetTx(ctx context.Context, defaultDB *gorm.DB) *gorm.DB {
 	if tx, ok := ctx.Value(TxKey{}).(*gorm.DB); ok {
 		return tx
