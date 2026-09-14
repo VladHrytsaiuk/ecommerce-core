@@ -65,7 +65,15 @@ func (f *Fallback) degrade(cause error) {
 		"effect", "a client is limited per replica rather than across the fleet")
 }
 
+// recovered runs on the success path, which is every request to the versioned
+// API. Load before Swap deliberately: Swap is a locked read-modify-write even
+// when the value does not change, so writing false over false on every request
+// bounced one shared cache line between every core serving traffic. The common
+// case is a plain read that hits the local line.
 func (f *Fallback) recovered() {
+	if !f.degraded.Load() {
+		return
+	}
 	if !f.degraded.Swap(false) || f.logger == nil {
 		return
 	}

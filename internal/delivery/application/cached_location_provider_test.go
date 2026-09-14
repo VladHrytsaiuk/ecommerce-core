@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
 	sharedCache "github.com/VladHrytsaiuk/ecommerce-core/internal/shared/cache"
@@ -18,10 +19,18 @@ func TestCachedLocationProviderCoalescesConcurrentCacheMisses(t *testing.T) {
 		go func() { defer wg.Done(); _, _ = decorator.ListAreas(context.Background()) }()
 	}
 	<-provider.entered
+	// entered only says the first call is inside the provider; it says nothing
+	// about the second having reached the flight it is meant to join. Releasing
+	// immediately let the first finish before the second arrived, which starts a
+	// second flight and two upstream calls — rare alone, reproducible under the
+	// load of the full suite. The margin is scheduling slack, not a guarantee:
+	// the property is real, it just cannot be observed from outside the
+	// singleflight group.
+	time.Sleep(100 * time.Millisecond)
 	close(provider.release)
 	wg.Wait()
 	if provider.calls != 1 {
-		t.Fatalf("provider calls=%d, want 1", provider.calls)
+		t.Fatalf("provider calls=%d, want the second caller to join the first flight", provider.calls)
 	}
 }
 

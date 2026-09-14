@@ -14,7 +14,12 @@ import (
 )
 
 func TestReturnServiceCreateApproveAndReceiveWritesOutboxCommands(t *testing.T) {
-	now := time.Date(2026, time.September, 2, 12, 0, 0, 0, time.UTC)
+	// Relative to the real clock, not a date written into the source. The
+	// eligibility policy reads time.Now and cannot be given a clock from this
+	// package, so a hardcoded delivery date silently expires: this test passed
+	// until the fourteen-day window from the date it named ran out, then began
+	// failing on a calendar day rather than on a change to the code.
+	now := time.Now().UTC()
 	orderID, customerID, variantID, adminID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	total := mustMoney(t, 1299, "EUR")
 	repository := &fakeRepository{}
@@ -133,8 +138,6 @@ func newService(t *testing.T, repository *fakeRepository, orders fakeOrders, sta
 	if err != nil {
 		t.Fatal(err)
 	}
-	policyNow := time.Now().UTC()
-	policy = policyWithClock(policy, func() time.Time { return policyNow })
 	service, err := NewReturnService(repository, orders, policy, fakeTx{}, status, settlement)
 	if err != nil {
 		t.Fatal(err)
@@ -142,11 +145,10 @@ func newService(t *testing.T, repository *fakeRepository, orders fakeOrders, sta
 	return service
 }
 
-// policyWithClock keeps construction localized; callers use a recent delivery
-// timestamp so the production clock remains valid for this black-box test.
-func policyWithClock(policy *returns.WindowEligibilityPolicy, _ func() time.Time) *returns.WindowEligibilityPolicy {
-	return policy
-}
+// The eligibility policy keeps its clock unexported, so tests here cannot give
+// it one. They use delivery timestamps relative to the real clock instead —
+// which is the only honest option, and is why the helper that used to take a
+// clock and discard it is gone.
 
 type fakeTx struct{}
 

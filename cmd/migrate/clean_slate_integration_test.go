@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -58,7 +59,10 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("get PostgreSQL connection string: %v", err)
 	}
 	root := repositoryRoot(t)
-	if err := runMigrations(root, databaseURL, []string{"admin", "availability_notifications", "catalog", "comparison", "consent", "customers", "inventory", "reports", "returns", "reviews", "support", "sync", "user_profiles", "wishlist"}, "up"); err != nil {
+	// Up and down take the same list. Rolling back a module that was never
+	// applied is a no-op, so listing more modules here than above would make
+	// the rollback below assert nothing for exactly the ones it added.
+	if err := runMigrations(root, databaseURL, allModuleNames(t, root), "up"); err != nil {
 		t.Fatalf("migrate clean-slate schema: %v", err)
 	}
 
@@ -117,10 +121,20 @@ func TestCleanSlateSchema(t *testing.T) {
 		t.Fatalf("read product translations = (%+v, %v), want three translations", storedProduct, err)
 	}
 	assertConcurrentReviewProjection(t, db, product.ID)
-	if err := runMigrations(root, databaseURL, []string{"admin", "availability_notifications", "catalog", "comparison", "consent", "customers", "inventory", "reports", "returns", "reviews", "support", "sync", "user_profiles", "wishlist"}, "down"); err != nil {
+	// Every module, not the fourteen this used to list. The nine it omitted —
+	// abandoned_cart, badges, checkout, media, notifications, orders, promos,
+	// seo and video — had down migrations nothing had ever executed, so a
+	// rollback in production would have been their first run. They all work;
+	// this is what keeps them working.
+	if err := runMigrations(root, databaseURL, allModuleNames(t, root), "down"); err != nil {
 		t.Fatalf("rollback clean-slate schema: %v", err)
 	}
-	assertTablesAbsent(t, db, "locales", "products", "product_variants", "user_oauth_identities", "oauth_authorization_attempts", "user_profiles", "customer_profiles", "customer_addresses", "product_media", "wishlist_items", "comparison_lists", "comparison_items", "reviews", "product_review_ratings", "roles", "permissions", "report_processed_events", "report_daily_sales", "report_daily_product_sales", "report_daily_funnel", "return_requests", "return_items", "return_status_history", "return_restock_operations", "stock_subscriptions", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors")
+	assertTablesAbsent(t, db, "locales", "products", "product_variants", "user_oauth_identities", "oauth_authorization_attempts", "user_profiles", "customer_profiles", "customer_addresses", "product_media", "wishlist_items", "comparison_lists", "comparison_items", "reviews", "product_review_ratings", "roles", "permissions", "report_processed_events", "report_daily_sales", "report_daily_product_sales", "report_daily_funnel", "return_requests", "return_items", "return_status_history", "return_restock_operations", "stock_subscriptions", "warehouses", "stock_items", "inventory_reservations", "sync_outbox", "sync_external_entity_state", "sync_cursors",
+		// One table from each module the list used to omit, so their rollback
+		// is asserted rather than merely attempted.
+		"abandoned_cart_campaigns", "badges", "checkout_contacts", "media_assets",
+		"notification_jobs", "notification_templates", "order_status_definitions",
+		"promocodes", "seo_metadata", "video_assets")
 }
 
 func assertProductOptionMatrix(t *testing.T, ctx context.Context, products *catalogApp.ProductService, options *catalogApp.ProductOptionsService, productID uuid.UUID) {
@@ -233,4 +247,24 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatal("discover repository root")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
+// allModuleNames reads the module directories rather than listing them, so a
+// module added later is rolled back here without anyone remembering to add it.
+func allModuleNames(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, "migrations", "modules"))
+	if err != nil {
+		t.Fatalf("read module migrations: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no module migrations found; this test would assert nothing")
+	}
+	return names
 }

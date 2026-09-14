@@ -3,6 +3,8 @@ package ratelimit
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -22,7 +24,7 @@ func TestAHealthyPrimaryDecidesAlone(t *testing.T) {
 	if err != nil || !decision.Allowed {
 		t.Fatalf("Allow() = (%+v, %v)", decision, err)
 	}
-	if standby.calls != 0 {
+	if standby.callCount() != 0 {
 		t.Fatal("the standby was consulted while the primary was healthy")
 	}
 }
@@ -45,7 +47,7 @@ func TestAPrimaryRefusalIsNotOverriddenByTheStandby(t *testing.T) {
 	if decision.RetryAfter != 30*time.Second {
 		t.Fatalf("RetryAfter = %v, want the primary's", decision.RetryAfter)
 	}
-	if standby.calls != 0 {
+	if standby.callCount() != 0 {
 		t.Fatal("the standby was consulted for a decision the primary made")
 	}
 }
@@ -61,8 +63,8 @@ func TestAnUnreachablePrimaryDegradesInsteadOfFailing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Allow() error = %v; a cache outage must not fail the request", err)
 	}
-	if !decision.Allowed || standby.calls != 1 {
-		t.Fatalf("decision = %+v after %d standby calls", decision, standby.calls)
+	if !decision.Allowed || standby.callCount() != 1 {
+		t.Fatalf("decision = %+v after %d standby calls", decision, standby.callCount())
 	}
 }
 
@@ -101,7 +103,7 @@ func TestAnOutageIsAnnouncedOnceAndSoIsRecovery(t *testing.T) {
 		t.Fatalf("%d warnings for one outage, want 1", recorder.warnings)
 	}
 
-	primary.err = nil
+	primary.setErr(nil)
 	for range 5 {
 		_, _ = fallback.Allow(context.Background(), "client", 100, time.Minute)
 	}
@@ -111,7 +113,7 @@ func TestAnOutageIsAnnouncedOnceAndSoIsRecovery(t *testing.T) {
 
 	// A second outage is announced again, or a flapping dependency would go
 	// unreported after the first time.
-	primary.err = errors.New("unreachable again")
+	primary.setErr(errors.New("unreachable again"))
 	_, _ = fallback.Allow(context.Background(), "client", 100, time.Minute)
 	if recorder.warnings != 2 {
 		t.Fatalf("%d warnings after a second outage, want 2", recorder.warnings)
@@ -133,13 +135,18 @@ func TestAMiswiredFallbackRefusesRatherThanAllows(t *testing.T) {
 	}
 }
 
+// stubService is guarded because one test flips its failure mode while other
+// goroutines are calling it — the same shape as a store recovering under load.
 type stubService struct {
+	mu       sync.Mutex
 	decision Decision
 	err      error
 	calls    int
 }
 
 func (s *stubService) Allow(context.Context, string, int, time.Duration) (Decision, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.calls++
 	if s.err != nil {
 		return Decision{}, s.err
@@ -147,7 +154,49 @@ func (s *stubService) Allow(context.Context, string, int, time.Duration) (Decisi
 	return s.decision, nil
 }
 
+func (s *stubService) setErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.err = err
+}
+
+func (s *stubService) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
 type recordingLogger struct{ warnings, infos int }
 
 func (l *recordingLogger) Warnw(string, ...interface{}) { l.warnings++ }
 func (l *recordingLogger) Infow(string, ...interface{}) { l.infos++ }
+
+func TestRecoveryIsAnnouncedExactlyOnceUnderConcurrency(t *testing.T) {
+	// The recovery check runs on every request, so it is both a hot path and a
+	// race: many goroutines observe the same transition and exactly one must
+	// report it.
+	primary := &stubService{err: errors.New("unreachable")}
+	recorder := &countingLogger{}
+	fallback := NewFallback(primary, NewLocalService(), recorder)
+	_, _ = fallback.Allow(context.Background(), "client", 1000, time.Minute)
+
+	primary.setErr(nil)
+	var group sync.WaitGroup
+	for range 64 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			_, _ = fallback.Allow(context.Background(), "client", 1000, time.Minute)
+		}()
+	}
+	group.Wait()
+
+	if got := recorder.infos.Load(); got != 1 {
+		t.Fatalf("recovery announced %d times across 64 concurrent requests, want once", got)
+	}
+}
+
+type countingLogger struct{ warnings, infos atomic.Int64 }
+
+func (l *countingLogger) Warnw(string, ...interface{}) { l.warnings.Add(1) }
+func (l *countingLogger) Infow(string, ...interface{}) { l.infos.Add(1) }
