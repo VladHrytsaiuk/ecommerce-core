@@ -1,7 +1,15 @@
 # Encrypting every notification job
 
-**Status:** planned, not implemented. Retention (shipped) bounds how long the
-plaintext below exists; it does not make it any less plaintext.
+**Status:** stages 1-3 shipped. Stages 4 and 5 wait on a deployment having run
+the backfill; their migration is parked in `docs/design/pending/` rather than in
+`migrations/`, because applying it while the dual-read below is still in the
+code would drop columns that code still reads.
+
+That is the whole reason the work is staged, and writing all five stages at once
+walked straight into it: on a fresh database the guard in stage 4 passes — there
+is nothing to back fill — so the columns went immediately and every claim
+failed. The migration only becomes safe once the release that removes the
+dual-read is the one being deployed.
 
 ## What is open today
 
@@ -41,11 +49,29 @@ content sit in an indexed column even for rows whose payload is encrypted.
 
 Each step ships and runs on its own; none of them is reversible by the next.
 
-1. Add the new format alongside the old.
-2. Dual-read and dual-write in the application.
-3. Re-encrypt live rows in bounded batches, through the application.
-4. Add the database constraint that forbids the plaintext columns being set.
-5. Drop the old columns.
+1. **Shipped.** Migration `000007` relaxes the constraint that required a
+   scheduler job to carry a plaintext payload, so ciphertext can be written at
+   all. It widens what is accepted and rejects nothing that was accepted before.
+2. **Shipped.** `ScheduleEmail` writes the recipient and the payload only into
+   `payload_ciphertext`, and refuses to write at all when encryption is not
+   configured rather than falling back. `ClaimDue` reads either shape, so a job
+   queued by the previous release is still sent. `dedupe_key` is an HMAC.
+3. **Shipped.** `go run ./cmd/cli notifications-reencrypt` moves existing rows
+   out of the plaintext columns in bounded batches and rewrites their dedupe
+   keys, skipping rows the dispatcher holds. Safe to run repeatedly and while
+   the store is serving.
+4. **Pending.** The constraint that forbids plaintext.
+5. **Pending.** Dropping `payload`, `recipient_email` and the legacy
+   `recipient`.
+
+Steps 4 and 5 are one migration, `docs/design/pending/000008_drop_notification_plaintext.*`.
+Before moving it into `migrations/modules/notifications/`:
+
+- the release removing the dual-read from `ClaimDue` must be the one deploying,
+  or it will read columns that no longer exist;
+- `notifications-reencrypt` must report nothing left in plaintext. The migration
+  checks this itself and refuses otherwise, because those columns are the only
+  copy of what they hold.
 
 Step 3 runs through the application because the encryption key lives there: a
 SQL backfill cannot produce ciphertext, and a migration that tried would have to

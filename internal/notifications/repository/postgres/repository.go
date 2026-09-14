@@ -21,9 +21,25 @@ import (
 type Repository struct {
 	db            *gorm.DB
 	defaultLocale string
+	// cipher and dedupe are what let a scheduled job keep its recipient and
+	// render payload out of the clear. Both optional so a repository built for
+	// reading — the retention worker, tests — needs neither; ScheduleEmail
+	// refuses to write without them rather than falling back to plaintext.
+	cipher notificationsDomain.PayloadCipher
+	dedupe *notificationsDomain.DedupeKeyer
 }
 
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
+
+// WithEncryption supplies what a scheduled job needs to be written without
+// personal data in the clear: a cipher for the recipient and payload, and the
+// keyer that replaces the dedupe key those two used to be concatenated into.
+func (r *Repository) WithEncryption(cipher notificationsDomain.PayloadCipher, dedupe *notificationsDomain.DedupeKeyer) *Repository {
+	if r != nil && cipher != nil && dedupe != nil {
+		r.cipher, r.dedupe = cipher, dedupe
+	}
+	return r
+}
 
 // WithDefaultLocale supplies the store's locale for scheduled jobs whose
 // caller does not know the recipient's.

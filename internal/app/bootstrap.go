@@ -241,10 +241,24 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	returnsEnabled := modules.Has(ModuleReturns)
 	videoEnabled := modules.Has(ModuleVideo)
 	workflowEventRoutes := orderWorkflowEventRoutes(notificationsEnabled, reportsEnabled, returnsEnabled)
+	// One notifications repository, built once and shared. It used to be
+	// constructed at six call sites, and a scheduled job now needs encryption
+	// as well as a locale — six chances to assemble a half-configured one that
+	// writes a recipient in the clear. Every module that schedules mail
+	// requires the notifications module, so this is available wherever it is
+	// needed and nil only where nothing sends.
+	var notificationsRepository *notificationsPostgres.Repository
+	if notificationsEnabled {
+		repository, repositoryErr := newNotificationsRepository(cfg, storeConfig, db)
+		if repositoryErr != nil {
+			return nil, repositoryErr
+		}
+		notificationsRepository = repository
+	}
 	var availabilityService *availabilityApp.Service
 	var availabilityOutboxWorker *eventsApp.OutboxWorker
 	if availabilityEnabled {
-		availability := buildAvailability(storeConfig, db)
+		availability := buildAvailability(storeConfig, db, notificationsRepository)
 		availabilityService, availabilityOutboxWorker = availability.Service, availability.Worker
 		// Inventory publishes the stock transition that wakes the consumer, so
 		// the publisher is attached where that transition happens.
@@ -252,7 +266,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	var supportService *supportApp.Service
 	if supportEnabled {
-		supportService = buildSupport(storeConfig, db, loginLimiter)
+		supportService = buildSupport(storeConfig, db, loginLimiter, notificationsRepository)
 	}
 	var consentService *consentApp.Service
 	if consentEnabled {
@@ -325,13 +339,13 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	var notificationsOutboxWorker *eventsApp.OutboxWorker
 	if notificationsEnabled {
 		retention, retentionErr := notificationsApp.NewRetentionWorker(
-			notificationsPostgres.NewRepository(db),
+			notificationsRepository,
 			cfg.NotificationSentRetention, cfg.NotificationDeadRetention, 1000, logger.Log)
 		if retentionErr != nil {
 			return nil, fmt.Errorf("configure notification retention: %w", retentionErr)
 		}
 		notificationRetention = retention.WithMetrics(observability.NewNotificationMetrics())
-		notifications, notificationsErr := buildNotifications(cfg, storeConfig, db)
+		notifications, notificationsErr := buildNotifications(cfg, storeConfig, notificationsRepository)
 		if notificationsErr != nil {
 			return nil, notificationsErr
 		}
@@ -424,7 +438,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		videoStorefront = video.Storefront
 	}
 	if returnsEnabled {
-		returns, returnsErr := buildReturns(storeConfig, db, inventoryService, paymentGateways, notificationsEnabled)
+		returns, returnsErr := buildReturns(storeConfig, db, inventoryService, paymentGateways, notificationsRepository)
 		if returnsErr != nil {
 			return nil, returnsErr
 		}
@@ -446,7 +460,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	var checkoutContactCapture checkoutDomain.ContactCaptureService
 	if abandonedCartEnabled {
-		abandoned, abandonedErr := buildAbandonedCart(cfg, storeConfig, db, consentService, func() *cartApp.Service {
+		abandoned, abandonedErr := buildAbandonedCart(cfg, db, consentService, notificationsRepository, func() *cartApp.Service {
 			return cartApp.NewService(newCartRepository(db, reportsEnabled, abandonedCartEnabled))
 		})
 		if abandonedErr != nil {

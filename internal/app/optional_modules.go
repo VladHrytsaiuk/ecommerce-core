@@ -258,7 +258,7 @@ type returnsRuntime struct {
 	Worker  *eventsApp.OutboxWorker
 }
 
-func buildReturns(storeConfig StoreConfig, db *gorm.DB, inventory *inventoryApp.Service, gateways *paymentsApp.Registry, notificationsEnabled bool) (returnsRuntime, error) {
+func buildReturns(storeConfig StoreConfig, db *gorm.DB, inventory *inventoryApp.Service, gateways *paymentsApp.Registry, notifications *notificationsPostgres.Repository) (returnsRuntime, error) {
 	policy, err := returnsDomain.NewWindowEligibilityPolicy(storeConfig.ReturnWindowDays)
 	if err != nil {
 		return returnsRuntime{}, fmt.Errorf("configure returns policy: %w", err)
@@ -280,10 +280,10 @@ func buildReturns(storeConfig StoreConfig, db *gorm.DB, inventory *inventoryApp.
 	// and the event is still recorded for audit either way.
 	statusPublisher := eventsPostgres.NewPublisher()
 	handlers := []eventsApp.Consumer{}
-	if notificationsEnabled {
+	if notifications != nil {
 		statusPublisher = eventsPostgres.NewPublisher(returnsDomain.ConsumerSettlement)
 		notifier, notifierErr := returnsApp.NewStatusChangedNotifier(snapshots, adminPostgres.NewTransactionManager(db),
-			notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale))
+			notifications)
 		if notifierErr != nil {
 			return returnsRuntime{}, fmt.Errorf("configure returns status notifier: %w", notifierErr)
 		}
@@ -319,7 +319,7 @@ type notificationsRuntime struct {
 	Handlers []eventsApp.Consumer
 }
 
-func buildNotifications(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB) (notificationsRuntime, error) {
+func buildNotifications(cfg *config.Config, storeConfig StoreConfig, repository *notificationsPostgres.Repository) (notificationsRuntime, error) {
 	cipher, err := encryption.NewAESGCM(cfg.NotificationEncryptionKey)
 	if err != nil {
 		return notificationsRuntime{}, fmt.Errorf("configure notifications encryption: %w", err)
@@ -328,7 +328,6 @@ func buildNotifications(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB
 	if err != nil {
 		return notificationsRuntime{}, fmt.Errorf("configure notifications email sender: %w", err)
 	}
-	repository := notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale)
 	// notification_templates ships empty and nothing seeded it, so every
 	// lookup failed, every job retried ten times and died, and a store could
 	// take orders without sending a single confirmation. The defaults go in
@@ -352,7 +351,7 @@ type abandonedCartRuntime struct {
 	ContactCapture checkoutDomain.ContactCaptureService
 }
 
-func buildAbandonedCart(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, consent *consentApp.Service, cartRepositoryFor func() *cartApp.Service) (abandonedCartRuntime, error) {
+func buildAbandonedCart(cfg *config.Config, db *gorm.DB, consent *consentApp.Service, notifications *notificationsPostgres.Repository, cartRepositoryFor func() *cartApp.Service) (abandonedCartRuntime, error) {
 	quietHours, err := abandonedApp.ParseQuietHours(cfg.AbandonedCartQuietHours)
 	if err != nil {
 		return abandonedCartRuntime{}, fmt.Errorf("configure abandoned-cart quiet hours: %w", err)
@@ -378,7 +377,7 @@ func buildAbandonedCart(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB
 		return abandonedCartRuntime{}, fmt.Errorf("configure abandoned-cart unsubscribe links: %w", err)
 	}
 	return abandonedCartRuntime{
-		Worker: abandonedApp.NewWorker(campaigns, carts, abandonedReaders.NewConsentReader(db), notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale), adminPostgres.NewTransactionManager(db), policy, linker).WithLogger(logger.Log),
+		Worker: abandonedApp.NewWorker(campaigns, carts, abandonedReaders.NewConsentReader(db), notifications, adminPostgres.NewTransactionManager(db), policy, linker).WithLogger(logger.Log),
 		OutboxWorker: eventsApp.NewOutboxWorker(eventsPostgres.NewDeliveryStore(db), abandonedApp.ConsumerCampaignProducer, time.Minute, logger.Log,
 			producer, abandonedApp.NewTopicConsumer(eventsDomain.TopicCheckoutEmailCaptured, producer)).WithTracer(observability.NewOutboxTracer()).WithMetrics(observability.NewOutboxMetrics()),
 		ContactCapture: checkoutApp.NewContactCaptureService(
@@ -441,9 +440,9 @@ type availabilityRuntime struct {
 	Worker  *eventsApp.OutboxWorker
 }
 
-func buildAvailability(storeConfig StoreConfig, db *gorm.DB) availabilityRuntime {
+func buildAvailability(storeConfig StoreConfig, db *gorm.DB, notifications *notificationsPostgres.Repository) availabilityRuntime {
 	repository := availabilityPostgres.NewRepository(db)
-	handler := availabilityApp.NewHandler(repository, notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale), func(ctx context.Context, fn func(context.Context) error) error {
+	handler := availabilityApp.NewHandler(repository, notifications, func(ctx context.Context, fn func(context.Context) error) error {
 		return adminPostgres.NewTransactionManager(db).WithinTransaction(ctx, fn)
 	})
 	return availabilityRuntime{
@@ -455,12 +454,12 @@ func buildAvailability(storeConfig StoreConfig, db *gorm.DB) availabilityRuntime
 
 // buildSupport wires public ticket intake. Its spam protector takes the shared
 // limiter rather than a private one, so the quota holds across replicas.
-func buildSupport(storeConfig StoreConfig, db *gorm.DB, limiter ratelimit.Service) *supportApp.Service {
+func buildSupport(storeConfig StoreConfig, db *gorm.DB, limiter ratelimit.Service, notifications *notificationsPostgres.Repository) *supportApp.Service {
 	return supportApp.NewService(
 		supportPostgres.NewRepository(db),
 		supportApp.NewSpamProtector(limiter),
 		supportIdentity.NewEmailReader(db),
-	).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), notificationsPostgres.NewRepository(db).WithDefaultLocale(storeConfig.DefaultLocale))
+	).WithAdminWorkflow(adminPostgres.NewTransactionManager(db), notifications)
 }
 
 // buildConsent wires GDPR consent and privacy requests.

@@ -146,7 +146,7 @@ func seedOrderPaidJob(t *testing.T, db *gorm.DB) uuid.UUID {
 // writer, which is where the ownership marker has to be set.
 func seedScheduledJob(t *testing.T, db *gorm.DB, jobType string) uuid.UUID {
 	t.Helper()
-	repository := NewRepository(db).WithDefaultLocale("uk")
+	repository := withTestEncryption(t, NewRepository(db).WithDefaultLocale("uk"))
 	err := db.Transaction(func(tx *gorm.DB) error {
 		// Empty locale: the caller does not know the recipient's, so the
 		// store's configured one must be stored rather than a hard-coded "en".
@@ -207,5 +207,5 @@ func newNotificationTestRepository(t *testing.T) (*Repository, *gorm.DB) {
 			t.Fatalf("apply %s: %v", entry.Name(), err)
 		}
 	}
-	return NewRepository(db), db
+	return withTestEncryption(t, NewRepository(db)), db
 }

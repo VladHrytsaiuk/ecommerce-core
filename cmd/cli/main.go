@@ -21,8 +21,11 @@ import (
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/app"
 	catalogApp "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/application"
 	catalogPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/catalog/repository/postgres"
+	notificationsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/domain"
+	notificationsPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/notifications/repository/postgres"
 	platformConfig "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 	platformDB "github.com/VladHrytsaiuk/ecommerce-core/internal/platform/db"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/encryption"
 	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/password"
 	searchCatalog "github.com/VladHrytsaiuk/ecommerce-core/internal/search/adapter/catalog"
 	searchMeili "github.com/VladHrytsaiuk/ecommerce-core/internal/search/adapter/meilisearch"
@@ -34,7 +37,7 @@ func main() {
 		log.Fatalf("load .env: %v", err)
 	}
 	if len(os.Args) < 2 {
-		log.Fatal("usage: go run ./cmd/cli create-owner ... | grant-superadmin -email admin@example.com | search-reindex [-batch-size 200]")
+		log.Fatal("usage: go run ./cmd/cli create-owner ... | grant-superadmin -email admin@example.com | search-reindex [-batch-size 200] | notifications-reencrypt [-batch-size 500]")
 	}
 	if os.Args[1] == "grant-superadmin" {
 		grantSuperAdmin()
@@ -42,6 +45,10 @@ func main() {
 	}
 	if os.Args[1] == "search-reindex" {
 		searchReindex()
+		return
+	}
+	if os.Args[1] == "notifications-reencrypt" {
+		reencryptNotifications()
 		return
 	}
 	if os.Args[1] != "create-owner" {
@@ -201,3 +208,72 @@ type ownerRecord struct {
 }
 
 func (ownerRecord) TableName() string { return "users" }
+
+// reencryptNotifications is stage 3 of docs/design/notification-payload-encryption.md:
+// it moves scheduled jobs written before the change out of their plaintext
+// columns and rewrites the dedupe keys those columns were concatenated into.
+//
+// A local command rather than a migration, because the encryption key lives in
+// the application: SQL cannot produce ciphertext, and a migration that tried
+// would have to be handed the key. Safe to run repeatedly and while the store
+// is serving — batches are bounded and skip rows the dispatcher holds.
+func reencryptNotifications() {
+	flags := flag.NewFlagSet("notifications-reencrypt", flag.ExitOnError)
+	batchSize := flags.Int("batch-size", 500, "rows per batch")
+	if err := flags.Parse(os.Args[2:]); err != nil {
+		log.Fatalf("parse flags: %v", err)
+	}
+	cfg := platformConfig.Load()
+	storeConfig, err := app.NewStoreConfig(cfg)
+	if err != nil {
+		log.Fatalf("load store configuration: %v", err)
+	}
+	if !storeConfig.Modules().Has(app.ModuleNotifications) {
+		log.Fatal("notifications-reencrypt requires notifications in ENABLED_MODULES")
+	}
+	database, err := platformDB.Connect(cfg.DBURL, platformDB.DefaultPoolConfig())
+	if err != nil {
+		log.Fatalf("connect to database: %v", err)
+	}
+	pool, err := database.DB()
+	if err != nil {
+		log.Fatalf("obtain PostgreSQL pool: %v", err)
+	}
+	defer func() { _ = pool.Close() }()
+
+	cipher, err := encryption.NewAESGCM(cfg.NotificationEncryptionKey)
+	if err != nil {
+		log.Fatalf("configure notifications encryption: %v", err)
+	}
+	dedupe, err := notificationsDomain.NewDedupeKeyer(cfg.NotificationEncryptionKey)
+	if err != nil {
+		log.Fatalf("configure notifications dedupe key: %v", err)
+	}
+	repository := notificationsPostgres.NewRepository(database).
+		WithDefaultLocale(storeConfig.DefaultLocale).
+		WithEncryption(cipher, dedupe)
+
+	ctx := context.Background()
+	total := 0
+	for {
+		converted, err := repository.ReencryptPlaintext(ctx, *batchSize)
+		if err != nil {
+			log.Fatalf("re-encrypt notification jobs: %v", err)
+		}
+		if converted == 0 {
+			break
+		}
+		total += converted
+		fmt.Printf("re-encrypted %d notification jobs (%d so far)\n", converted, total)
+	}
+	remaining, err := repository.CountPlaintext(ctx)
+	if err != nil {
+		log.Fatalf("count remaining plaintext jobs: %v", err)
+	}
+	fmt.Printf("re-encryption complete: %d converted, %d still in plaintext\n", total, remaining)
+	if remaining > 0 {
+		// Rows the dispatcher held during every pass. Run again; the final
+		// migration will refuse while any remain.
+		log.Fatal("some jobs were locked throughout; run this again before applying the migration that drops the plaintext columns")
+	}
+}
