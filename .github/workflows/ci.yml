@@ -21,7 +21,7 @@ jobs:
           cache: true
       - uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.1.6
+          version: v2.13.2
           args: --timeout=5m
       - name: Verify generated OpenAPI contract
         run: |
@@ -51,7 +51,7 @@ jobs:
       # golang.org/x/image, every one of them on the path that decodes images
       # a customer uploads.
       - name: Check dependencies for known vulnerabilities
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: Verify formatting
         run: |
           unformatted=$(gofmt -l ./cmd ./internal)
@@ -69,7 +69,7 @@ jobs:
       # was noticed, because nothing failed while it still compiled.
       - name: Report unused exported-free code
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
           staticcheck -checks U1000 ./...
 
   test:
