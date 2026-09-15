@@ -132,6 +132,24 @@ For a locally managed PostgreSQL instance, the equivalent is
 Then obtain a JWT through `POST /api/auth/login` and use it as
 `Authorization: Bearer <access_token>` for `/api/v1/admin/...` routes.
 
+### Storefront origin and guest sessions
+
+Deploy the storefront on the same site as the API — for example
+`shop.example.com` and `api.example.com`, which share the registrable domain
+`example.com`. A guest's cart, wishlist and comparison list are keyed by the
+`cart_session` cookie, issued `HttpOnly` and `SameSite=Lax`. Browsers send a
+Lax cookie between subdomains of one site, but not from a storefront on
+another site such as a `*.vercel.app` preview domain: there every request would
+start a new, empty guest cart, with no error to say why. List the storefront's
+exact origin in `CORS_ALLOW_ORIGINS` and send requests with credentials
+included. Signed-in customers authenticate with a bearer token and are not
+affected.
+
+`Lax` is deliberate. It is what keeps the cookie-keyed cart endpoints safe from
+cross-site request forgery, and browsers are withdrawing cross-site cookies in
+any case — so a storefront on a separate site should get a custom domain on the
+store's own site rather than a looser cookie.
+
 ### API v1 contract
 
 The additive `/api/v1` surface is the stable client-integration contract. It
