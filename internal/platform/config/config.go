@@ -291,6 +291,9 @@ func Load() *Config {
 	if err != nil {
 		log.Fatalf("Fatal: Invalid REFRESH_TOKEN_DURATION format: %v", err)
 	}
+	if err := validateRefreshTokenDuration(refreshTokenDuration, accessTokenDuration); err != nil {
+		log.Fatal("Fatal: " + err.Error())
+	}
 
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
@@ -935,6 +938,20 @@ func validateShutdownTimeout(shutdown, request time.Duration) error {
 // makes sense: a delivery reaches the archive after OUTBOX_DONE_RETENTION, so
 // an archive window shorter than that would delete rows the moment they arrive
 // and leave no forensic trail at all.
+// validateRefreshTokenDuration bounds how long a sign-in lasts. It was parsed and
+// then used by nothing, so any value was accepted; now that it decides when a
+// customer has to sign in again, a value that ends the sign-in before its first
+// access token expires is refused.
+func validateRefreshTokenDuration(refresh, access time.Duration) error {
+	if refresh <= 0 {
+		return fmt.Errorf("REFRESH_TOKEN_DURATION must be a positive duration")
+	}
+	if refresh < access {
+		return fmt.Errorf("REFRESH_TOKEN_DURATION (%s) must be at least ACCESS_TOKEN_DURATION (%s)", refresh, access)
+	}
+	return nil
+}
+
 func validateOutboxArchiveRetention(archive, outboxDone time.Duration) error {
 	if archive <= 0 {
 		return fmt.Errorf("OUTBOX_ARCHIVE_RETENTION must be a positive duration")

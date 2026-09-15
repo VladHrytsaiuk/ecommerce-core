@@ -51,6 +51,10 @@ func (a *Application) Start(ctx context.Context) {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.OAuthAttemptCleanup.Run(workerCtx, time.Hour) }()
 	}
+	if a.RefreshTokenCleanup != nil {
+		a.workerWG.Add(1)
+		go func() { defer a.workerWG.Done(); a.RefreshTokenCleanup.Run(workerCtx, time.Hour) }()
+	}
 	if a.OutboxWorker != nil {
 		a.workerWG.Add(1)
 		go func() { defer a.workerWG.Done(); a.OutboxWorker.Run(workerCtx, 5*time.Second) }()

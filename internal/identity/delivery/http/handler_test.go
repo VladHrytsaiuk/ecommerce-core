@@ -105,6 +105,14 @@ func (f fakeAuth) CompleteOAuth(context.Context, identityDomain.CompleteOAuthCom
 	return f.session, f.err
 }
 
+func (f fakeAuth) RefreshSession(context.Context, string) (identityDomain.Session, error) {
+	return f.session, f.err
+}
+
+func (f fakeAuth) RevokeSession(context.Context, string) error {
+	return f.err
+}
+
 type fakeProfile struct{ updateErr error }
 
 func (fakeProfile) GetProfile(context.Context, uuid.UUID) (*identityDomain.Profile, error) {

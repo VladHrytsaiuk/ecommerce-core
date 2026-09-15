@@ -31,6 +31,9 @@ type AuthService struct {
 	attemptTTL  time.Duration
 	observer    domain.UserLoginObserver
 	now         func() time.Time
+	// refreshTokens is nil unless WithRefreshTokens enabled them.
+	refreshTokens domain.RefreshTokenStore
+	refreshTTL    time.Duration
 }
 
 // WithUserLoginObserver attaches an optional module subscriber assembled by
@@ -198,10 +201,24 @@ func (s *AuthService) finishLogin(ctx context.Context, user *domain.User, guestS
 			return domain.Session{}, err
 		}
 	}
-	return s.issue(user)
+	return s.issue(ctx, user)
 }
 
-func (s *AuthService) issue(user *domain.User) (domain.Session, error) {
+// issue starts a session: an access token and, where refresh tokens are
+// enabled, the first refresh token of a new sign-in.
+func (s *AuthService) issue(ctx context.Context, user *domain.User) (domain.Session, error) {
+	session, err := s.accessSession(user)
+	if err != nil || s.refreshTokens == nil {
+		return session, err
+	}
+	session.RefreshToken, session.RefreshExpiresAt, err = s.startRefreshFamily(ctx, user.ID)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	return session, nil
+}
+
+func (s *AuthService) accessSession(user *domain.User) (domain.Session, error) {
 	if user == nil || !validRole(user.Role) {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}

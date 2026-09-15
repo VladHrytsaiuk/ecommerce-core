@@ -76,6 +76,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/auth/logout": {
+            "post": {
+                "description": "Revokes the refresh token and every refresh token issued from the same sign-in. An access token already issued stays valid until it expires. Answers 204 whether or not the token was known.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "End a sign-in",
+                "parameters": [
+                    {
+                        "description": "Refresh token",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.refreshRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/oauth/{provider}/callback": {
             "get": {
                 "description": "Called by the provider. A guest cart in the request cookie is carried into the authenticated session.",
@@ -177,6 +232,76 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/refresh": {
+            "post": {
+                "description": "Consumes the refresh token and returns a new access token and a new refresh token; the one presented stops working. Presenting a used refresh token again more than 30 seconds after its use ends the whole sign-in; within 30 seconds, as when two browser tabs refresh together, it is only refused. Refreshing never extends the sign-in past refresh_expires_at.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Exchange a refresh token for a new session",
+                "parameters": [
+                    {
+                        "description": "Refresh token",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.refreshRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.sessionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -5715,6 +5840,17 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_identity_delivery_http.refreshRequest": {
+            "type": "object",
+            "required": [
+                "refresh_token"
+            ],
+            "properties": {
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_identity_delivery_http.registerRequest": {
             "type": "object",
             "properties": {
@@ -5736,6 +5872,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "expires_at": {
+                    "type": "string"
+                },
+                "refresh_expires_at": {
+                    "description": "RefreshExpiresAt is when the sign-in ends; refreshing never moves it.",
+                    "type": "string"
+                },
+                "refresh_token": {
+                    "description": "RefreshToken is returned once, with each sign-in and each refresh.",
                     "type": "string"
                 },
                 "role": {

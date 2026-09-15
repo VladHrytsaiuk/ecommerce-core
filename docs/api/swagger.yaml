@@ -548,6 +548,13 @@ definitions:
     required:
     - password
     type: object
+  internal_identity_delivery_http.refreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
   internal_identity_delivery_http.registerRequest:
     properties:
       email:
@@ -562,6 +569,13 @@ definitions:
       access_token:
         type: string
       expires_at:
+        type: string
+      refresh_expires_at:
+        description: RefreshExpiresAt is when the sign-in ends; refreshing never moves
+          it.
+        type: string
+      refresh_token:
+        description: RefreshToken is returned once, with each sign-in and each refresh.
         type: string
       role:
         type: string
@@ -862,6 +876,44 @@ paths:
       summary: Exchange credentials for an access token
       tags:
       - Auth
+  /api/auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Revokes the refresh token and every refresh token issued from the
+        same sign-in. An access token already issued stays valid until it expires.
+        Answers 204 whether or not the token was known.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.refreshRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: End a sign-in
+      tags:
+      - Auth
   /api/auth/oauth/{provider}/callback:
     get:
       description: Called by the provider. A guest cart in the request cookie is carried
@@ -936,6 +988,56 @@ paths:
               type: string
             type: object
       summary: Start an OAuth sign-in
+      tags:
+      - Auth
+  /api/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Consumes the refresh token and returns a new access token and a
+        new refresh token; the one presented stops working. Presenting a used refresh
+        token again more than 30 seconds after its use ends the whole sign-in; within
+        30 seconds, as when two browser tabs refresh together, it is only refused.
+        Refreshing never extends the sign-in past refresh_expires_at.
+      parameters:
+      - description: Refresh token
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.refreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.sessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Exchange a refresh token for a new session
       tags:
       - Auth
   /api/auth/register:

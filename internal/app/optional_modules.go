@@ -397,6 +397,8 @@ type identityRuntime struct {
 	// AttemptCleanup is not optional and not module-gated: every deployment
 	// signs people in, and oauth_authorization_attempts had no sweep at all.
 	AttemptCleanup *identityApplication.OAuthAttemptCleanup
+	// RefreshTokenCleanup removes refresh tokens once their sign-in has ended.
+	RefreshTokenCleanup *identityApplication.RefreshTokenCleanup
 }
 
 func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker, modules ModuleSet, observer identityDomain.UserLoginObserver) (identityRuntime, error) {
@@ -422,6 +424,7 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 		cfg.AccessTokenDuration,
 		storeConfig.OAuthAttemptTTL,
 	)
+	auth.WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), cfg.RefreshTokenDuration)
 	if observer != nil {
 		auth.WithUserLoginObserver(observer)
 	}
@@ -430,7 +433,11 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 	if err != nil {
 		return identityRuntime{}, fmt.Errorf("configure OAuth attempt cleanup: %w", err)
 	}
-	runtime := identityRuntime{Auth: auth, AttemptCleanup: attemptCleanup.WithLogger(logger.Log)}
+	refreshCleanup, err := identityApplication.NewRefreshTokenCleanup(identityPostgres.NewRefreshTokenStore(db))
+	if err != nil {
+		return identityRuntime{}, fmt.Errorf("configure refresh token cleanup: %w", err)
+	}
+	runtime := identityRuntime{Auth: auth, AttemptCleanup: attemptCleanup.WithLogger(logger.Log), RefreshTokenCleanup: refreshCleanup.WithLogger(logger.Log)}
 	if modules.Has(ModuleCustomers) {
 		runtime.CustomerProfile = identityApplication.NewCustomerProfileService(identityPostgres.NewCustomerProfileRepository(db))
 	}

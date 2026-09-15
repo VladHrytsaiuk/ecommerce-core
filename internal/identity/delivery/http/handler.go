@@ -52,6 +52,14 @@ type sessionResponse struct {
 	UserID      string    `json:"user_id"`
 	Role        string    `json:"role"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	// RefreshToken is returned once, with each sign-in and each refresh.
+	RefreshToken string `json:"refresh_token,omitempty"`
+	// RefreshExpiresAt is when the sign-in ends; refreshing never moves it.
+	RefreshExpiresAt *time.Time `json:"refresh_expires_at,omitempty"`
+}
+
+type refreshRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
 // Register godoc
@@ -109,6 +117,57 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 	writeSession(c, stdhttp.StatusOK, session)
+}
+
+// Refresh godoc
+// @Summary Exchange a refresh token for a new session
+// @Description Consumes the refresh token and returns a new access token and a new refresh token; the one presented stops working. Presenting a used refresh token again more than 30 seconds after its use ends the whole sign-in; within 30 seconds, as when two browser tabs refresh together, it is only refused. Refreshing never extends the sign-in past refresh_expires_at.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param payload body refreshRequest true "Refresh token"
+// @Success 200 {object} sessionResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 429 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/auth/refresh [post]
+func (h *AuthHandler) Refresh(c *gin.Context) {
+	var request refreshRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid refresh request"})
+		return
+	}
+	session, err := h.service.RefreshSession(c.Request.Context(), request.RefreshToken)
+	if err != nil {
+		handleAuthError(c, err)
+		return
+	}
+	writeSession(c, stdhttp.StatusOK, session)
+}
+
+// Logout godoc
+// @Summary End a sign-in
+// @Description Revokes the refresh token and every refresh token issued from the same sign-in. An access token already issued stays valid until it expires. Answers 204 whether or not the token was known.
+// @Tags Auth
+// @Accept json
+// @Param payload body refreshRequest true "Refresh token"
+// @Success 204
+// @Failure 400 {object} map[string]string
+// @Failure 429 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/auth/logout [post]
+func (h *AuthHandler) Logout(c *gin.Context) {
+	var request refreshRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid logout request"})
+		return
+	}
+	if err := h.service.RevokeSession(c.Request.Context(), request.RefreshToken); err != nil {
+		c.AbortWithStatusJSON(stdhttp.StatusInternalServerError, gin.H{"error": "authentication unavailable"})
+		return
+	}
+	c.Status(stdhttp.StatusNoContent)
 }
 
 // BeginOAuth godoc
@@ -239,6 +298,8 @@ func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService
 		} else {
 			auth.POST("/login", handler.Login)
 		}
+		auth.POST("/refresh", handler.Refresh)
+		auth.POST("/logout", handler.Logout)
 		auth.GET("/oauth/:provider/login", handler.BeginOAuth)
 		auth.GET("/oauth/:provider/callback", handler.CompleteOAuth)
 	}
@@ -253,6 +314,8 @@ func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService
 
 func handleAuthError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, identityDomain.ErrInvalidRefreshToken):
+		c.AbortWithStatusJSON(stdhttp.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
 	case errors.Is(err, identityDomain.ErrInvalidCredentials):
 		c.AbortWithStatusJSON(stdhttp.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 	case errors.Is(err, identityDomain.ErrInvalidPassword):
@@ -271,7 +334,12 @@ func handleAuthError(c *gin.Context, err error) {
 }
 
 func toSessionResponse(session identityDomain.Session) sessionResponse {
-	return sessionResponse{AccessToken: session.AccessToken, TokenType: "Bearer", UserID: session.UserID.String(), Role: string(session.Role), ExpiresAt: session.ExpiresAt}
+	response := sessionResponse{AccessToken: session.AccessToken, TokenType: "Bearer", UserID: session.UserID.String(), Role: string(session.Role), ExpiresAt: session.ExpiresAt}
+	if session.RefreshToken != "" {
+		refreshExpiresAt := session.RefreshExpiresAt
+		response.RefreshToken, response.RefreshExpiresAt = session.RefreshToken, &refreshExpiresAt
+	}
+	return response
 }
 
 func writeSession(c *gin.Context, status int, session identityDomain.Session) {

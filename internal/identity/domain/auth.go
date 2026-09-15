@@ -14,6 +14,11 @@ type AuthService interface {
 	LoginPassword(context.Context, PasswordLoginCommand) (Session, error)
 	BeginOAuth(context.Context, BeginOAuthCommand) (OAuthAuthorization, error)
 	CompleteOAuth(context.Context, CompleteOAuthCommand) (Session, error)
+	// RefreshSession exchanges a refresh token for a new session and a new
+	// refresh token; the presented one stops working.
+	RefreshSession(context.Context, string) (Session, error)
+	// RevokeSession ends the sign-in a refresh token belongs to.
+	RevokeSession(context.Context, string) error
 }
 
 type ProfileService interface {
@@ -41,6 +46,10 @@ type Session struct {
 	ExpiresAt   time.Time
 	UserID      uuid.UUID
 	Role        Role
+	// RefreshToken is empty where no refresh store is configured. When set it
+	// is shown to the client once and stored only as a hash.
+	RefreshToken     string
+	RefreshExpiresAt time.Time
 }
 
 type BeginOAuthCommand struct {

@@ -101,6 +101,7 @@ type Application struct {
 	InventoryAvailability     catalogDomain.VariantAvailabilityReader
 	InventoryCleanup          *inventoryApp.Cleanup
 	OAuthAttemptCleanup       *identityApplication.OAuthAttemptCleanup
+	RefreshTokenCleanup       *identityApplication.RefreshTokenCleanup
 	OrderService              ordersDomain.Service
 	IdentityAuthService       identityDomain.AuthService
 	IdentityProfileService    identityDomain.ProfileService
@@ -325,6 +326,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	}
 	identityAuthService := identity.Auth
 	oauthAttemptCleanup := identity.AttemptCleanup
+	refreshTokenCleanup := identity.RefreshTokenCleanup
 	identityProfileService, customerProfileService := identity.Profiles, identity.CustomerProfile
 	outboxHandlers := make([]eventsApp.Consumer, 0, 1)
 	var notificationWorker *notificationsApp.DurableWorker
@@ -527,6 +529,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		InventoryAvailability:     inventoryRepository,
 		InventoryCleanup:          inventoryApp.NewCleanup(inventoryRepository).WithLogger(logger.Log),
 		OAuthAttemptCleanup:       oauthAttemptCleanup,
+		RefreshTokenCleanup:       refreshTokenCleanup,
 		OrderService:              ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		IdentityAuthService:       identityAuthService,
 		IdentityProfileService:    identityProfileService,

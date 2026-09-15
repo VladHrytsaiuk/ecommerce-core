@@ -132,6 +132,17 @@ For a locally managed PostgreSQL instance, the equivalent is
 Then obtain a JWT through `POST /api/auth/login` and use it as
 `Authorization: Bearer <access_token>` for `/api/v1/admin/...` routes.
 
+Every sign-in — registration, password login and OAuth — also returns a
+`refresh_token` and `refresh_expires_at`. Access tokens are short-lived and
+carry the role, so they are not revocable; when one expires, exchange the
+refresh token at `POST /api/auth/refresh` for a new access token and a new
+refresh token. The one presented stops working, and presenting it again later
+ends the whole sign-in, which is how a copied token is detected. Refreshing
+never extends a sign-in past `refresh_expires_at` (`REFRESH_TOKEN_DURATION`).
+`POST /api/auth/logout` with the refresh token ends the sign-in. Keep the
+refresh token out of shared storage: it is shown once and stored server-side
+only as a hash.
+
 ### Storefront origin and guest sessions
 
 Deploy the storefront on the same site as the API — for example
