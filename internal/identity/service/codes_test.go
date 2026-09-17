@@ -19,45 +19,93 @@ const codeSecret = "a-secure-secret-with-at-least-thirty-two-characters"
 // codeStoreFake keeps the newest code per address, as the real store does, and
 // counts what it was asked.
 type codeStoreFake struct {
-	issued   []domain.IssueSignInCode
+	issued   []domain.IssueCode
 	codes    map[string][]byte
 	consumed int
 	issueErr error
 }
 
-func (f *codeStoreFake) Issue(ctx context.Context, request domain.IssueSignInCode, deliver func(context.Context) error) error {
-	if f.issueErr != nil {
+func codeKey(purpose domain.CodePurpose, destinationHash []byte) string {
+	return string(purpose) + ":" + hex.EncodeToString(destinationHash)
+}
+
+// inCodeTransaction marks the context the fake store hands to within, standing
+// in for the transaction the real store carries.
+type inCodeTransaction struct{}
+
+func (f *codeStoreFake) Issue(ctx context.Context, request domain.IssueCode, within func(context.Context) error) error {
+	if f.issueErr != nil && !request.Unthrottled {
 		return f.issueErr
 	}
-	if err := deliver(ctx); err != nil {
+	if err := within(context.WithValue(ctx, inCodeTransaction{}, true)); err != nil {
 		return err
 	}
 	f.issued = append(f.issued, request)
 	if f.codes == nil {
 		f.codes = map[string][]byte{}
 	}
-	f.codes[hex.EncodeToString(request.DestinationHash)] = request.CodeHash
+	f.codes[codeKey(request.Purpose, request.DestinationHash)] = request.CodeHash
 	return nil
 }
 
-func (f *codeStoreFake) Consume(ctx context.Context, request domain.ConsumeSignInCode, onAccepted func(context.Context) error) (bool, error) {
+func (f *codeStoreFake) Consume(ctx context.Context, request domain.ConsumeCode, onAccepted func(context.Context) error) (bool, error) {
 	f.consumed++
-	stored, ok := f.codes[hex.EncodeToString(request.DestinationHash)]
+	key := codeKey(request.Purpose, request.DestinationHash)
+	stored, ok := f.codes[key]
 	if !ok || !bytes.Equal(stored, request.CodeHash) {
 		return false, nil
 	}
 	if err := onAccepted(ctx); err != nil {
 		return false, err
 	}
-	delete(f.codes, hex.EncodeToString(request.DestinationHash))
+	delete(f.codes, key)
 	return true, nil
 }
 
 func (f *codeStoreFake) PurgeSettled(context.Context, time.Time, int) (int, error) { return 0, nil }
 
 type codeAccountsFake struct {
-	byEmail map[string]*domain.User
-	claimed []uuid.UUID
+	byEmail   map[string]*domain.User
+	claimed   []uuid.UUID
+	passwords map[uuid.UUID]string
+	// addressChanged makes VerifyEmail find the account's address different
+	// from the one the code was sent to.
+	addressChanged bool
+}
+
+func (f *codeAccountsFake) FindByEmail(_ context.Context, email string) (*domain.User, error) {
+	user, ok := f.byEmail[email]
+	if !ok {
+		return nil, domain.ErrUserNotFound
+	}
+	copied := *user
+	return &copied, nil
+}
+
+func (f *codeAccountsFake) VerifyEmail(_ context.Context, userID uuid.UUID, email string) (bool, error) {
+	if f.addressChanged {
+		return false, nil
+	}
+	user, ok := f.byEmail[email]
+	if !ok || user.ID != userID {
+		return false, nil
+	}
+	user.EmailVerified = true
+	return true, nil
+}
+
+func (f *codeAccountsFake) SetPassword(_ context.Context, userID uuid.UUID, passwordHash string) error {
+	if f.passwords == nil {
+		f.passwords = map[uuid.UUID]string{}
+	}
+	f.passwords[userID] = passwordHash
+	for _, user := range f.byEmail {
+		if user.ID == userID {
+			user.PasswordHash, user.EmailVerified = passwordHash, true
+			return nil
+		}
+	}
+	return domain.ErrUserNotFound
 }
 
 func (f *codeAccountsFake) FindOrCreateByEmail(_ context.Context, email string) (*domain.User, error) {
@@ -77,14 +125,14 @@ func (f *codeAccountsFake) ClaimEmail(_ context.Context, userID uuid.UUID) error
 }
 
 type codeSenderFake struct {
-	channel domain.SignInCodeChannel
-	sent    []domain.SignInCodeMessage
+	channel domain.CodeChannel
+	sent    []domain.CodeMessage
 	err     error
 }
 
-func (f *codeSenderFake) Channel() domain.SignInCodeChannel { return f.channel }
+func (f *codeSenderFake) Channel() domain.CodeChannel { return f.channel }
 
-func (f *codeSenderFake) SendSignInCode(_ context.Context, message domain.SignInCodeMessage) error {
+func (f *codeSenderFake) SendCode(_ context.Context, message domain.CodeMessage) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -94,6 +142,7 @@ func (f *codeSenderFake) SendSignInCode(_ context.Context, message domain.SignIn
 
 type codeFixture struct {
 	service  *AuthService
+	users    *userRepositoryFake
 	store    *codeStoreFake
 	accounts *codeAccountsFake
 	sender   *codeSenderFake
@@ -105,20 +154,22 @@ func newCodeFixture(t *testing.T) codeFixture {
 	fixture := codeFixture{
 		store:    &codeStoreFake{},
 		accounts: &codeAccountsFake{byEmail: map[string]*domain.User{}},
-		sender:   &codeSenderFake{channel: domain.SignInCodeEmail},
+		sender:   &codeSenderFake{channel: domain.CodeChannelEmail},
 		refresh:  &refreshStoreFake{},
 	}
-	fixture.service = refreshService(t, &userRepositoryFake{byLogin: map[string]*domain.User{}, byID: map[uuid.UUID]*domain.User{}}, fixture.refresh)
-	if _, err := fixture.service.WithSignInCodes(fixture.store, fixture.accounts, codeSecret, 10*time.Minute, fixture.sender); err != nil {
+	fixture.users = &userRepositoryFake{byLogin: map[string]*domain.User{}, byID: map[uuid.UUID]*domain.User{}}
+	fixture.service = refreshService(t, fixture.users, fixture.refresh)
+	if _, err := fixture.service.WithCodes(fixture.store, fixture.accounts, codeSecret, 10*time.Minute, fixture.sender); err != nil {
 		t.Fatal(err)
 	}
+	fixture.service.WithCodeSignIn(true)
 	return fixture
 }
 
-func (f codeFixture) request(t *testing.T, email string) domain.SignInCodeMessage {
+func (f codeFixture) request(t *testing.T, email string) domain.CodeMessage {
 	t.Helper()
 	before := len(f.sender.sent)
-	if _, err := f.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.SignInCodeEmail, Destination: email}); err != nil {
+	if _, err := f.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: email}); err != nil {
 		t.Fatalf("RequestSignInCode(%q) error = %v", email, err)
 	}
 	if len(f.sender.sent) != before+1 {
@@ -128,13 +179,13 @@ func (f codeFixture) request(t *testing.T, email string) domain.SignInCodeMessag
 }
 
 func (f codeFixture) verify(email, code string) (domain.Session, error) {
-	return f.service.VerifySignInCode(context.Background(), domain.VerifySignInCodeCommand{Channel: domain.SignInCodeEmail, Destination: email, Code: code})
+	return f.service.VerifySignInCode(context.Background(), domain.VerifySignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: email, Code: code})
 }
 
 func TestARequestedCodeIsSentAndOnlyItsHashesAreStored(t *testing.T) {
 	fixture := newCodeFixture(t)
 
-	issued, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.SignInCodeEmail, Destination: "  Buyer@Example.COM "})
+	issued, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: "  Buyer@Example.COM "})
 	if err != nil {
 		t.Fatalf("RequestSignInCode() error = %v", err)
 	}
@@ -142,7 +193,7 @@ func TestARequestedCodeIsSentAndOnlyItsHashesAreStored(t *testing.T) {
 		t.Fatalf("sent %d, stored %d; want one of each", len(fixture.sender.sent), len(fixture.store.issued))
 	}
 	message, stored := fixture.sender.sent[0], fixture.store.issued[0]
-	if message.Destination != "buyer@example.com" || !wellFormedSignInCode(message.Code) || message.Lifetime != 10*time.Minute || message.ID != stored.ID {
+	if message.Destination != "buyer@example.com" || !wellFormedCode(message.Code) || message.Lifetime != 10*time.Minute || message.ID != stored.ID {
 		t.Fatalf("message = %+v, want the normalized address, a six-digit code, its lifetime and the stored id", message)
 	}
 	if len(stored.DestinationHash) != 32 || len(stored.CodeHash) != 32 ||
@@ -152,8 +203,8 @@ func TestARequestedCodeIsSentAndOnlyItsHashesAreStored(t *testing.T) {
 	if !stored.ExpiresAt.Equal(refreshClock.Add(10*time.Minute)) || !issued.ExpiresAt.Equal(stored.ExpiresAt) || !issued.ResendAfter.Equal(refreshClock.Add(time.Minute)) {
 		t.Fatalf("issued = %+v, stored expiry %s; want ten minutes to expire and one to resend", issued, stored.ExpiresAt)
 	}
-	if stored.Limits != signInCodeLimits {
-		t.Fatalf("limits = %+v, want %+v", stored.Limits, signInCodeLimits)
+	if stored.Limits != codeLimits {
+		t.Fatalf("limits = %+v, want %+v", stored.Limits, codeLimits)
 	}
 }
 
@@ -173,8 +224,8 @@ func TestTheEmailedCodeRegistersANewAddress(t *testing.T) {
 	if len(fixture.accounts.claimed) != 0 || len(fixture.refresh.revokedUsers) != 0 {
 		t.Fatal("a new account was claimed or had its sign-ins revoked")
 	}
-	if _, err := fixture.verify("buyer@example.com", message.Code); !errors.Is(err, domain.ErrInvalidSignInCode) {
-		t.Fatalf("second use of a code = %v, want ErrInvalidSignInCode", err)
+	if _, err := fixture.verify("buyer@example.com", message.Code); !errors.Is(err, domain.ErrInvalidCode) {
+		t.Fatalf("second use of a code = %v, want ErrInvalidCode", err)
 	}
 }
 
@@ -186,8 +237,8 @@ func TestAWrongCodeIsRefused(t *testing.T) {
 		wrong = "000001"
 	}
 
-	if _, err := fixture.verify("buyer@example.com", wrong); !errors.Is(err, domain.ErrInvalidSignInCode) {
-		t.Fatalf("VerifySignInCode(wrong) = %v, want ErrInvalidSignInCode", err)
+	if _, err := fixture.verify("buyer@example.com", wrong); !errors.Is(err, domain.ErrInvalidCode) {
+		t.Fatalf("VerifySignInCode(wrong) = %v, want ErrInvalidCode", err)
 	}
 	if len(fixture.accounts.byEmail) != 0 {
 		t.Fatal("an account was created without a valid code")
@@ -195,21 +246,24 @@ func TestAWrongCodeIsRefused(t *testing.T) {
 }
 
 func TestACodeIsBoundToTheAddressItWasSentTo(t *testing.T) {
-	codes := newCodeFixture(t).service.signInCodes
-	buyer := codes.destinationHash(domain.SignInCodeEmail, "buyer@example.com")
-	other := codes.destinationHash(domain.SignInCodeEmail, "other@example.com")
+	codes := newCodeFixture(t).service.codes
+	buyer := codes.destinationHash(domain.CodeChannelEmail, "buyer@example.com")
+	other := codes.destinationHash(domain.CodeChannelEmail, "other@example.com")
 	if bytes.Equal(buyer, other) {
 		t.Fatal("two addresses share a destination hash")
 	}
-	if bytes.Equal(codes.codeHash(buyer, "123456"), codes.codeHash(other, "123456")) {
+	if bytes.Equal(codes.codeHash(buyer, domain.CodePurposeSignIn, "123456"), codes.codeHash(other, domain.CodePurposeSignIn, "123456")) {
 		t.Fatal("the same digits hash alike for two addresses; a code would work for an address it was not sent to")
+	}
+	if bytes.Equal(codes.codeHash(buyer, domain.CodePurposeSignIn, "123456"), codes.codeHash(buyer, domain.CodePurposeResetPassword, "123456")) {
+		t.Fatal("the same digits hash alike for two purposes; a sign-in code would reset a password")
 	}
 	// Keys come from the secret: another store's secret yields other hashes.
 	service := refreshService(t, &userRepositoryFake{}, nil)
-	if _, err := service.WithSignInCodes(&codeStoreFake{}, &codeAccountsFake{}, codeSecret+"-other", 10*time.Minute, &codeSenderFake{channel: domain.SignInCodeEmail}); err != nil {
+	if _, err := service.WithCodes(&codeStoreFake{}, &codeAccountsFake{}, codeSecret+"-other", 10*time.Minute, &codeSenderFake{channel: domain.CodeChannelEmail}); err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Equal(service.signInCodes.destinationHash(domain.SignInCodeEmail, "buyer@example.com"), buyer) {
+	if bytes.Equal(service.codes.destinationHash(domain.CodeChannelEmail, "buyer@example.com"), buyer) {
 		t.Fatal("destination hashes do not depend on the secret")
 	}
 }
@@ -226,8 +280,8 @@ func TestAMalformedCodeOrAddressNeverReachesTheStore(t *testing.T) {
 		"an overlong address": {strings.Repeat("a", 310) + "@example.com", "123456"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := fixture.verify(testCase.email, testCase.code); !errors.Is(err, domain.ErrInvalidSignInCode) {
-				t.Fatalf("VerifySignInCode(%q, %q) = %v, want ErrInvalidSignInCode", testCase.email, testCase.code, err)
+			if _, err := fixture.verify(testCase.email, testCase.code); !errors.Is(err, domain.ErrInvalidCode) {
+				t.Fatalf("VerifySignInCode(%q, %q) = %v, want ErrInvalidCode", testCase.email, testCase.code, err)
 			}
 		})
 	}
@@ -239,9 +293,9 @@ func TestAMalformedCodeOrAddressNeverReachesTheStore(t *testing.T) {
 func TestACodeIsNotSentToSomethingThatIsNotAnAddress(t *testing.T) {
 	fixture := newCodeFixture(t)
 	for _, destination := range []string{"", "   ", "buyer", "buyer@", "Buyer <buyer@example.com>", "a@b@example.com"} {
-		_, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.SignInCodeEmail, Destination: destination})
-		if !errors.Is(err, domain.ErrInvalidSignInDestination) {
-			t.Fatalf("RequestSignInCode(%q) = %v, want ErrInvalidSignInDestination", destination, err)
+		_, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: destination})
+		if !errors.Is(err, domain.ErrInvalidCodeDestination) {
+			t.Fatalf("RequestSignInCode(%q) = %v, want ErrInvalidCodeDestination", destination, err)
 		}
 	}
 	if len(fixture.sender.sent) != 0 || len(fixture.store.issued) != 0 {
@@ -308,7 +362,7 @@ func TestAFailedDeliveryIssuesNoCode(t *testing.T) {
 	fixture := newCodeFixture(t)
 	fixture.sender.err = errors.New("queue unavailable")
 
-	if _, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.SignInCodeEmail, Destination: "buyer@example.com"}); err == nil {
+	if _, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: "buyer@example.com"}); err == nil {
 		t.Fatal("RequestSignInCode() succeeded although the code could not be queued")
 	}
 	if len(fixture.store.issued) != 0 {
@@ -318,10 +372,10 @@ func TestAFailedDeliveryIssuesNoCode(t *testing.T) {
 
 func TestAThrottledRequestIsReportedAsSuch(t *testing.T) {
 	fixture := newCodeFixture(t)
-	fixture.store.issueErr = &domain.SignInCodeThrottledError{RetryAfter: 42 * time.Second}
+	fixture.store.issueErr = &domain.CodeThrottledError{RetryAfter: 42 * time.Second}
 
-	_, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.SignInCodeEmail, Destination: "buyer@example.com"})
-	var throttled *domain.SignInCodeThrottledError
+	_, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: "buyer@example.com"})
+	var throttled *domain.CodeThrottledError
 	if !errors.As(err, &throttled) || throttled.RetryAfter != 42*time.Second {
 		t.Fatalf("RequestSignInCode() = %v, want the throttle and its wait", err)
 	}
@@ -330,10 +384,10 @@ func TestAThrottledRequestIsReportedAsSuch(t *testing.T) {
 func TestCodeSignInIsUnavailableUntilEnabled(t *testing.T) {
 	service := refreshService(t, &userRepositoryFake{byLogin: map[string]*domain.User{}, byID: map[uuid.UUID]*domain.User{}}, nil)
 
-	if _, err := service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.SignInCodeEmail, Destination: "buyer@example.com"}); !errors.Is(err, domain.ErrSignInMethodDisabled) {
+	if _, err := service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: "buyer@example.com"}); !errors.Is(err, domain.ErrSignInMethodDisabled) {
 		t.Fatalf("RequestSignInCode() = %v, want ErrSignInMethodDisabled", err)
 	}
-	if _, err := service.VerifySignInCode(context.Background(), domain.VerifySignInCodeCommand{Channel: domain.SignInCodeEmail, Destination: "buyer@example.com", Code: "123456"}); !errors.Is(err, domain.ErrSignInMethodDisabled) {
+	if _, err := service.VerifySignInCode(context.Background(), domain.VerifySignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: "buyer@example.com", Code: "123456"}); !errors.Is(err, domain.ErrSignInMethodDisabled) {
 		t.Fatalf("VerifySignInCode() = %v, want ErrSignInMethodDisabled", err)
 	}
 	fixture := newCodeFixture(t)
@@ -344,25 +398,25 @@ func TestCodeSignInIsUnavailableUntilEnabled(t *testing.T) {
 
 func TestSignInCodesRefuseAConfigurationThatCannotWork(t *testing.T) {
 	store, accounts := &codeStoreFake{}, &codeAccountsFake{}
-	email := &codeSenderFake{channel: domain.SignInCodeEmail}
+	email := &codeSenderFake{channel: domain.CodeChannelEmail}
 	for name, testCase := range map[string]struct {
 		secret  string
 		ttl     time.Duration
-		senders []domain.SignInCodeSender
+		senders []domain.CodeSender
 	}{
 		"no sender":            {codeSecret, 10 * time.Minute, nil},
-		"no secret":            {"  ", 10 * time.Minute, []domain.SignInCodeSender{email}},
-		"a lifetime too short": {codeSecret, 59 * time.Second, []domain.SignInCodeSender{email}},
-		"a lifetime too long":  {codeSecret, 31 * time.Minute, []domain.SignInCodeSender{email}},
-		"two email senders":    {codeSecret, 10 * time.Minute, []domain.SignInCodeSender{email, &codeSenderFake{channel: domain.SignInCodeEmail}}},
-		"an unknown channel":   {codeSecret, 10 * time.Minute, []domain.SignInCodeSender{&codeSenderFake{channel: "pigeon"}}},
+		"no secret":            {"  ", 10 * time.Minute, []domain.CodeSender{email}},
+		"a lifetime too short": {codeSecret, 59 * time.Second, []domain.CodeSender{email}},
+		"a lifetime too long":  {codeSecret, 31 * time.Minute, []domain.CodeSender{email}},
+		"two email senders":    {codeSecret, 10 * time.Minute, []domain.CodeSender{email, &codeSenderFake{channel: domain.CodeChannelEmail}}},
+		"an unknown channel":   {codeSecret, 10 * time.Minute, []domain.CodeSender{&codeSenderFake{channel: "pigeon"}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			service := refreshService(t, &userRepositoryFake{}, nil)
-			if _, err := service.WithSignInCodes(store, accounts, testCase.secret, testCase.ttl, testCase.senders...); err == nil {
-				t.Fatal("WithSignInCodes() accepted a configuration that cannot work")
+			if _, err := service.WithCodes(store, accounts, testCase.secret, testCase.ttl, testCase.senders...); err == nil {
+				t.Fatal("WithCodes() accepted a configuration that cannot work")
 			}
-			if service.signInCodes != nil {
+			if service.codes != nil {
 				t.Fatal("a refused configuration was still enabled")
 			}
 		})
@@ -372,12 +426,12 @@ func TestSignInCodesRefuseAConfigurationThatCannotWork(t *testing.T) {
 func TestCodesAreSixDigitsAndDoNotRepeatInSequence(t *testing.T) {
 	seen := map[string]struct{}{}
 	for range 200 {
-		code, err := newSignInCode()
+		code, err := newCode()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !wellFormedSignInCode(code) {
-			t.Fatalf("newSignInCode() = %q, want six ASCII digits", code)
+		if !wellFormedCode(code) {
+			t.Fatalf("newCode() = %q, want six ASCII digits", code)
 		}
 		seen[code] = struct{}{}
 	}

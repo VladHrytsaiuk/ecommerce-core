@@ -13,15 +13,17 @@ const (
 	// The remaining template keys the system can ask for. They lived as string
 	// literals at their call sites, which is how eight of them came to exist
 	// with no template behind any of them.
-	BackInStockTemplate       = "back_in_stock"
-	SupportAgentReplyTemplate = "support_agent_reply"
-	AbandonedCartTemplate     = "abandoned_cart"
-	ReturnApprovedTemplate    = "return_approved"
-	ReturnRejectedTemplate    = "return_rejected"
-	ReturnReceivedTemplate    = "return_received"
-	ReturnRefundedTemplate    = "return_refunded"
-	SignInCodeTemplate        = "sign_in_code"
-	MaxEmailOperationTimeout  = 30 * time.Second
+	BackInStockTemplate           = "back_in_stock"
+	SupportAgentReplyTemplate     = "support_agent_reply"
+	AbandonedCartTemplate         = "abandoned_cart"
+	ReturnApprovedTemplate        = "return_approved"
+	ReturnRejectedTemplate        = "return_rejected"
+	ReturnReceivedTemplate        = "return_received"
+	ReturnRefundedTemplate        = "return_refunded"
+	SignInCodeTemplate            = "sign_in_code"
+	EmailVerificationCodeTemplate = "email_verification_code"
+	PasswordResetCodeTemplate     = "password_reset_code"
+	MaxEmailOperationTimeout      = 30 * time.Second
 )
 
 type EmailMessage struct {

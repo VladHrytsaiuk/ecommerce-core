@@ -26,6 +26,8 @@ func TestEveryTemplateKeyTheSystemCanAskForHasADefault(t *testing.T) {
 		ReturnReceivedTemplate,
 		ReturnRefundedTemplate,
 		SignInCodeTemplate,
+		EmailVerificationCodeTemplate,
+		PasswordResetCodeTemplate,
 	}
 	present := make(map[string]struct{}, len(DefaultTemplates))
 	for _, candidate := range DefaultTemplates {
@@ -69,10 +71,12 @@ func TestATemplateOnlyReferencesFieldsItsSenderSupplies(t *testing.T) {
 	// The render data differs per key. A default naming a field its caller does
 	// not pass renders as "<no value>" in a live customer email.
 	supplied := map[string][]string{
-		OrderPaidTemplate:         {"OrderNumber"},
-		SupportAgentReplyTemplate: {"Subject", "MessageBody"},
-		AbandonedCartTemplate:     {"UnsubscribeURL"},
-		SignInCodeTemplate:        {"Code", "ExpiresInMinutes"},
+		OrderPaidTemplate:             {"OrderNumber"},
+		SupportAgentReplyTemplate:     {"Subject", "MessageBody"},
+		AbandonedCartTemplate:         {"UnsubscribeURL"},
+		SignInCodeTemplate:            {"Code", "ExpiresInMinutes"},
+		EmailVerificationCodeTemplate: {"Code", "ExpiresInMinutes"},
+		PasswordResetCodeTemplate:     {"Code", "ExpiresInMinutes"},
 	}
 	for _, candidate := range DefaultTemplates {
 		fields := supplied[candidate.Key]

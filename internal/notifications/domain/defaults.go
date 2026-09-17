@@ -74,4 +74,16 @@ var DefaultTemplates = []Template{
 		Text:    "Your sign-in code is {{.Code}}\n\nIt works for {{.ExpiresInMinutes}} minutes. Do not share it with anyone.\n\nIf you did not ask for this code, you can ignore this email.",
 		HTML:    "<p>Your sign-in code is</p><p><strong>{{.Code}}</strong></p><p>It works for {{.ExpiresInMinutes}} minutes. Do not share it with anyone.</p><p>If you did not ask for this code, you can ignore this email.</p>",
 	},
+	{
+		Key:     EmailVerificationCodeTemplate,
+		Subject: "Confirm your email address",
+		Text:    "Your confirmation code is {{.Code}}\n\nIt works for {{.ExpiresInMinutes}} minutes. Do not share it with anyone.\n\nIf you did not create an account, you can ignore this email.",
+		HTML:    "<p>Your confirmation code is</p><p><strong>{{.Code}}</strong></p><p>It works for {{.ExpiresInMinutes}} minutes. Do not share it with anyone.</p><p>If you did not create an account, you can ignore this email.</p>",
+	},
+	{
+		Key:     PasswordResetCodeTemplate,
+		Subject: "Reset your password",
+		Text:    "Your password reset code is {{.Code}}\n\nIt works for {{.ExpiresInMinutes}} minutes. Do not share it with anyone.\n\nIf you did not ask to reset your password, you can ignore this email; your password has not changed.",
+		HTML:    "<p>Your password reset code is</p><p><strong>{{.Code}}</strong></p><p>It works for {{.ExpiresInMinutes}} minutes. Do not share it with anyone.</p><p>If you did not ask to reset your password, you can ignore this email; your password has not changed.</p>",
+	},
 }

@@ -45,7 +45,7 @@ func TestACodeFromTheQueuedEmailSignsTheCustomerIn(t *testing.T) {
 	db, auth, queue := newCodeSignIn(t)
 	ctx := context.Background()
 
-	if _, err := auth.RequestSignInCode(ctx, identity.RequestSignInCodeCommand{Channel: identity.SignInCodeEmail, Destination: "Buyer@Example.test"}); err != nil {
+	if _, err := auth.RequestSignInCode(ctx, identity.RequestSignInCodeCommand{Channel: identity.CodeChannelEmail, Destination: "Buyer@Example.test"}); err != nil {
 		t.Fatalf("RequestSignInCode() error = %v", err)
 	}
 	job, rendered := readQueuedEmail(t, queue)
@@ -60,7 +60,7 @@ func TestACodeFromTheQueuedEmailSignsTheCustomerIn(t *testing.T) {
 		t.Fatalf("text = %q, want the code's lifetime", rendered.Text)
 	}
 
-	session, err := auth.VerifySignInCode(ctx, identity.VerifySignInCodeCommand{Channel: identity.SignInCodeEmail, Destination: "buyer@example.test", Code: code})
+	session, err := auth.VerifySignInCode(ctx, identity.VerifySignInCodeCommand{Channel: identity.CodeChannelEmail, Destination: "buyer@example.test", Code: code})
 	if err != nil || session.AccessToken == "" || session.RefreshToken == "" {
 		t.Fatalf("VerifySignInCode() = (%+v, %v), want a session", session, err)
 	}
@@ -76,8 +76,8 @@ func TestACodeFromTheQueuedEmailSignsTheCustomerIn(t *testing.T) {
 	}
 
 	// A second request is inside the cooldown: refused, and nothing queued.
-	_, err = auth.RequestSignInCode(ctx, identity.RequestSignInCodeCommand{Channel: identity.SignInCodeEmail, Destination: "buyer@example.test"})
-	var throttled *identity.SignInCodeThrottledError
+	_, err = auth.RequestSignInCode(ctx, identity.RequestSignInCodeCommand{Channel: identity.CodeChannelEmail, Destination: "buyer@example.test"})
+	var throttled *identity.CodeThrottledError
 	if !errors.As(err, &throttled) {
 		t.Fatalf("RequestSignInCode() inside the cooldown = %v, want throttled", err)
 	}
@@ -99,11 +99,11 @@ func TestACodeTakesOverAnAccountSomeoneRegisteredWithoutProvingTheAddress(t *tes
 		t.Fatal(err)
 	}
 
-	if _, err := auth.RequestSignInCode(ctx, identity.RequestSignInCodeCommand{Channel: identity.SignInCodeEmail, Destination: "owner@example.test"}); err != nil {
+	if _, err := auth.RequestSignInCode(ctx, identity.RequestSignInCodeCommand{Channel: identity.CodeChannelEmail, Destination: "owner@example.test"}); err != nil {
 		t.Fatal(err)
 	}
 	_, rendered := readQueuedEmail(t, queue)
-	session, err := auth.VerifySignInCode(ctx, identity.VerifySignInCodeCommand{Channel: identity.SignInCodeEmail, Destination: "owner@example.test", Code: regexp.MustCompile(`\b\d{6}\b`).FindString(rendered.Text)})
+	session, err := auth.VerifySignInCode(ctx, identity.VerifySignInCodeCommand{Channel: identity.CodeChannelEmail, Destination: "owner@example.test", Code: regexp.MustCompile(`\b\d{6}\b`).FindString(rendered.Text)})
 	if err != nil || session.UserID != squatter {
 		t.Fatalf("VerifySignInCode() = (%+v, %v), want the existing account", session, err)
 	}
@@ -121,6 +121,78 @@ func TestACodeTakesOverAnAccountSomeoneRegisteredWithoutProvingTheAddress(t *tes
 	}
 }
 
+// Registration sends the code in the transaction that creates the account; the
+// code from that email confirms the address.
+func TestTheCodeSentOnRegistrationConfirmsTheAddress(t *testing.T) {
+	db, auth, queue := newCodeSignIn(t)
+	ctx := context.Background()
+	email := "New.Buyer@Example.test"
+
+	session, err := auth.RegisterPassword(ctx, identity.RegisterPasswordCommand{Email: &email, Password: "correct-horse-battery"})
+	if err != nil {
+		t.Fatalf("RegisterPassword() error = %v", err)
+	}
+	job, rendered := readQueuedEmail(t, queue)
+	if job.Type != notifications.EmailVerificationCodeTemplate || job.Email != "new.buyer@example.test" {
+		t.Fatalf("job = %+v, want a verification email to the normalized address", job)
+	}
+	code := regexp.MustCompile(`\b\d{6}\b`).FindString(rendered.Text)
+
+	if err := auth.ConfirmEmail(ctx, identity.ConfirmEmailCommand{UserID: session.UserID, Code: code}); err != nil {
+		t.Fatalf("ConfirmEmail() error = %v", err)
+	}
+	var verified int64
+	if err := db.Raw(`SELECT COUNT(*) FROM users WHERE id = ? AND email_verified AND password_hash IS NOT NULL`, session.UserID).Scan(&verified).Error; err != nil {
+		t.Fatal(err)
+	}
+	if verified != 1 {
+		t.Fatal("the address was not verified, or the password was lost")
+	}
+	if _, err := auth.RequestEmailVerification(ctx, session.UserID); !errors.Is(err, identity.ErrEmailAlreadyVerified) {
+		t.Fatalf("RequestEmailVerification() after confirming = %v, want ErrEmailAlreadyVerified", err)
+	}
+}
+
+// A reset read at the address replaces the password and ends the sign-ins of
+// whoever had the old one.
+func TestAResetCodeReplacesThePasswordAndEndsOtherSignIns(t *testing.T) {
+	db, auth, queue := newCodeSignIn(t)
+	ctx := context.Background()
+	email := "reset@example.test"
+	registered, err := auth.RegisterPassword(ctx, identity.RegisterPasswordCommand{Email: &email, Password: "old-password-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readQueuedEmail(t, queue) // the verification email
+
+	// Registration was the address's last code; the reset waits out the
+	// cooldown, as a person would.
+	if err := db.Exec(`UPDATE one_time_codes SET created_at = created_at - interval '2 minutes', expires_at = expires_at - interval '2 minutes'`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.RequestPasswordReset(ctx, identity.RequestPasswordResetCommand{Email: email}); err != nil {
+		t.Fatalf("RequestPasswordReset() error = %v", err)
+	}
+	job, rendered := readQueuedEmail(t, queue)
+	if job.Type != notifications.PasswordResetCodeTemplate {
+		t.Fatalf("job = %+v, want a password reset email", job)
+	}
+	session, err := auth.ResetPassword(ctx, identity.ResetPasswordCommand{Email: email, Code: regexp.MustCompile(`\b\d{6}\b`).FindString(rendered.Text), Password: "new-password-456"})
+	if err != nil || session.UserID != registered.UserID {
+		t.Fatalf("ResetPassword() = (%+v, %v), want the account signed in", session, err)
+	}
+
+	if _, err := auth.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, identity.ErrInvalidRefreshToken) {
+		t.Fatalf("RefreshSession(the sign-in before the reset) = %v, want it ended", err)
+	}
+	if _, err := auth.LoginPassword(ctx, identity.PasswordLoginCommand{Login: email, Password: "old-password-123"}); !errors.Is(err, identity.ErrInvalidCredentials) {
+		t.Fatalf("LoginPassword(old password) = %v, want refused", err)
+	}
+	if _, err := auth.LoginPassword(ctx, identity.PasswordLoginCommand{Login: email, Password: "new-password-456"}); err != nil {
+		t.Fatalf("LoginPassword(new password) = %v", err)
+	}
+}
+
 func newCodeSignIn(t *testing.T) (*gorm.DB, *identityService.AuthService, *notificationsPostgres.Repository) {
 	t.Helper()
 	db := newDatabase(t)
@@ -128,7 +200,7 @@ func newCodeSignIn(t *testing.T) (*gorm.DB, *identityService.AuthService, *notif
 	if err := queue.SynchronizeTemplates(context.Background(), "en", notifications.DefaultTemplates); err != nil {
 		t.Fatal(err)
 	}
-	mailer, err := NewSignInCodeMailer(queue)
+	mailer, err := NewCodeMailer(queue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,9 +210,10 @@ func newCodeSignIn(t *testing.T) (*gorm.DB, *identityService.AuthService, *notif
 	}
 	auth := identityService.NewAuthService(identityPostgres.NewUserRepository(db), identityPostgres.NewOAuthIdentityRepository(db), identityPostgres.NewOAuthAttemptStore(db), identityPostgres.NewAuthTransaction(db), identityService.NewOAuthProviderRegistry(), maker, 15*time.Minute, 10*time.Minute).
 		WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), 7*24*time.Hour)
-	if _, err := auth.WithSignInCodes(identityPostgres.NewSignInCodeStore(db), identityPostgres.NewCodeSignInAccounts(db), testSecret, 10*time.Minute, mailer); err != nil {
+	if _, err := auth.WithCodes(identityPostgres.NewCodeStore(db), identityPostgres.NewCodeAccounts(db), testSecret, 10*time.Minute, mailer); err != nil {
 		t.Fatal(err)
 	}
+	auth.WithCodeSignIn(true)
 	return db, auth, queue
 }
 

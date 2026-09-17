@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestValidateSignInCodeTTL(t *testing.T) {
+func TestValidateEmailCodeTTL(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		ttl  time.Duration
 		want bool
@@ -20,12 +20,12 @@ func TestValidateSignInCodeTTL(t *testing.T) {
 		"negative":          {-time.Minute, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := validateSignInCodeTTL(testCase.ttl)
+			err := validateEmailCodeTTL(testCase.ttl)
 			if testCase.want && err != nil {
-				t.Fatalf("validateSignInCodeTTL(%s) = %v", testCase.ttl, err)
+				t.Fatalf("validateEmailCodeTTL(%s) = %v", testCase.ttl, err)
 			}
-			if !testCase.want && (err == nil || !strings.Contains(err.Error(), "SIGN_IN_CODE_TTL")) {
-				t.Fatalf("validateSignInCodeTTL(%s) = %v, want a SIGN_IN_CODE_TTL error", testCase.ttl, err)
+			if !testCase.want && (err == nil || !strings.Contains(err.Error(), "EMAIL_CODE_TTL")) {
+				t.Fatalf("validateEmailCodeTTL(%s) = %v, want a EMAIL_CODE_TTL error", testCase.ttl, err)
 			}
 		})
 	}

@@ -102,7 +102,7 @@ type Application struct {
 	InventoryCleanup          *inventoryApp.Cleanup
 	OAuthAttemptCleanup       *identityApplication.OAuthAttemptCleanup
 	RefreshTokenCleanup       *identityApplication.RefreshTokenCleanup
-	SignInCodeCleanup         *identityApplication.SignInCodeCleanup
+	CodeCleanup               *identityApplication.CodeCleanup
 	OrderService              ordersDomain.Service
 	IdentityAuthService       identityDomain.AuthService
 	IdentityProfileService    identityDomain.ProfileService
@@ -328,7 +328,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 	identityAuthService := identity.Auth
 	oauthAttemptCleanup := identity.AttemptCleanup
 	refreshTokenCleanup := identity.RefreshTokenCleanup
-	signInCodeCleanup := identity.SignInCodeCleanup
+	codeCleanup := identity.CodeCleanup
 	identityProfileService, customerProfileService := identity.Profiles, identity.CustomerProfile
 	outboxHandlers := make([]eventsApp.Consumer, 0, 1)
 	var notificationWorker *notificationsApp.DurableWorker
@@ -532,7 +532,7 @@ func Bootstrap(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMa
 		InventoryCleanup:          inventoryApp.NewCleanup(inventoryRepository).WithLogger(logger.Log),
 		OAuthAttemptCleanup:       oauthAttemptCleanup,
 		RefreshTokenCleanup:       refreshTokenCleanup,
-		SignInCodeCleanup:         signInCodeCleanup,
+		CodeCleanup:               codeCleanup,
 		OrderService:              ordersApp.NewService(ordersPostgres.NewRepository(db)),
 		IdentityAuthService:       identityAuthService,
 		IdentityProfileService:    identityProfileService,

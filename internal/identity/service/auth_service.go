@@ -37,8 +37,9 @@ type AuthService struct {
 	// passwordSignInDisabled is false by default, so a service built without
 	// WithPasswordSignIn keeps the behaviour it always had.
 	passwordSignInDisabled bool
-	// signInCodes is nil unless WithSignInCodes enabled them.
-	signInCodes *signInCodes
+	// codes is nil unless WithCodes made one-time codes available.
+	codes             *oneTimeCodes
+	codeSignInEnabled bool
 }
 
 // WithPasswordSignIn enables or disables registration and sign-in with a
@@ -71,6 +72,13 @@ func (s *AuthService) RegisterPassword(ctx context.Context, command domain.Regis
 	if email == nil && phone == nil {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}
+	if email != nil {
+		normalized, ok := normalizeEmail(*email)
+		if !ok {
+			return domain.Session{}, domain.ErrInvalidEmail
+		}
+		email = &normalized
+	}
 	if !validPassword(command.Password) {
 		return domain.Session{}, domain.ErrInvalidPassword
 	}
@@ -78,7 +86,22 @@ func (s *AuthService) RegisterPassword(ctx context.Context, command domain.Regis
 	if err != nil {
 		return domain.Session{}, err
 	}
-	user, err := s.users.Create(ctx, domain.NewUser{Email: email, Phone: phone, PasswordHash: hash, Role: domain.RoleCustomer, Status: domain.UserStatusActive})
+	newUser := domain.NewUser{Email: email, Phone: phone, PasswordHash: hash, Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	var user *domain.User
+	if email != nil && s.codesAvailable(domain.CodeChannelEmail) {
+		// The account and the code that verifies its address are created in one
+		// transaction, so there is never an account whose code was lost. The
+		// code is unthrottled: registering happens once per address, so it
+		// cannot be repeated to flood a mailbox, and a registration must not
+		// fail because someone recently asked for codes to the same address.
+		_, err = s.codes.issue(ctx, s.now().UTC(), domain.CodeChannelEmail, domain.CodePurposeVerifyEmail, *email, true, func(txCtx context.Context) (bool, error) {
+			created, createErr := s.users.Create(txCtx, newUser)
+			user = created
+			return true, createErr
+		})
+	} else {
+		user, err = s.users.Create(ctx, newUser)
+	}
 	if err != nil {
 		return domain.Session{}, err
 	}
@@ -185,9 +208,7 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 		return domain.Session{}, domain.ErrOAuthAccountLinkRequired
 	}
 	if existing, findErr := s.users.FindByLogin(ctx, *verified.Email); findErr == nil && existing != nil {
-		// A callback may not silently attach an OAuth identity to an existing
-		// local account. A future authenticated linking use case owns that flow.
-		return domain.Session{}, domain.ErrOAuthAccountLinkRequired
+		return s.linkVerifiedAccount(ctx, existing, verified, command.GuestSessionID)
 	} else if findErr != nil && !errors.Is(findErr, domain.ErrUserNotFound) {
 		return domain.Session{}, findErr
 	}
@@ -212,6 +233,41 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 		return domain.Session{}, err
 	}
 	return s.finishLogin(ctx, user, command.GuestSessionID)
+}
+
+// linkVerifiedAccount signs in to an existing account with the provider's
+// identity, linking the two.
+//
+// Only when both sides have verified the address: the provider says the
+// account holder owns it, and the local account proved it with a code or an
+// earlier provider sign-in. If the local address was never verified, the
+// account may have been registered by someone who does not own it, and linking
+// would hand the owner's provider sign-in to that account; that stays a
+// linking decision for the account holder.
+func (s *AuthService) linkVerifiedAccount(ctx context.Context, existing *domain.User, verified domain.VerifiedOAuthIdentity, guestSessionID *uuid.UUID) (domain.Session, error) {
+	if !existing.EmailVerified {
+		return domain.Session{}, domain.ErrOAuthAccountLinkRequired
+	}
+	if !canSignIn(existing) {
+		return domain.Session{}, domain.ErrInvalidCredentials
+	}
+	err := s.transaction.WithinTransaction(ctx, func(_ domain.UserRepository, identities domain.OAuthIdentityRepository) error {
+		_, err := identities.Create(ctx, domain.OAuthIdentity{ID: uuid.New(), UserID: existing.ID, Provider: verified.Provider, Subject: verified.Subject, ProviderEmail: normalizeContact(verified.Email), EmailVerified: verified.EmailVerified})
+		return err
+	})
+	if errors.Is(err, domain.ErrOAuthIdentityAlreadyLinked) {
+		// A concurrent callback for the same provider account linked it first.
+		// That is the same outcome, if it linked to this account.
+		identity, findErr := s.identities.FindByProviderSubject(ctx, verified.Provider, verified.Subject)
+		if findErr != nil || identity == nil || identity.UserID != existing.ID {
+			return domain.Session{}, domain.ErrOAuthAccountLinkRequired
+		}
+		err = nil
+	}
+	if err != nil {
+		return domain.Session{}, err
+	}
+	return s.finishLogin(ctx, existing, guestSessionID)
 }
 
 func (s *AuthService) finishLogin(ctx context.Context, user *domain.User, guestSessionID *uuid.UUID) (domain.Session, error) {

@@ -39,7 +39,9 @@ func TestAuthServiceCompletesVerifiedOAuthForNewUser(t *testing.T) {
 	}
 }
 
-func TestAuthServiceDoesNotAutoLinkExistingAccount(t *testing.T) {
+// The local address was never verified, so the account may belong to someone who
+// registered an address they do not own.
+func TestAuthServiceDoesNotLinkAnAccountWhoseAddressWasNeverVerified(t *testing.T) {
 	existing := &domain.User{ID: uuid.New(), Email: stringPointer("buyer@example.com"), Role: domain.RoleCustomer, Status: domain.UserStatusActive}
 	users := &userRepositoryFake{byLogin: map[string]*domain.User{"buyer@example.com": existing}, byID: map[uuid.UUID]*domain.User{existing.ID: existing}}
 	identities := &oauthIdentityRepositoryFake{}
@@ -281,5 +283,44 @@ func TestLoginPasswordStillAuthenticatesValidCredentials(t *testing.T) {
 
 	if _, err := service.LoginPassword(context.Background(), domain.PasswordLoginCommand{Login: email, Password: "wrong"}); !errors.Is(err, domain.ErrInvalidCredentials) {
 		t.Fatalf("LoginPassword(wrong password) error = %v, want invalid credentials", err)
+	}
+}
+
+func googleCallback(t *testing.T, users *userRepositoryFake, identities *oauthIdentityRepositoryFake, email string) (domain.Session, error) {
+	t.Helper()
+	attempts := &oauthAttemptStoreFake{created: domain.OAuthAttempt{Provider: "google", State: "state", RedirectURI: "https://store.example.test/callback", Nonce: "nonce", CodeVerifier: "verifier", ExpiresAt: time.Now().Add(time.Minute)}}
+	provider := &oauthProviderFake{identity: domain.VerifiedOAuthIdentity{Provider: "google", Subject: "subject-1", Email: stringPointer(email), EmailVerified: true}}
+	maker, _ := token.NewJWTMaker("a-secure-secret-with-at-least-thirty-two-characters")
+	service := NewAuthService(users, identities, attempts, authTransactionFake{users: users, identities: identities}, NewOAuthProviderRegistry(provider), maker, time.Hour, time.Minute)
+	return service.CompleteOAuth(context.Background(), domain.CompleteOAuthCommand{Provider: "google", RedirectURI: attempts.created.RedirectURI, Code: "provider-code", State: "state"})
+}
+
+func TestGoogleLinksToAnAccountWhoseAddressBothSidesVerified(t *testing.T) {
+	existing := &domain.User{ID: uuid.New(), Email: stringPointer("buyer@example.com"), EmailVerified: true, Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	users := &userRepositoryFake{byLogin: map[string]*domain.User{"buyer@example.com": existing}, byID: map[uuid.UUID]*domain.User{existing.ID: existing}}
+	identities := &oauthIdentityRepositoryFake{}
+
+	session, err := googleCallback(t, users, identities, "buyer@example.com")
+	if err != nil || session.UserID != existing.ID {
+		t.Fatalf("CompleteOAuth() = (%+v, %v), want the existing account signed in", session, err)
+	}
+	if len(identities.items) != 1 || identities.items[0].UserID != existing.ID || identities.items[0].Subject != "subject-1" {
+		t.Fatalf("identities = %+v, want the Google account linked to the existing one", identities.items)
+	}
+	if len(users.byID) != 1 {
+		t.Fatal("a second account was created")
+	}
+}
+
+func TestGoogleDoesNotLinkToAnAccountThatCannotSignIn(t *testing.T) {
+	existing := &domain.User{ID: uuid.New(), Email: stringPointer("buyer@example.com"), EmailVerified: true, Role: domain.RoleCustomer, Status: domain.UserStatusDisabled}
+	users := &userRepositoryFake{byLogin: map[string]*domain.User{"buyer@example.com": existing}, byID: map[uuid.UUID]*domain.User{existing.ID: existing}}
+	identities := &oauthIdentityRepositoryFake{}
+
+	if _, err := googleCallback(t, users, identities, "buyer@example.com"); !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("CompleteOAuth() = %v, want a disabled account refused", err)
+	}
+	if len(identities.items) != 0 {
+		t.Fatal("a Google account was linked to a disabled account")
 	}
 }

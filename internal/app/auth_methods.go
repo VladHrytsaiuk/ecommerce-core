@@ -24,6 +24,13 @@ const (
 // allAuthMethods is every name AUTH_METHODS accepts.
 var allAuthMethods = []AuthMethod{AuthMethodPassword, AuthMethodGoogle, AuthMethodEmailCode}
 
+// EmailCodesAvailable reports whether this store sends one-time codes by
+// email: to verify an address after registration, to reset a password and, with
+// email_code, to sign in. They go out through the notifications module.
+func (c StoreConfig) EmailCodesAvailable() bool {
+	return c.Modules().Has(ModuleNotifications)
+}
+
 // AuthMethodSet is the normalized set of enabled sign-in methods.
 type AuthMethodSet map[AuthMethod]struct{}
 

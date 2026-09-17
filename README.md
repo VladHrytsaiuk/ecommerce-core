@@ -154,12 +154,28 @@ and `email_code` without the `notifications` module.
 With `email_code` there is one field and no password: `POST /api/auth/email-code`
 emails a six-digit code, and `POST /api/auth/email-code/verify` exchanges it for
 a session, registering the address if it has no account. The answer is the same
-whether or not the address is known. A code works for `SIGN_IN_CODE_TTL`
-(10 minutes by default) and allows five attempts; an address is sent at most one
-code a minute, five an hour and ten a day. Only HMACs of the address and the code
-are stored. An account whose address was never verified — registered with a
-password by someone who did not have to prove the address — is taken over by the
-person who receives the code: its password is removed and its sign-ins end.
+whether or not the address is known. An account whose address was never
+verified — registered with a password by someone who did not have to prove the
+address — is taken over by the person who receives the code: its password is
+removed and its sign-ins end.
+
+With `password` and the `notifications` module, registering with an email
+address signs the customer in and emails a code; the address stays unverified
+until the code is sent to `POST /api/auth/email-verification/confirm`
+(`POST /api/auth/email-verification` sends another). A forgotten password is
+reset with `POST /api/auth/password-reset`, which answers the same for every
+address, and `POST /api/auth/password-reset/confirm`, which sets the new
+password, verifies the address, signs in and ends every other sign-in. Without
+the `notifications` module none of this exists and registration works as before.
+
+Every code works for `EMAIL_CODE_TTL` (10 minutes by default), allows five
+attempts and is accepted only for what it was sent for. An address is sent at
+most one code a minute, five an hour and ten a day, whatever they are for. Only
+HMACs of the address and the code are stored.
+
+Google signs in to an existing account with the same address only when both
+sides have verified it; otherwise the callback answers 409 and nothing is
+linked.
 
 ### Storefront origin and guest sessions
 

@@ -20,7 +20,7 @@ type emailCodeAuth struct {
 	verified  []identityDomain.VerifySignInCodeCommand
 }
 
-func (f *emailCodeAuth) RequestSignInCode(_ context.Context, command identityDomain.RequestSignInCodeCommand) (identityDomain.SignInCodeRequest, error) {
+func (f *emailCodeAuth) RequestSignInCode(_ context.Context, command identityDomain.RequestSignInCodeCommand) (identityDomain.CodeRequest, error) {
 	f.requested = append(f.requested, command)
 	return f.codeRequest, f.err
 }
@@ -39,7 +39,7 @@ func newEmailCodeRouter(service identityDomain.AuthService, loginLimit gin.Handl
 
 func TestRequestingAnEmailCodeAnswersWhenItStopsWorking(t *testing.T) {
 	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
-	service := &emailCodeAuth{fakeAuth: fakeAuth{codeRequest: identityDomain.SignInCodeRequest{ExpiresAt: now.Add(10 * time.Minute), ResendAfter: now.Add(time.Minute)}}}
+	service := &emailCodeAuth{fakeAuth: fakeAuth{codeRequest: identityDomain.CodeRequest{ExpiresAt: now.Add(10 * time.Minute), ResendAfter: now.Add(time.Minute)}}}
 	router := newEmailCodeRouter(service, nil)
 
 	recorder := postJSON(router, "/api/auth/email-code", `{"email":"buyer@example.com"}`)
@@ -50,7 +50,7 @@ func TestRequestingAnEmailCodeAnswersWhenItStopsWorking(t *testing.T) {
 	if body := recorder.Body.String(); body != `{"expires_at":"2026-09-17T12:10:00Z","resend_after":"2026-09-17T12:01:00Z"}` {
 		t.Fatalf("body = %s", body)
 	}
-	if len(service.requested) != 1 || service.requested[0] != (identityDomain.RequestSignInCodeCommand{Channel: identityDomain.SignInCodeEmail, Destination: "buyer@example.com"}) {
+	if len(service.requested) != 1 || service.requested[0] != (identityDomain.RequestSignInCodeCommand{Channel: identityDomain.CodeChannelEmail, Destination: "buyer@example.com"}) {
 		t.Fatalf("requested = %+v, want the address on the email channel", service.requested)
 	}
 }
@@ -67,7 +67,7 @@ func TestAVerifiedEmailCodeReturnsASessionThatIsNeverCached(t *testing.T) {
 	if recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatal("a response carrying a session must not be cached")
 	}
-	want := identityDomain.VerifySignInCodeCommand{Channel: identityDomain.SignInCodeEmail, Destination: "buyer@example.com", Code: "123456"}
+	want := identityDomain.VerifySignInCodeCommand{Channel: identityDomain.CodeChannelEmail, Destination: "buyer@example.com", Code: "123456"}
 	if len(service.verified) != 1 || service.verified[0] != want {
 		t.Fatalf("verified = %+v, want %+v", service.verified, want)
 	}
@@ -80,9 +80,9 @@ func TestEmailCodeRefusalsMapToTheirStatus(t *testing.T) {
 		status     int
 		retryAfter string
 	}{
-		"a throttled address":   {"/api/auth/email-code", `{"email":"buyer@example.com"}`, &identityDomain.SignInCodeThrottledError{RetryAfter: 1500 * time.Millisecond}, http.StatusTooManyRequests, "2"},
-		"not an address":        {"/api/auth/email-code", `{"email":"buyer"}`, identityDomain.ErrInvalidSignInDestination, http.StatusBadRequest, ""},
-		"a wrong code":          {"/api/auth/email-code/verify", `{"email":"buyer@example.com","code":"000000"}`, identityDomain.ErrInvalidSignInCode, http.StatusUnauthorized, ""},
+		"a throttled address":   {"/api/auth/email-code", `{"email":"buyer@example.com"}`, &identityDomain.CodeThrottledError{RetryAfter: 1500 * time.Millisecond}, http.StatusTooManyRequests, "2"},
+		"not an address":        {"/api/auth/email-code", `{"email":"buyer"}`, identityDomain.ErrInvalidCodeDestination, http.StatusBadRequest, ""},
+		"a wrong code":          {"/api/auth/email-code/verify", `{"email":"buyer@example.com","code":"000000"}`, identityDomain.ErrInvalidCode, http.StatusUnauthorized, ""},
 		"a disabled account":    {"/api/auth/email-code/verify", `{"email":"buyer@example.com","code":"123456"}`, identityDomain.ErrInvalidCredentials, http.StatusUnauthorized, ""},
 		"a missing code":        {"/api/auth/email-code/verify", `{"email":"buyer@example.com"}`, nil, http.StatusBadRequest, ""},
 		"a missing address":     {"/api/auth/email-code", `{}`, nil, http.StatusBadRequest, ""},

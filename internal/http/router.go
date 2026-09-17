@@ -51,6 +51,8 @@ func InitRouter(application *app.Application) *gin.Engine {
 		Password:  application.StoreConfig.AuthMethods.Has(app.AuthMethodPassword),
 		OAuth:     application.StoreConfig.AuthMethods.Has(app.AuthMethodGoogle),
 		EmailCode: application.StoreConfig.AuthMethods.Has(app.AuthMethodEmailCode),
+		// Verification and reset concern accounts with a password.
+		PasswordCodes: application.StoreConfig.AuthMethods.Has(app.AuthMethodPassword) && application.StoreConfig.EmailCodesAvailable(),
 	}
 	identityHTTP.RegisterRoutes(api, application.IdentityAuthService, application.IdentityProfileService, signInMethods, oauthRedirectURI, middleware.AuthMiddleware(application.TokenMaker), sensitiveLimit, application.HTTP.LoginRateLimit)
 	if application.WishlistService != nil {

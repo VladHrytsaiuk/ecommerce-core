@@ -499,6 +499,22 @@ definitions:
     required:
     - token
     type: object
+  internal_identity_delivery_http.codeResponse:
+    properties:
+      expires_at:
+        description: ExpiresAt is when the code stops working.
+        type: string
+      resend_after:
+        description: ResendAfter is the earliest another code may be requested.
+        type: string
+    type: object
+  internal_identity_delivery_http.confirmEmailRequest:
+    properties:
+      code:
+        type: string
+    required:
+    - code
+    type: object
   internal_identity_delivery_http.customerAddressRequest:
     properties:
       city:
@@ -565,6 +581,26 @@ definitions:
     required:
     - password
     type: object
+  internal_identity_delivery_http.passwordResetConfirmRequest:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+      password:
+        type: string
+    required:
+    - code
+    - email
+    - password
+    type: object
+  internal_identity_delivery_http.passwordResetRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
   internal_identity_delivery_http.refreshRequest:
     properties:
       refresh_token:
@@ -599,15 +635,6 @@ definitions:
       token_type:
         type: string
       user_id:
-        type: string
-    type: object
-  internal_identity_delivery_http.signInCodeResponse:
-    properties:
-      expires_at:
-        description: ExpiresAt is when the code stops working.
-        type: string
-      resend_after:
-        description: ResendAfter is the earliest another code may be requested.
         type: string
     type: object
   internal_reports_delivery_http.rebuildRequest:
@@ -882,7 +909,7 @@ paths:
         "202":
           description: Accepted
           schema:
-            $ref: '#/definitions/internal_identity_delivery_http.signInCodeResponse'
+            $ref: '#/definitions/internal_identity_delivery_http.codeResponse'
         "400":
           description: Bad Request
           schema:
@@ -965,6 +992,111 @@ paths:
               type: string
             type: object
       summary: Sign in with an emailed code
+      tags:
+      - Auth
+  /api/auth/email-verification:
+    post:
+      description: 'Registration with an email address sends the first code; this
+        sends another, replacing it. Counted towards the same per-address limits as
+        every code: one a minute, five an hour, ten a day.'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.codeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - bearerAuth: []
+      summary: Email a code confirming the account's address
+      tags:
+      - Auth
+  /api/auth/email-verification/confirm:
+    post:
+      consumes:
+      - application/json
+      description: 'A wrong, expired or replaced code is 422, not 401: the caller
+        is signed in, and a refused code must not look like a lost session. A code
+        allows five attempts.'
+      parameters:
+      - description: Code
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.confirmEmailRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - bearerAuth: []
+      summary: Confirm the account's address with the emailed code
       tags:
       - Auth
   /api/auth/login:
@@ -1123,6 +1255,96 @@ paths:
       summary: Start an OAuth sign-in
       tags:
       - Auth
+  /api/auth/password-reset:
+    post:
+      consumes:
+      - application/json
+      description: The response is the same whether or not the address has an account;
+        only an account that can sign in is sent a code. Counted towards the per-address
+        limits every code shares.
+      parameters:
+      - description: Address
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.passwordResetRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.codeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Email a code for setting a new password
+      tags:
+      - Auth
+  /api/auth/password-reset/confirm:
+    post:
+      consumes:
+      - application/json
+      description: Sets the password, marks the address verified and signs in. Every
+        other sign-in of the account ends. A password outside 8-72 characters is refused
+        before the code is checked, so it uses up no attempt.
+      parameters:
+      - description: Address, code and new password
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.passwordResetConfirmRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.sessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Set a new password with the emailed code
+      tags:
+      - Auth
   /api/auth/refresh:
     post:
       consumes:
@@ -1178,7 +1400,9 @@ paths:
       consumes:
       - application/json
       description: Accepts an email, a phone number, or both. Returns a session immediately;
-        the account starts unverified.
+        the account starts unverified. Where the store sends email, registering with
+        an address also emails a code that confirms it at /api/auth/email-verification/confirm.
+        An email that is not a bare address is 400.
       parameters:
       - description: Credentials
         in: body

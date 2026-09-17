@@ -38,8 +38,8 @@ type Config struct {
 	GoogleClientSecret string
 	GoogleRedirectURI  string
 	OAuthAttemptTTL    time.Duration
-	// SignInCodeTTL is how long an emailed sign-in code works.
-	SignInCodeTTL       time.Duration
+	// EmailCodeTTL is how long an emailed one-time code works: for signing in, confirming an address or resetting a password.
+	EmailCodeTTL        time.Duration
 	ProfilePolicyJSON   string
 	ComparisonMaxItems  int
 	MaxSessions         int
@@ -318,8 +318,8 @@ func Load() *Config {
 		oauthAttemptTTL = parsed
 	}
 
-	signInCodeTTL := getEnvDuration("SIGN_IN_CODE_TTL", 10*time.Minute)
-	if err := validateSignInCodeTTL(signInCodeTTL); err != nil {
+	emailCodeTTL := getEnvDuration("EMAIL_CODE_TTL", DefaultEmailCodeTTL)
+	if err := validateEmailCodeTTL(emailCodeTTL); err != nil {
 		log.Fatal("Fatal: " + err.Error())
 	}
 
@@ -718,7 +718,7 @@ func Load() *Config {
 		GoogleClientSecret:                   googleClientSecret,
 		GoogleRedirectURI:                    googleRedirectURI,
 		OAuthAttemptTTL:                      oauthAttemptTTL,
-		SignInCodeTTL:                        signInCodeTTL,
+		EmailCodeTTL:                         emailCodeTTL,
 		ProfilePolicyJSON:                    profilePolicyJSON,
 		ComparisonMaxItems:                   comparisonMaxItems,
 		MaxSessions:                          maxSessions,
@@ -953,12 +953,17 @@ func validateRefreshTokenDuration(refresh, access time.Duration) error {
 	return nil
 }
 
-// validateSignInCodeTTL bounds how long a sign-in code works: long enough to
+// DefaultEmailCodeTTL is how long an emailed code works when EMAIL_CODE_TTL is
+// not set. A Config built in code rather than by Load leaves EmailCodeTTL zero,
+// which means the same.
+const DefaultEmailCodeTTL = 10 * time.Minute
+
+// validateEmailCodeTTL bounds how long an emailed code works: long enough to
 // switch to the mailbox and back, short enough that a code read over someone's
 // shoulder is soon useless.
-func validateSignInCodeTTL(ttl time.Duration) error {
+func validateEmailCodeTTL(ttl time.Duration) error {
 	if ttl < time.Minute || ttl > 30*time.Minute {
-		return fmt.Errorf("SIGN_IN_CODE_TTL (%s) must be between 1m and 30m", ttl)
+		return fmt.Errorf("EMAIL_CODE_TTL (%s) must be between 1m and 30m", ttl)
 	}
 	return nil
 }

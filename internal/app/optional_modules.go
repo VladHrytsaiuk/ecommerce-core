@@ -400,13 +400,14 @@ type identityRuntime struct {
 	AttemptCleanup *identityApplication.OAuthAttemptCleanup
 	// RefreshTokenCleanup removes refresh tokens once their sign-in has ended.
 	RefreshTokenCleanup *identityApplication.RefreshTokenCleanup
-	// SignInCodeCleanup runs whichever methods are enabled, so codes issued
-	// before a method was switched off are still removed.
-	SignInCodeCleanup *identityApplication.SignInCodeCleanup
+	// CodeCleanup runs whatever is enabled, so codes issued before a method
+	// or the notifications module was switched off are still removed.
+	CodeCleanup *identityApplication.CodeCleanup
 }
 
-// notifications is nil where the notifications module is off; StoreConfig
-// refuses email_code in that case, and so does this function.
+// notifications is nil where the notifications module is off. There are no
+// one-time codes then: registration sends no verification code, there is no
+// password reset, and email_code is refused, here as in StoreConfig.
 func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker, modules ModuleSet, observer identityDomain.UserLoginObserver, notifications *notificationsPostgres.Repository) (identityRuntime, error) {
 	providers := make([]identityDomain.OAuthProvider, 0, 1)
 	if storeConfig.AuthMethods.Has(AuthMethodGoogle) {
@@ -432,18 +433,25 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 	)
 	auth.WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), cfg.RefreshTokenDuration)
 	auth.WithPasswordSignIn(storeConfig.AuthMethods.Has(AuthMethodPassword))
-	if storeConfig.AuthMethods.Has(AuthMethodEmailCode) {
-		if notifications == nil {
-			return identityRuntime{}, fmt.Errorf("configure email sign-in codes: the notifications module is required")
-		}
-		mailer, err := identityNotifications.NewSignInCodeMailer(notifications)
+	if notifications != nil {
+		// Codes are sent by email, so they exist wherever mail does: they verify
+		// addresses after registration and reset passwords, and sign in where
+		// email_code is enabled.
+		mailer, err := identityNotifications.NewCodeMailer(notifications)
 		if err != nil {
-			return identityRuntime{}, fmt.Errorf("configure email sign-in codes: %w", err)
+			return identityRuntime{}, fmt.Errorf("configure one-time codes: %w", err)
 		}
-		if _, err := auth.WithSignInCodes(identityPostgres.NewSignInCodeStore(db), identityPostgres.NewCodeSignInAccounts(db), cfg.JWTSecret, cfg.SignInCodeTTL, mailer); err != nil {
-			return identityRuntime{}, fmt.Errorf("configure email sign-in codes: %w", err)
+		ttl := cfg.EmailCodeTTL
+		if ttl == 0 {
+			ttl = config.DefaultEmailCodeTTL
 		}
+		if _, err := auth.WithCodes(identityPostgres.NewCodeStore(db), identityPostgres.NewCodeAccounts(db), cfg.JWTSecret, ttl, mailer); err != nil {
+			return identityRuntime{}, fmt.Errorf("configure one-time codes: %w", err)
+		}
+	} else if storeConfig.AuthMethods.Has(AuthMethodEmailCode) {
+		return identityRuntime{}, fmt.Errorf("configure email sign-in codes: the notifications module is required")
 	}
+	auth.WithCodeSignIn(storeConfig.AuthMethods.Has(AuthMethodEmailCode))
 	if observer != nil {
 		auth.WithUserLoginObserver(observer)
 	}
@@ -456,11 +464,11 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 	if err != nil {
 		return identityRuntime{}, fmt.Errorf("configure refresh token cleanup: %w", err)
 	}
-	codeCleanup, err := identityApplication.NewSignInCodeCleanup(identityPostgres.NewSignInCodeStore(db))
+	codeCleanup, err := identityApplication.NewCodeCleanup(identityPostgres.NewCodeStore(db))
 	if err != nil {
-		return identityRuntime{}, fmt.Errorf("configure sign-in code cleanup: %w", err)
+		return identityRuntime{}, fmt.Errorf("configure one-time code cleanup: %w", err)
 	}
-	runtime := identityRuntime{Auth: auth, AttemptCleanup: attemptCleanup.WithLogger(logger.Log), RefreshTokenCleanup: refreshCleanup.WithLogger(logger.Log), SignInCodeCleanup: codeCleanup.WithLogger(logger.Log)}
+	runtime := identityRuntime{Auth: auth, AttemptCleanup: attemptCleanup.WithLogger(logger.Log), RefreshTokenCleanup: refreshCleanup.WithLogger(logger.Log), CodeCleanup: codeCleanup.WithLogger(logger.Log)}
 	if modules.Has(ModuleCustomers) {
 		runtime.CustomerProfile = identityApplication.NewCustomerProfileService(identityPostgres.NewCustomerProfileRepository(db))
 	}

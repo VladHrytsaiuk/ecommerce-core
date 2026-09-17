@@ -50,7 +50,7 @@ func (r *VerificationStatusReader) GetVerificationStatus(ctx context.Context, us
 
 func (r *UserRepository) Create(ctx context.Context, user domain.NewUser) (*domain.User, error) {
 	record := userRecord{ID: uuid.New(), Email: normalizeOptional(user.Email), Phone: normalizeOptional(user.Phone), EmailVerified: user.EmailVerified, PhoneVerified: user.PhoneVerified, PasswordHash: nullableString(user.PasswordHash), Role: string(user.Role), Status: string(user.Status)}
-	if err := r.db.WithContext(ctx).Create(&record).Error; err != nil {
+	if err := r.database(ctx).Create(&record).Error; err != nil {
 		return nil, mapUserError(err)
 	}
 	return record.toDomain(), nil
@@ -62,7 +62,7 @@ func (r *UserRepository) FindByLogin(ctx context.Context, login string) (*domain
 		return nil, domain.ErrUserNotFound
 	}
 	var record userRecord
-	if err := r.db.WithContext(ctx).Where("lower(email) = ? OR phone = ?", strings.ToLower(login), login).First(&record).Error; err != nil {
+	if err := r.database(ctx).Where("lower(email) = ? OR phone = ?", strings.ToLower(login), login).First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrUserNotFound
 		}
@@ -73,13 +73,22 @@ func (r *UserRepository) FindByLogin(ctx context.Context, login string) (*domain
 
 func (r *UserRepository) FindByID(ctx context.Context, userID uuid.UUID) (*domain.User, error) {
 	var record userRecord
-	if err := r.db.WithContext(ctx).First(&record, "id = ?", userID).Error; err != nil {
+	if err := r.database(ctx).First(&record, "id = ?", userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrUserNotFound
 		}
 		return nil, err
 	}
 	return record.toDomain(), nil
+}
+
+// database joins the transaction carried in ctx, so registering can create the
+// account in the transaction that stores its verification code.
+func (r *UserRepository) database(ctx context.Context) *gorm.DB {
+	if tx, err := transaction.FromContext(ctx); err == nil {
+		return tx.WithContext(ctx)
+	}
+	return r.db.WithContext(ctx)
 }
 
 type OAuthIdentityRepository struct{ db *gorm.DB }
