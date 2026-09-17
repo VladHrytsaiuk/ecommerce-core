@@ -12,7 +12,10 @@ import (
 // CodeChannel is where a one-time code is sent.
 type CodeChannel string
 
-const CodeChannelEmail CodeChannel = "email"
+const (
+	CodeChannelEmail CodeChannel = "email"
+	CodeChannelPhone CodeChannel = "phone"
+)
 
 // CodePurpose is what a one-time code is for. A code is accepted only for the
 // purpose it was issued for: a sign-in code cannot reset a password.
@@ -40,6 +43,11 @@ var ErrInvalidCodeDestination = errors.New("invalid code destination")
 // ErrCodesUnavailable refuses a use of one-time codes where the store sends
 // none, because nothing is configured to deliver them.
 var ErrCodesUnavailable = errors.New("one-time codes are not available")
+
+// ErrCodeDeliveryFailed reports a code that was stored but could not be handed
+// to the provider that delivers it. The code still counts towards the limits,
+// so a failing provider is not called again at once.
+var ErrCodeDeliveryFailed = errors.New("one-time code could not be delivered")
 
 // ErrEmailAlreadyVerified refuses to send a verification code to an address
 // that needs none.
@@ -103,6 +111,10 @@ type CodeLimits struct {
 	PerHour     int
 	PerDay      int
 	MaxAttempts int
+	// ChannelPerHour caps the codes the whole store sends on the channel in an
+	// hour, whoever they are for; zero is no cap. Each text message costs money,
+	// and one address at a time is not a limit to someone rotating numbers.
+	ChannelPerHour int
 }
 
 // IssueCode stores a code. Only HMACs of the address and of the code are passed
@@ -163,11 +175,14 @@ type CodeMessage struct {
 	Lifetime time.Duration
 }
 
-// CodeSender delivers codes on one channel. It is called inside the
-// transaction that stores the code, so it must queue the message rather than
-// perform network I/O.
+// CodeSender delivers codes on one channel.
 type CodeSender interface {
 	Channel() CodeChannel
+	// Transactional reports how SendCode delivers. True: it queues the message
+	// in the transaction that stores the code, so it must perform no network
+	// I/O. False: it delivers directly and is called after that transaction
+	// commits, never holding it open across a provider call.
+	Transactional() bool
 	SendCode(ctx context.Context, message CodeMessage) error
 }
 
@@ -183,6 +198,11 @@ type CodeAccounts interface {
 	// ClaimEmail marks the account's address verified and removes its
 	// password. See AuthService.VerifySignInCode for why the password goes.
 	ClaimEmail(ctx context.Context, userID uuid.UUID) error
+	// FindOrCreateByPhone is FindOrCreateByEmail for a phone number in E.164
+	// form: an account created here has the number verified.
+	FindOrCreateByPhone(ctx context.Context, phone string) (*User, error)
+	// ClaimPhone is ClaimEmail for the account's phone number.
+	ClaimPhone(ctx context.Context, userID uuid.UUID) error
 	// VerifyEmail marks the account's address verified if it is still email.
 	// It reports false when the account's address has changed since.
 	VerifyEmail(ctx context.Context, userID uuid.UUID, email string) (bool, error)

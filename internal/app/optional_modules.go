@@ -406,7 +406,7 @@ type identityRuntime struct {
 }
 
 // notifications is nil where the notifications module is off. There are no
-// one-time codes then: registration sends no verification code, there is no
+// email codes then: registration sends no verification code, there is no
 // password reset, and email_code is refused, here as in StoreConfig.
 func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker, modules ModuleSet, observer identityDomain.UserLoginObserver, notifications *notificationsPostgres.Repository) (identityRuntime, error) {
 	providers := make([]identityDomain.OAuthProvider, 0, 1)
@@ -433,25 +433,39 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 	)
 	auth.WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), cfg.RefreshTokenDuration)
 	auth.WithPasswordSignIn(storeConfig.AuthMethods.Has(AuthMethodPassword))
+	senders := make([]identityDomain.CodeSender, 0, 2)
 	if notifications != nil {
-		// Codes are sent by email, so they exist wherever mail does: they verify
-		// addresses after registration and reset passwords, and sign in where
-		// email_code is enabled.
+		// Codes are sent by email wherever mail is: they verify addresses after
+		// registration and reset passwords, and sign in where email_code is on.
 		mailer, err := identityNotifications.NewCodeMailer(notifications)
 		if err != nil {
-			return identityRuntime{}, fmt.Errorf("configure one-time codes: %w", err)
+			return identityRuntime{}, fmt.Errorf("configure email codes: %w", err)
 		}
-		ttl := cfg.EmailCodeTTL
-		if ttl == 0 {
-			ttl = config.DefaultEmailCodeTTL
-		}
-		if _, err := auth.WithCodes(identityPostgres.NewCodeStore(db), identityPostgres.NewCodeAccounts(db), cfg.JWTSecret, ttl, mailer); err != nil {
-			return identityRuntime{}, fmt.Errorf("configure one-time codes: %w", err)
-		}
+		senders = append(senders, mailer)
 	} else if storeConfig.AuthMethods.Has(AuthMethodEmailCode) {
 		return identityRuntime{}, fmt.Errorf("configure email sign-in codes: the notifications module is required")
 	}
-	auth.WithCodeSignIn(storeConfig.AuthMethods.Has(AuthMethodEmailCode))
+	if storeConfig.AuthMethods.Has(AuthMethodPhoneCode) {
+		texter, err := newSMSCodeTexter(storeConfig.SMS, codeTTL(cfg))
+		if err != nil {
+			return identityRuntime{}, fmt.Errorf("configure phone sign-in codes: %w", err)
+		}
+		senders = append(senders, texter)
+	}
+	if len(senders) > 0 {
+		codes := identityService.CodeConfig{
+			Store: identityPostgres.NewCodeStore(db), Accounts: identityPostgres.NewCodeAccounts(db),
+			Secret: cfg.JWTSecret, TTL: codeTTL(cfg), Senders: senders,
+		}
+		if storeConfig.SMS != nil {
+			codes.PhoneCountryCodes, codes.PhoneHourlyLimit = storeConfig.SMS.AllowedCountryCodes, storeConfig.SMS.HourlyLimit
+		}
+		if _, err := auth.WithCodes(codes); err != nil {
+			return identityRuntime{}, fmt.Errorf("configure one-time codes: %w", err)
+		}
+	}
+	auth.WithCodeSignIn(identityDomain.CodeChannelEmail, storeConfig.AuthMethods.Has(AuthMethodEmailCode))
+	auth.WithCodeSignIn(identityDomain.CodeChannelPhone, storeConfig.AuthMethods.Has(AuthMethodPhoneCode))
 	if observer != nil {
 		auth.WithUserLoginObserver(observer)
 	}

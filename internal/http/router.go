@@ -51,6 +51,7 @@ func InitRouter(application *app.Application) *gin.Engine {
 		Password:  application.StoreConfig.AuthMethods.Has(app.AuthMethodPassword),
 		OAuth:     application.StoreConfig.AuthMethods.Has(app.AuthMethodGoogle),
 		EmailCode: application.StoreConfig.AuthMethods.Has(app.AuthMethodEmailCode),
+		PhoneCode: application.StoreConfig.AuthMethods.Has(app.AuthMethodPhoneCode),
 		// Verification and reset concern accounts with a password.
 		PasswordCodes: application.StoreConfig.AuthMethods.Has(app.AuthMethodPassword) && application.StoreConfig.EmailCodesAvailable(),
 	}

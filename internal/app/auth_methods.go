@@ -19,10 +19,13 @@ const (
 	// AuthMethodEmailCode is registration and sign-in with a one-time code sent
 	// to an email address. It needs the notifications module to send the code.
 	AuthMethodEmailCode AuthMethod = "email_code"
+	// AuthMethodPhoneCode is registration and sign-in with a one-time code sent
+	// by text to a phone number. It needs SMS_PROVIDER.
+	AuthMethodPhoneCode AuthMethod = "phone_code"
 )
 
 // allAuthMethods is every name AUTH_METHODS accepts.
-var allAuthMethods = []AuthMethod{AuthMethodPassword, AuthMethodGoogle, AuthMethodEmailCode}
+var allAuthMethods = []AuthMethod{AuthMethodPassword, AuthMethodGoogle, AuthMethodEmailCode, AuthMethodPhoneCode}
 
 // EmailCodesAvailable reports whether this store sends one-time codes by
 // email: to verify an address after registration, to reset a password and, with

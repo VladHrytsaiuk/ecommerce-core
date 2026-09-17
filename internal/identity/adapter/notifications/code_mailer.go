@@ -28,6 +28,10 @@ func NewCodeMailer(scheduler notifications.NotificationScheduler) (*CodeMailer, 
 
 func (*CodeMailer) Channel() identity.CodeChannel { return identity.CodeChannelEmail }
 
+// Transactional is true: the email is queued in the transaction that stores the
+// code, and the notifications worker sends it.
+func (*CodeMailer) Transactional() bool { return true }
+
 // templates names the email each purpose is sent with. Each says what the code
 // is for, so a code nobody asked for tells its reader what someone tried.
 var templates = map[identity.CodePurpose]string{

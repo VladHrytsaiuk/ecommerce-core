@@ -50,6 +50,8 @@ type StoreConfig struct {
 	ReturnWindowDays              int
 	DefaultWarehouseID            uuid.UUID
 	GoogleOAuth                   *GoogleOAuthConfig
+	// SMS is set only where SMS_PROVIDER is.
+	SMS *SMSConfig
 	// AuthMethods are the sign-in methods this store offers.
 	AuthMethods        AuthMethodSet
 	OAuthAttemptTTL    time.Duration
@@ -106,6 +108,7 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 	if strings.TrimSpace(cfg.GoogleClientID) != "" || strings.TrimSpace(cfg.GoogleClientSecret) != "" || strings.TrimSpace(cfg.GoogleRedirectURI) != "" {
 		storeConfig.GoogleOAuth = &GoogleOAuthConfig{ClientID: strings.TrimSpace(cfg.GoogleClientID), ClientSecret: strings.TrimSpace(cfg.GoogleClientSecret), RedirectURI: strings.TrimSpace(cfg.GoogleRedirectURI)}
 	}
+	storeConfig.SMS = newSMSConfig(cfg)
 	authMethods, err := resolveAuthMethods(cfg.AuthMethods, storeConfig.GoogleOAuth != nil)
 	if err != nil {
 		return StoreConfig{}, err
@@ -318,6 +321,17 @@ func (c StoreConfig) Validate() error {
 	}
 	if c.AuthMethods.Has(AuthMethodEmailCode) && !c.Modules().Has(ModuleNotifications) {
 		return fmt.Errorf("AUTH_METHODS includes email_code, which sends its codes by email and requires ENABLED_MODULES to include notifications")
+	}
+	if c.AuthMethods.Has(AuthMethodPhoneCode) && c.SMS == nil {
+		return fmt.Errorf("AUTH_METHODS includes phone_code, which requires SMS_PROVIDER")
+	}
+	if !c.AuthMethods.Has(AuthMethodPhoneCode) && c.SMS != nil {
+		return fmt.Errorf("SMS_PROVIDER is configured but AUTH_METHODS does not include phone_code; add phone_code to AUTH_METHODS or remove the SMS settings")
+	}
+	if c.SMS != nil {
+		if err := c.SMS.validate(); err != nil {
+			return err
+		}
 	}
 	if c.CheckoutReservationTTL <= 0 || c.CheckoutReservationTTL > 24*time.Hour {
 		return fmt.Errorf("CHECKOUT_RESERVATION_TTL must be between 1ns and 24h")

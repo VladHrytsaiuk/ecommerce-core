@@ -601,6 +601,23 @@ definitions:
     required:
     - email
     type: object
+  internal_identity_delivery_http.phoneCodeRequest:
+    properties:
+      phone:
+        type: string
+    required:
+    - phone
+    type: object
+  internal_identity_delivery_http.phoneCodeVerifyRequest:
+    properties:
+      code:
+        type: string
+      phone:
+        type: string
+    required:
+    - code
+    - phone
+    type: object
   internal_identity_delivery_http.refreshRequest:
     properties:
       refresh_token:
@@ -1345,6 +1362,122 @@ paths:
       summary: Set a new password with the emailed code
       tags:
       - Auth
+  /api/auth/phone-code:
+    post:
+      consumes:
+      - application/json
+      description: 'Sends a six-digit code by SMS. The number is international, with
+        its country code: +380501234567; spaces, dashes and brackets are ignored.
+        Only numbers in the countries the store texts are accepted. The same request
+        signs in to an existing account and registers a new one, and the response
+        is the same either way. A number may be sent one code a minute, five an hour
+        and ten a day, and the store has an hourly cap on texts; past either the response
+        is 429 with Retry-After. 503 means the SMS provider did not take the message;
+        the code still counts, so wait before asking again.'
+      parameters:
+      - description: Phone number
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.phoneCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.codeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Text a one-time sign-in code
+      tags:
+      - Auth
+  /api/auth/phone-code/verify:
+    post:
+      consumes:
+      - application/json
+      description: 'Exchanges the code for a session. A number with no account gets
+        a customer account, with the number verified. An account whose number was
+        never verified is taken over by the person who received the code: its password
+        is removed and its other sign-ins end. A code allows five attempts; a wrong,
+        expired, replaced or used code is 401. A guest cart in the request cookie
+        is carried into the session.'
+      parameters:
+      - description: Phone number and code
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.phoneCodeVerifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.sessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Sign in with a texted code
+      tags:
+      - Auth
   /api/auth/refresh:
     post:
       consumes:
@@ -1399,10 +1532,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: Accepts an email, a phone number, or both. Returns a session immediately;
-        the account starts unverified. Where the store sends email, registering with
-        an address also emails a code that confirms it at /api/auth/email-verification/confirm.
-        An email that is not a bare address is 400.
+      description: 'Accepts an email, a phone number, or both. A phone number is international,
+        with its country code: +380501234567. Returns a session immediately; the account
+        starts unverified. Where the store sends email, registering with an address
+        also emails a code that confirms it at /api/auth/email-verification/confirm.
+        An email that is not a bare address is 400.'
       parameters:
       - description: Credentials
         in: body

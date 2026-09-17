@@ -672,6 +672,164 @@
                 }
             }
         },
+        "/api/auth/phone-code": {
+            "post": {
+                "description": "Sends a six-digit code by SMS. The number is international, with its country code: +380501234567; spaces, dashes and brackets are ignored. Only numbers in the countries the store texts are accepted. The same request signs in to an existing account and registers a new one, and the response is the same either way. A number may be sent one code a minute, five an hour and ten a day, and the store has an hourly cap on texts; past either the response is 429 with Retry-After. 503 means the SMS provider did not take the message; the code still counts, so wait before asking again.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Text a one-time sign-in code",
+                "parameters": [
+                    {
+                        "description": "Phone number",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.phoneCodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.codeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/phone-code/verify": {
+            "post": {
+                "description": "Exchanges the code for a session. A number with no account gets a customer account, with the number verified. An account whose number was never verified is taken over by the person who received the code: its password is removed and its other sign-ins end. A code allows five attempts; a wrong, expired, replaced or used code is 401. A guest cart in the request cookie is carried into the session.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Sign in with a texted code",
+                "parameters": [
+                    {
+                        "description": "Phone number and code",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.phoneCodeVerifyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.sessionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/refresh": {
             "post": {
                 "description": "Consumes the refresh token and returns a new access token and a new refresh token; the one presented stops working. Presenting a used refresh token again more than 30 seconds after its use ends the whole sign-in; within 30 seconds, as when two browser tabs refresh together, it is only refused. Refreshing never extends the sign-in past refresh_expires_at.",
@@ -744,7 +902,7 @@
         },
         "/api/auth/register": {
             "post": {
-                "description": "Accepts an email, a phone number, or both. Returns a session immediately; the account starts unverified. Where the store sends email, registering with an address also emails a code that confirms it at /api/auth/email-verification/confirm. An email that is not a bare address is 400.",
+                "description": "Accepts an email, a phone number, or both. A phone number is international, with its country code: +380501234567. Returns a session immediately; the account starts unverified. Where the store sends email, registering with an address also emails a code that confirms it at /api/auth/email-verification/confirm. An email that is not a bare address is 400.",
                 "consumes": [
                     "application/json"
                 ],
@@ -6346,6 +6504,32 @@
             ],
             "properties": {
                 "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_identity_delivery_http.phoneCodeRequest": {
+            "type": "object",
+            "required": [
+                "phone"
+            ],
+            "properties": {
+                "phone": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_identity_delivery_http.phoneCodeVerifyRequest": {
+            "type": "object",
+            "required": [
+                "code",
+                "phone"
+            ],
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "phone": {
                     "type": "string"
                 }
             }

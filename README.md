@@ -145,11 +145,12 @@ only as a hash.
 
 `AUTH_METHODS` chooses how customers sign in, in any combination: `password`
 (registration and sign-in with an address and a password), `google`, and
-`email_code`. Unset, it is `password`, plus `google` whenever the `GOOGLE_*`
+`email_code` and `phone_code`. Unset, it is `password`, plus `google` whenever the `GOOGLE_*`
 settings are present — the behaviour before the setting existed. A method that
 is not listed has no route, and the service refuses it as well. Startup rejects
 `google` without its credentials, Google credentials that no listed method uses,
-and `email_code` without the `notifications` module.
+`email_code` without the `notifications` module, and `phone_code` without
+`SMS_PROVIDER`.
 
 With `email_code` there is one field and no password: `POST /api/auth/email-code`
 emails a six-digit code, and `POST /api/auth/email-code/verify` exchanges it for
@@ -168,7 +169,19 @@ address, and `POST /api/auth/password-reset/confirm`, which sets the new
 password, verifies the address, signs in and ends every other sign-in. Without
 the `notifications` module none of this exists and registration works as before.
 
-Every code works for `EMAIL_CODE_TTL` (10 minutes by default), allows five
+`phone_code` is the same with a phone number: `POST /api/auth/phone-code` texts
+a code and `POST /api/auth/phone-code/verify` signs in. Numbers are
+international, with the country code (`+380501234567`), and are stored in that
+form — registration with a password stores and looks them up the same way.
+Because every text costs money, codes go only to the calling codes in
+`SMS_ALLOWED_COUNTRY_CODES`, and the whole store sends at most `SMS_HOURLY_LIMIT`
+texts an hour. `SMS_PROVIDER=vodafone` sends through Vodafone Ukraine's OBM API;
+`mock` writes texts to the log for development and is refused in production.
+A text is sent after its code is stored, never inside the transaction; if the
+provider refuses it the request is 503 and the code still counts towards the
+limits.
+
+Every code works for `ONE_TIME_CODE_TTL` (10 minutes by default), allows five
 attempts and is accepted only for what it was sent for. An address is sent at
 most one code a minute, five an hour and ten a day, whatever they are for. Only
 HMACs of the address and the code are stored.

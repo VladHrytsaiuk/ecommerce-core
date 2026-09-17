@@ -122,6 +122,9 @@ func (r *userRepositoryFake) Create(_ context.Context, user domain.NewUser) (*do
 	if created.Email != nil {
 		r.byLogin[*created.Email] = created
 	}
+	if created.Phone != nil {
+		r.byLogin[*created.Phone] = created
+	}
 	r.byID[created.ID] = created
 	return created, nil
 }

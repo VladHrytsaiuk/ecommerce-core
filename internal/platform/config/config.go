@@ -38,8 +38,8 @@ type Config struct {
 	GoogleClientSecret string
 	GoogleRedirectURI  string
 	OAuthAttemptTTL    time.Duration
-	// EmailCodeTTL is how long an emailed one-time code works: for signing in, confirming an address or resetting a password.
-	EmailCodeTTL        time.Duration
+	// OneTimeCodeTTL is how long a one-time code works, emailed or texted.
+	OneTimeCodeTTL      time.Duration
 	ProfilePolicyJSON   string
 	ComparisonMaxItems  int
 	MaxSessions         int
@@ -157,14 +157,6 @@ type Config struct {
 	// API Host (for Swagger)
 	APIHost string
 
-	// OTP Send Rate Limiting
-	OTPSendRateLimit    int
-	OTPSendRateInterval time.Duration
-
-	// Email Send Rate Limiting (Feedback)
-	EmailRateLimit    int
-	EmailRateInterval time.Duration
-
 	// Trusted Proxies
 	TrustedProxies []string
 	// Dynamic Badges
@@ -199,18 +191,18 @@ type Config struct {
 	// Manager
 	ManagerBaseURL string
 
-	// Vodafone OBM (SMS / phone verification)
-	OBMBaseURL         string
-	OBMTokenPath       string
-	OBMBasicAuthHeader string
-	OBMUsername        string
-	OBMPassword        string
-	OBMSenderID        int
-	OBMDistributionID  string
-	OBMValidityMinutes string
-	OBMStatusCheck     bool
-	PhoneCodeTTL       time.Duration
-	CORSAllowOrigins   []string
+	// SMS delivers phone sign-in codes; see app.AuthMethodPhoneCode.
+	SMSProvider            string
+	SMSAllowedCountryCodes []string
+	SMSHourlyLimit         int
+	SMSCodeMessage         string
+	VodafoneOBMBaseURL     string
+	VodafoneOBMTokenPath   string
+	VodafoneOBMBasicAuth   string
+	VodafoneOBMUsername    string
+	VodafoneOBMPassword    string
+	VodafoneOBMSenderID    int
+	CORSAllowOrigins       []string
 
 	// Store configuration. These fields are consumed by internal/app during the
 	// Strangler Fig migration; legacy services continue to use the fields above.
@@ -318,8 +310,8 @@ func Load() *Config {
 		oauthAttemptTTL = parsed
 	}
 
-	emailCodeTTL := getEnvDuration("EMAIL_CODE_TTL", DefaultEmailCodeTTL)
-	if err := validateEmailCodeTTL(emailCodeTTL); err != nil {
+	oneTimeCodeTTL := getEnvDuration("ONE_TIME_CODE_TTL", DefaultOneTimeCodeTTL)
+	if err := validateOneTimeCodeTTL(oneTimeCodeTTL); err != nil {
 		log.Fatal("Fatal: " + err.Error())
 	}
 
@@ -466,39 +458,6 @@ func Load() *Config {
 
 	apiHost := os.Getenv("API_HOST")
 
-	// OTP Send Rate Limiting
-	otpSendRateLimitStr := os.Getenv("OTP_SEND_RATE_LIMIT")
-	otpSendRateLimit := 2 // Default to 2 requests
-	if otpSendRateLimitStr != "" {
-		if val, err := strconv.Atoi(otpSendRateLimitStr); err == nil {
-			otpSendRateLimit = val
-		}
-	}
-
-	otpSendRateIntervalStr := os.Getenv("OTP_SEND_RATE_INTERVAL")
-	otpSendRateInterval := 3 * time.Minute // Default to 3 minutes
-	if otpSendRateIntervalStr != "" {
-		if val, err := time.ParseDuration(otpSendRateIntervalStr); err == nil {
-			otpSendRateInterval = val
-		}
-	}
-
-	emailRateLimitStr := os.Getenv("EMAIL_RATE_LIMIT")
-	emailRateLimit := 2 // Default to 2
-	if emailRateLimitStr != "" {
-		if val, err := strconv.Atoi(emailRateLimitStr); err == nil {
-			emailRateLimit = val
-		}
-	}
-
-	emailRateIntervalStr := os.Getenv("EMAIL_RATE_INTERVAL")
-	emailRateInterval := 3 * time.Minute // Default to 3 minutes
-	if emailRateIntervalStr != "" {
-		if val, err := time.ParseDuration(emailRateIntervalStr); err == nil {
-			emailRateInterval = val
-		}
-	}
-
 	trustedProxies, err := parseTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
 	if err != nil {
 		// Trusting arbitrary or malformed proxy hops lets an internet client
@@ -559,40 +518,15 @@ func Load() *Config {
 		managerBaseURL = apiHost // fallback
 	}
 
-	// Vodafone OBM (SMS) Config
-	obmBaseURL := os.Getenv("OBM_BASE_URL")
-	if obmBaseURL == "" {
-		obmBaseURL = "https://a2p.vodafone.ua"
+	smsProvider := strings.ToLower(strings.TrimSpace(os.Getenv("SMS_PROVIDER")))
+	smsAllowedCountryCodes := getEnvList("SMS_ALLOWED_COUNTRY_CODES", nil)
+	smsHourlyLimit := getEnvInt("SMS_HOURLY_LIMIT", DefaultSMSHourlyLimit)
+	smsCodeMessage := os.Getenv("SMS_CODE_MESSAGE")
+	if strings.TrimSpace(smsCodeMessage) == "" {
+		smsCodeMessage = DefaultSMSCodeMessage
 	}
-	obmTokenPath := os.Getenv("OBM_TOKEN_PATH")
-	if obmTokenPath == "" {
-		obmTokenPath = "/uaa/oauth/token"
-	}
-	obmBasicAuthHeader := os.Getenv("OBM_BASIC_AUTH_HEADER")
-	if obmBasicAuthHeader == "" {
-		obmBasicAuthHeader = "Basic d2ViYXBwOndlYmFwcA=="
-	}
-	obmUsername := os.Getenv("OBM_USERNAME")
-	obmPassword := os.Getenv("OBM_PASSWORD")
-	obmSenderID := getEnvInt("OBM_SENDER_ID", 0)
-	obmDistributionID := os.Getenv("OBM_DISTRIBUTION_ID")
-	obmValidityMinutes := os.Getenv("OBM_VALIDITY_MINUTES")
-	if obmValidityMinutes == "" {
-		obmValidityMinutes = "2"
-	}
-	// Delivery-status checking is on by default; set OBM_STATUS_CHECK=false to
-	// turn it off.
-	obmStatusCheck := os.Getenv("OBM_STATUS_CHECK") != "false"
-	if obmUsername == "" || obmPassword == "" || obmSenderID == 0 {
-		log.Println("Warning: OBM_USERNAME / OBM_PASSWORD / OBM_SENDER_ID not set. SMS verification will fall back to console (mock) sender.")
-	}
-
-	phoneCodeTTLStr := os.Getenv("PHONE_CODE_TTL")
-	phoneCodeTTL := 2 * time.Minute
-	if phoneCodeTTLStr != "" {
-		if val, err := time.ParseDuration(phoneCodeTTLStr); err == nil {
-			phoneCodeTTL = val
-		}
+	if err := validateSMSProvider(appEnv, smsProvider, containsFold(authMethods, "phone_code")); err != nil {
+		log.Fatal("Fatal: " + err.Error())
 	}
 
 	corsOriginsStr := os.Getenv("CORS_ALLOW_ORIGINS")
@@ -718,7 +652,7 @@ func Load() *Config {
 		GoogleClientSecret:                   googleClientSecret,
 		GoogleRedirectURI:                    googleRedirectURI,
 		OAuthAttemptTTL:                      oauthAttemptTTL,
-		EmailCodeTTL:                         emailCodeTTL,
+		OneTimeCodeTTL:                       oneTimeCodeTTL,
 		ProfilePolicyJSON:                    profilePolicyJSON,
 		ComparisonMaxItems:                   comparisonMaxItems,
 		MaxSessions:                          maxSessions,
@@ -795,10 +729,6 @@ func Load() *Config {
 		DHLExpressPackageHeight:              dhlExpressPackageHeight,
 		StoreLogoURL:                         storeLogoURL,
 		APIHost:                              apiHost,
-		OTPSendRateLimit:                     otpSendRateLimit,
-		OTPSendRateInterval:                  otpSendRateInterval,
-		EmailRateLimit:                       emailRateLimit,
-		EmailRateInterval:                    emailRateInterval,
 		TrustedProxies:                       trustedProxies,
 		BadgeNewDays:                         badgeNewDays,
 		BadgeBestSellerThreshold:             badgeBestSellerThreshold,
@@ -824,16 +754,16 @@ func Load() *Config {
 		NPSenderPhone:                        npSenderPhone,
 		NPTrackingIntervalMinutes:            npTrackingIntervalMinutes,
 		ManagerBaseURL:                       managerBaseURL,
-		OBMBaseURL:                           obmBaseURL,
-		OBMTokenPath:                         obmTokenPath,
-		OBMBasicAuthHeader:                   obmBasicAuthHeader,
-		OBMUsername:                          obmUsername,
-		OBMPassword:                          obmPassword,
-		OBMSenderID:                          obmSenderID,
-		OBMDistributionID:                    obmDistributionID,
-		OBMValidityMinutes:                   obmValidityMinutes,
-		OBMStatusCheck:                       obmStatusCheck,
-		PhoneCodeTTL:                         phoneCodeTTL,
+		SMSProvider:                          smsProvider,
+		SMSAllowedCountryCodes:               smsAllowedCountryCodes,
+		SMSHourlyLimit:                       smsHourlyLimit,
+		SMSCodeMessage:                       smsCodeMessage,
+		VodafoneOBMBaseURL:                   os.Getenv("VODAFONE_OBM_BASE_URL"),
+		VodafoneOBMTokenPath:                 os.Getenv("VODAFONE_OBM_TOKEN_PATH"),
+		VodafoneOBMBasicAuth:                 os.Getenv("VODAFONE_OBM_BASIC_AUTH"),
+		VodafoneOBMUsername:                  os.Getenv("VODAFONE_OBM_USERNAME"),
+		VodafoneOBMPassword:                  os.Getenv("VODAFONE_OBM_PASSWORD"),
+		VodafoneOBMSenderID:                  getEnvInt("VODAFONE_OBM_SENDER_ID", 0),
 		CORSAllowOrigins:                     corsAllowOrigins,
 		StoreCode:                            storeCode,
 		StoreName:                            storeName,
@@ -919,6 +849,37 @@ func validateNotificationProvider(appEnv, provider string, notificationsEnabled 
 	return nil
 }
 
+// DefaultSMSHourlyLimit caps how many texts the whole store sends an hour when
+// SMS_HOURLY_LIMIT is not set. Every text costs money, and a sign-in form that
+// sends one to any number is what SMS pumping fraud looks for.
+const DefaultSMSHourlyLimit = 100
+
+// DefaultSMSCodeMessage is the text of a sign-in code SMS when SMS_CODE_MESSAGE
+// is not set. {code} and {minutes} are replaced.
+const DefaultSMSCodeMessage = "Your sign-in code: {code}. It works for {minutes} min. Do not share it."
+
+// validateSMSProvider refuses a production store whose phone codes would go to
+// the mock sender, which writes them to the log instead of a phone: anyone
+// reading the log could sign in as any customer.
+func validateSMSProvider(appEnv, provider string, phoneCodesEnabled bool) error {
+	if appEnv != "production" || !phoneCodesEnabled {
+		return nil
+	}
+	if provider == "mock" {
+		return fmt.Errorf("SMS_PROVIDER must not be \"mock\" when APP_ENV=production and AUTH_METHODS includes phone_code: it writes sign-in codes to the log")
+	}
+	return nil
+}
+
+func containsFold(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), want) {
+			return true
+		}
+	}
+	return false
+}
+
 // shutdownDrainMargin is how much longer than a request's own budget the drain
 // runs, so a handler that uses all of it can still have its response written.
 const shutdownDrainMargin = 5 * time.Second
@@ -953,17 +914,17 @@ func validateRefreshTokenDuration(refresh, access time.Duration) error {
 	return nil
 }
 
-// DefaultEmailCodeTTL is how long an emailed code works when EMAIL_CODE_TTL is
-// not set. A Config built in code rather than by Load leaves EmailCodeTTL zero,
+// DefaultOneTimeCodeTTL is how long a code works when ONE_TIME_CODE_TTL is not
+// set. A Config built in code rather than by Load leaves OneTimeCodeTTL zero,
 // which means the same.
-const DefaultEmailCodeTTL = 10 * time.Minute
+const DefaultOneTimeCodeTTL = 10 * time.Minute
 
-// validateEmailCodeTTL bounds how long an emailed code works: long enough to
-// switch to the mailbox and back, short enough that a code read over someone's
+// validateOneTimeCodeTTL bounds how long a code works: long enough to switch to
+// the mailbox or the messages and back, short enough that a code read over someone's
 // shoulder is soon useless.
-func validateEmailCodeTTL(ttl time.Duration) error {
+func validateOneTimeCodeTTL(ttl time.Duration) error {
 	if ttl < time.Minute || ttl > 30*time.Minute {
-		return fmt.Errorf("EMAIL_CODE_TTL (%s) must be between 1m and 30m", ttl)
+		return fmt.Errorf("ONE_TIME_CODE_TTL (%s) must be between 1m and 30m", ttl)
 	}
 	return nil
 }

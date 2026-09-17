@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -203,6 +204,40 @@ func TestOneTimeCodes(t *testing.T) {
 		}
 		if !consume(domain.CodePurposeResetPassword, "222222", now.Add(5*time.Second)) {
 			t.Fatal("the reset code was not accepted for its purpose")
+		}
+	})
+
+	t.Run("texts stop at the store-wide hourly cap, whatever the number", func(t *testing.T) {
+		// Its own clock, so codes from other subtests do not count.
+		at := now.Add(30 * 24 * time.Hour)
+		limits := testCodeLimits
+		limits.ChannelPerHour = 2
+		issuePhone := func(number string, when time.Time) error {
+			return store.Issue(context.Background(), domain.IssueCode{
+				ID: uuid.New(), Channel: domain.CodeChannelPhone, Purpose: domain.CodePurposeSignIn,
+				DestinationHash: tokenHash(number), CodeHash: tokenHash(number + ":123456"),
+				Now: when, ExpiresAt: when.Add(10 * time.Minute), Limits: limits,
+			}, func(context.Context) error { return nil })
+		}
+		prefix := "+38050" + uuid.NewString()[:4]
+		if err := issuePhone(prefix+"1", at); err != nil {
+			t.Fatal(err)
+		}
+		if err := issuePhone(prefix+"2", at.Add(10*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		// A third number, never texted before, still waits for the first text
+		// to leave the hour.
+		if wait := throttledFor(t, issuePhone(prefix+"3", at.Add(20*time.Minute))); wait != 40*time.Minute {
+			t.Fatalf("RetryAfter = %s, want the 40m until the oldest text leaves the hour", wait)
+		}
+		// Email is another channel, and uncapped.
+		if err := store.Issue(context.Background(), domain.IssueCode{
+			ID: uuid.New(), Channel: domain.CodeChannelEmail, Purpose: domain.CodePurposeSignIn,
+			DestinationHash: tokenHash(prefix + "@example.test"), CodeHash: tokenHash("x"),
+			Now: at.Add(20 * time.Minute), ExpiresAt: at.Add(30 * time.Minute), Limits: limits,
+		}, func(context.Context) error { return nil }); err != nil {
+			t.Fatalf("Issue(email) under the phone cap = %v", err)
 		}
 	})
 
@@ -416,6 +451,35 @@ func TestCodeAccounts(t *testing.T) {
 		}
 		if countRows(t, db, `SELECT COUNT(*) FROM users WHERE email = ?`, email) != 0 {
 			t.Fatal("registration created the account outside the transaction that stores its code")
+		}
+	})
+
+	t.Run("a new number becomes a customer account with the number verified", func(t *testing.T) {
+		phone := "+38067" + fmt.Sprintf("%07d", time.Now().UnixNano()%10000000)
+		user, err := accounts.FindOrCreateByPhone(ctx, phone)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if user.Phone == nil || *user.Phone != phone || !user.PhoneVerified || user.EmailVerified || user.Email != nil || user.Role != domain.RoleCustomer {
+			t.Fatalf("created = %+v, want a customer with only a verified phone", user)
+		}
+		again, err := accounts.FindOrCreateByPhone(ctx, phone)
+		if err != nil || again.ID != user.ID {
+			t.Fatalf("FindOrCreateByPhone() again = (%+v, %v), want the same account", again, err)
+		}
+	})
+
+	t.Run("claiming a number verifies it and removes the password", func(t *testing.T) {
+		id := uuid.New()
+		phone := "+38063" + fmt.Sprintf("%07d", time.Now().UnixNano()%10000000)
+		if err := db.Exec(`INSERT INTO users (id, phone, password_hash, role, status) VALUES (?, ?, 'squatter', 'customer', 'active')`, id, phone).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := accounts.ClaimPhone(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if countRows(t, db, `SELECT COUNT(*) FROM users WHERE id = ? AND phone_verified AND password_hash IS NULL`, id) != 1 {
+			t.Fatal("the claimed account kept its password or its number stayed unverified")
 		}
 	})
 

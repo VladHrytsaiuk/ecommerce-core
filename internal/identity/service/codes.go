@@ -55,28 +55,50 @@ type oneTimeCodes struct {
 	destinationKey []byte
 	codeKey        []byte
 	ttl            time.Duration
+	// phoneCountryCodes are the calling codes a phone code may be sent to.
+	phoneCountryCodes []string
+	phoneHourlyLimit  int
+}
+
+// CodeConfig makes one-time codes available.
+type CodeConfig struct {
+	Store    domain.CodeStore
+	Accounts domain.CodeAccounts
+	// Secret is the server secret the hashing keys are derived from; it is
+	// never used directly.
+	Secret string
+	TTL    time.Duration
+	// Senders deliver codes, at most one per channel. The channels they cover
+	// are the ones codes exist on.
+	Senders []domain.CodeSender
+	// PhoneCountryCodes are the international calling codes, without "+", a
+	// phone code may be sent to. Required with a phone sender: a store that
+	// texts any number in the world pays for whatever fraud finds it.
+	PhoneCountryCodes []string
+	// PhoneHourlyLimit caps the texts the whole store sends in an hour.
+	// Required with a phone sender.
+	PhoneHourlyLimit int
 }
 
 // WithCodes makes one-time codes available on the channels of the senders
-// given. It enables email verification and password reset; sign-in by code is
-// enabled separately, by WithCodeSignIn. secret is the server secret the
-// hashing keys are derived from; it is never used directly.
-func (s *AuthService) WithCodes(store domain.CodeStore, accounts domain.CodeAccounts, secret string, ttl time.Duration, senders ...domain.CodeSender) (*AuthService, error) {
-	if store == nil || accounts == nil || len(senders) == 0 {
+// given. On email that enables verification and password reset; sign-in by
+// code is enabled per channel, by WithCodeSignIn.
+func (s *AuthService) WithCodes(config CodeConfig) (*AuthService, error) {
+	if config.Store == nil || config.Accounts == nil || len(config.Senders) == 0 {
 		return nil, fmt.Errorf("one-time codes require a store, an account resolver and at least one sender")
 	}
-	if strings.TrimSpace(secret) == "" {
+	if strings.TrimSpace(config.Secret) == "" {
 		return nil, fmt.Errorf("one-time codes require a server secret")
 	}
-	if ttl < MinCodeTTL || ttl > MaxCodeTTL {
+	if config.TTL < MinCodeTTL || config.TTL > MaxCodeTTL {
 		return nil, fmt.Errorf("one-time code lifetime must be between %s and %s", MinCodeTTL, MaxCodeTTL)
 	}
-	codes := &oneTimeCodes{store: store, accounts: accounts, ttl: ttl, senders: make(map[domain.CodeChannel]domain.CodeSender, len(senders))}
-	for _, sender := range senders {
+	codes := &oneTimeCodes{store: config.Store, accounts: config.Accounts, ttl: config.TTL, senders: make(map[domain.CodeChannel]domain.CodeSender, len(config.Senders))}
+	for _, sender := range config.Senders {
 		if sender == nil {
 			return nil, fmt.Errorf("one-time code sender is nil")
 		}
-		if sender.Channel() != domain.CodeChannelEmail {
+		if sender.Channel() != domain.CodeChannelEmail && sender.Channel() != domain.CodeChannelPhone {
 			return nil, fmt.Errorf("one-time code channel %q is not supported", sender.Channel())
 		}
 		if _, duplicate := codes.senders[sender.Channel()]; duplicate {
@@ -84,21 +106,34 @@ func (s *AuthService) WithCodes(store domain.CodeStore, accounts domain.CodeAcco
 		}
 		codes.senders[sender.Channel()] = sender
 	}
+	if _, phone := codes.senders[domain.CodeChannelPhone]; phone {
+		countryCodes, err := validCountryCodes(config.PhoneCountryCodes)
+		if err != nil {
+			return nil, err
+		}
+		if config.PhoneHourlyLimit < 1 {
+			return nil, fmt.Errorf("phone codes require a store-wide hourly limit")
+		}
+		codes.phoneCountryCodes, codes.phoneHourlyLimit = countryCodes, config.PhoneHourlyLimit
+	}
 	var err error
-	if codes.destinationKey, err = deriveKey(secret, codeDestinationKeyPurpose); err != nil {
+	if codes.destinationKey, err = deriveKey(config.Secret, codeDestinationKeyPurpose); err != nil {
 		return nil, err
 	}
-	if codes.codeKey, err = deriveKey(secret, codeKeyPurpose); err != nil {
+	if codes.codeKey, err = deriveKey(config.Secret, codeKeyPurpose); err != nil {
 		return nil, err
 	}
 	s.codes = codes
 	return s, nil
 }
 
-// WithCodeSignIn enables or disables signing in with a code. It has no effect
-// without WithCodes.
-func (s *AuthService) WithCodeSignIn(enabled bool) *AuthService {
-	s.codeSignInEnabled = enabled
+// WithCodeSignIn enables or disables signing in with a code on one channel. It
+// has no effect on a channel WithCodes did not make available.
+func (s *AuthService) WithCodeSignIn(channel domain.CodeChannel, enabled bool) *AuthService {
+	if s.codeSignIn == nil {
+		s.codeSignIn = make(map[domain.CodeChannel]bool)
+	}
+	s.codeSignIn[channel] = enabled
 	return s
 }
 
@@ -109,7 +144,7 @@ func (s *AuthService) RequestSignInCode(ctx context.Context, command domain.Requ
 	if !s.codeSignInAvailable(command.Channel) {
 		return domain.CodeRequest{}, domain.ErrSignInMethodDisabled
 	}
-	destination, ok := normalizeDestination(command.Channel, command.Destination)
+	destination, ok := s.codes.normalizeDestination(command.Channel, command.Destination)
 	if !ok {
 		return domain.CodeRequest{}, domain.ErrInvalidCodeDestination
 	}
@@ -129,14 +164,14 @@ func (s *AuthService) VerifySignInCode(ctx context.Context, command domain.Verif
 	if !s.codeSignInAvailable(command.Channel) {
 		return domain.Session{}, domain.ErrSignInMethodDisabled
 	}
-	destination, ok := normalizeDestination(command.Channel, command.Destination)
+	destination, ok := s.codes.normalizeDestination(command.Channel, command.Destination)
 	if !ok {
 		return domain.Session{}, domain.ErrInvalidCode
 	}
 	now := s.now().UTC()
 	var user *domain.User
 	err := s.codes.consume(ctx, now, command.Channel, domain.CodePurposeSignIn, destination, command.Code, func(txCtx context.Context) error {
-		found, err := s.codes.accounts.FindOrCreateByEmail(txCtx, destination)
+		found, err := s.codes.findOrCreate(txCtx, command.Channel, destination)
 		if err != nil {
 			return err
 		}
@@ -145,14 +180,14 @@ func (s *AuthService) VerifySignInCode(ctx context.Context, command domain.Verif
 			// account that cannot sign in.
 			return domain.ErrInvalidCredentials
 		}
-		if !found.EmailVerified {
-			if err := s.codes.accounts.ClaimEmail(txCtx, found.ID); err != nil {
+		if !verifiedOn(found, command.Channel) {
+			if err := s.codes.claim(txCtx, command.Channel, found.ID); err != nil {
 				return err
 			}
 			if err := s.endEverySignIn(txCtx, found.ID, now); err != nil {
 				return err
 			}
-			found.EmailVerified, found.PasswordHash = true, ""
+			found.PasswordHash = ""
 		}
 		user = found
 		return nil
@@ -164,7 +199,7 @@ func (s *AuthService) VerifySignInCode(ctx context.Context, command domain.Verif
 }
 
 func (s *AuthService) codeSignInAvailable(channel domain.CodeChannel) bool {
-	return s.codeSignInEnabled && s.codesAvailable(channel)
+	return s.codeSignIn[channel] && s.codesAvailable(channel)
 }
 
 func (s *AuthService) codesAvailable(channel domain.CodeChannel) bool {
@@ -190,6 +225,11 @@ func (s *AuthService) endEverySignIn(ctx context.Context, userID uuid.UUID, now 
 // to send it. A code is still stored when within declines, so a request for an
 // address that will not be sent anything is counted and throttled exactly like
 // one that will: otherwise the limits would tell which addresses have accounts.
+//
+// A transactional sender queues the message in that transaction. Any other is
+// called once it commits, so no transaction or advisory lock is held across a
+// provider's network call; if that call fails the code stays stored and
+// counted, and the caller learns ErrCodeDeliveryFailed.
 func (c *oneTimeCodes) issue(ctx context.Context, now time.Time, channel domain.CodeChannel, purpose domain.CodePurpose, destination string, unthrottled bool, within func(context.Context) (bool, error)) (domain.CodeRequest, error) {
 	sender, ok := c.senders[channel]
 	if !ok {
@@ -202,6 +242,11 @@ func (c *oneTimeCodes) issue(ctx context.Context, now time.Time, channel domain.
 	destinationHash := c.destinationHash(channel, destination)
 	expiresAt := now.Add(c.ttl)
 	message := domain.CodeMessage{ID: uuid.New(), Purpose: purpose, Destination: destination, Code: code, Lifetime: c.ttl}
+	limits := codeLimits
+	if channel == domain.CodeChannelPhone {
+		limits.ChannelPerHour = c.phoneHourlyLimit
+	}
+	send := true
 	err = c.store.Issue(ctx, domain.IssueCode{
 		ID:              message.ID,
 		Channel:         channel,
@@ -210,23 +255,27 @@ func (c *oneTimeCodes) issue(ctx context.Context, now time.Time, channel domain.
 		CodeHash:        c.codeHash(destinationHash, purpose, code),
 		Now:             now,
 		ExpiresAt:       expiresAt,
-		Limits:          codeLimits,
+		Limits:          limits,
 		Unthrottled:     unthrottled,
 	}, func(txCtx context.Context) error {
-		send := true
 		if within != nil {
 			var err error
 			if send, err = within(txCtx); err != nil {
 				return err
 			}
 		}
-		if !send {
+		if !send || !sender.Transactional() {
 			return nil
 		}
 		return sender.SendCode(txCtx, message)
 	})
 	if err != nil {
 		return domain.CodeRequest{}, err
+	}
+	if send && !sender.Transactional() {
+		if err := sender.SendCode(ctx, message); err != nil {
+			return domain.CodeRequest{}, fmt.Errorf("%w: %w", domain.ErrCodeDeliveryFailed, err)
+		}
 	}
 	return domain.CodeRequest{ExpiresAt: expiresAt, ResendAfter: now.Add(codeLimits.Cooldown)}, nil
 }
@@ -275,6 +324,52 @@ func (c *oneTimeCodes) codeHash(destinationHash []byte, purpose domain.CodePurpo
 	return mac.Sum(nil)
 }
 
+func (c *oneTimeCodes) findOrCreate(ctx context.Context, channel domain.CodeChannel, destination string) (*domain.User, error) {
+	if channel == domain.CodeChannelPhone {
+		return c.accounts.FindOrCreateByPhone(ctx, destination)
+	}
+	return c.accounts.FindOrCreateByEmail(ctx, destination)
+}
+
+func (c *oneTimeCodes) claim(ctx context.Context, channel domain.CodeChannel, userID uuid.UUID) error {
+	if channel == domain.CodeChannelPhone {
+		return c.accounts.ClaimPhone(ctx, userID)
+	}
+	return c.accounts.ClaimEmail(ctx, userID)
+}
+
+// normalizeDestination returns the address in its stored form, or false when
+// it is not one codes may be sent to: not valid for the channel, or a phone
+// number outside the countries the store texts.
+func (c *oneTimeCodes) normalizeDestination(channel domain.CodeChannel, raw string) (string, bool) {
+	switch channel {
+	case domain.CodeChannelEmail:
+		return normalizeEmail(raw)
+	case domain.CodeChannelPhone:
+		phone, ok := normalizePhone(raw)
+		if !ok {
+			return "", false
+		}
+		for _, countryCode := range c.phoneCountryCodes {
+			if strings.HasPrefix(phone, "+"+countryCode) {
+				return phone, true
+			}
+		}
+		return "", false
+	default:
+		return "", false
+	}
+}
+
+// verifiedOn reports whether the account has proved the address it has on the
+// channel.
+func verifiedOn(user *domain.User, channel domain.CodeChannel) bool {
+	if channel == domain.CodeChannelPhone {
+		return user.PhoneVerified
+	}
+	return user.EmailVerified
+}
+
 func canSignIn(user *domain.User) bool {
 	return user != nil && user.Status == domain.UserStatusActive && validRole(user.Role)
 }
@@ -295,13 +390,53 @@ func normalizeEmail(raw string) (string, bool) {
 	return email, true
 }
 
-func normalizeDestination(channel domain.CodeChannel, raw string) (string, bool) {
-	switch channel {
-	case domain.CodeChannelEmail:
-		return normalizeEmail(raw)
+// normalizePhone returns a phone number in E.164 form — "+", a country code and
+// the number, at most fifteen digits — or false. Spaces, dashes, dots and
+// brackets are dropped and a leading international "00" becomes "+". A number
+// without its country code is refused rather than guessed at: the core does not
+// know which country a store is in.
+func normalizePhone(raw string) (string, bool) {
+	var digits strings.Builder
+	value := strings.TrimSpace(raw)
+	switch {
+	case strings.HasPrefix(value, "+"):
+		value = value[1:]
+	case strings.HasPrefix(value, "00"):
+		value = value[2:]
 	default:
 		return "", false
 	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+			digits.WriteRune(r)
+		case r == ' ' || r == '-' || r == '.' || r == '(' || r == ')':
+		default:
+			return "", false
+		}
+	}
+	number := digits.String()
+	if len(number) < 8 || len(number) > 15 || number[0] == '0' {
+		return "", false
+	}
+	return "+" + number, true
+}
+
+// validCountryCodes checks calling codes: one to three digits, not starting
+// with 0.
+func validCountryCodes(values []string) ([]string, error) {
+	codes := make([]string, 0, len(values))
+	for _, value := range values {
+		code := strings.TrimPrefix(strings.TrimSpace(value), "+")
+		if len(code) < 1 || len(code) > 3 || code[0] == '0' || strings.Trim(code, "0123456789") != "" {
+			return nil, fmt.Errorf("phone country code %q is not one to three digits", value)
+		}
+		codes = append(codes, code)
+	}
+	if len(codes) == 0 {
+		return nil, fmt.Errorf("phone codes require at least one country code to send to")
+	}
+	return codes, nil
 }
 
 func wellFormedCode(code string) bool {

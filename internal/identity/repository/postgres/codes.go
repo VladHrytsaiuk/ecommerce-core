@@ -37,7 +37,7 @@ func (s *CodeStore) Issue(ctx context.Context, request domain.IssueCode, within 
 	if s == nil || s.db == nil || within == nil || request.ID == uuid.Nil || !validChannel(request.Channel) || !validPurpose(request.Purpose) ||
 		len(request.DestinationHash) != sha256.Size || len(request.CodeHash) != sha256.Size ||
 		request.Now.IsZero() || !request.ExpiresAt.After(request.Now) ||
-		limits.Cooldown < 0 || limits.PerHour < 1 || limits.PerDay < limits.PerHour || limits.MaxAttempts < 1 {
+		limits.Cooldown < 0 || limits.PerHour < 1 || limits.PerDay < limits.PerHour || limits.MaxAttempts < 1 || limits.ChannelPerHour < 0 {
 		return fmt.Errorf("invalid one-time code")
 	}
 	return transaction.Within(ctx, s.db, func(tx *gorm.DB) error {
@@ -107,6 +107,25 @@ WHERE channel = ? AND destination_hash = ? AND created_at > ?`,
 	}
 	if window.DayCount >= request.Limits.PerDay && window.DayOldest != nil {
 		longer(window.DayOldest.Add(codeDayWindow))
+	}
+	if request.Limits.ChannelPerHour > 0 {
+		// Counted without a store-wide lock, which would make every request on
+		// the channel wait for every other. Concurrent requests can each see
+		// room for one more, so the cap can be passed by as many requests as
+		// arrive at once; the per-IP limit in front bounds that.
+		var channel struct {
+			Count  int        `gorm:"column:channel_count"`
+			Oldest *time.Time `gorm:"column:channel_oldest"`
+		}
+		if err := tx.Raw(`
+SELECT count(*) AS channel_count, min(created_at) AS channel_oldest
+FROM one_time_codes
+WHERE channel = ? AND created_at > ?`, string(request.Channel), hourStart).Scan(&channel).Error; err != nil {
+			return 0, err
+		}
+		if channel.Count >= request.Limits.ChannelPerHour && channel.Oldest != nil {
+			longer(channel.Oldest.Add(codeHourWindow))
+		}
 	}
 	return wait, nil
 }
@@ -186,7 +205,7 @@ func lockDestination(tx *gorm.DB, channel domain.CodeChannel, destinationHash []
 }
 
 func validChannel(channel domain.CodeChannel) bool {
-	return channel == domain.CodeChannelEmail
+	return channel == domain.CodeChannelEmail || channel == domain.CodeChannelPhone
 }
 
 func validPurpose(purpose domain.CodePurpose) bool {
@@ -243,6 +262,50 @@ ON CONFLICT (lower(email)) WHERE email IS NOT NULL DO NOTHING`,
 		return nil, err
 	}
 	return user, nil
+}
+
+func (a *CodeAccounts) FindOrCreateByPhone(ctx context.Context, phone string) (*domain.User, error) {
+	phone = strings.TrimSpace(phone)
+	if a == nil || a.db == nil || phone == "" {
+		return nil, fmt.Errorf("invalid account lookup")
+	}
+	var user *domain.User
+	err := transaction.Within(ctx, a.db, func(tx *gorm.DB) error {
+		// The conflict target is users_phone_unique, for the reason given in
+		// FindOrCreateByEmail.
+		if err := tx.Exec(`
+INSERT INTO users (id, phone, phone_verified, role, status)
+VALUES (?, ?, TRUE, ?, ?)
+ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING`,
+			uuid.New(), phone, string(domain.RoleCustomer), string(domain.UserStatusActive)).Error; err != nil {
+			return err
+		}
+		var record userRecord
+		if err := tx.Where("phone = ?", phone).Take(&record).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrUserNotFound
+			}
+			return err
+		}
+		user = record.toDomain()
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+func (a *CodeAccounts) ClaimPhone(ctx context.Context, userID uuid.UUID) error {
+	if a == nil || a.db == nil || userID == uuid.Nil {
+		return fmt.Errorf("invalid phone claim")
+	}
+	return transaction.Within(ctx, a.db, func(tx *gorm.DB) error {
+		return tx.Exec(`
+UPDATE users
+SET phone_verified = TRUE, password_hash = NULL, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?`, userID).Error
+	})
 }
 
 func (a *CodeAccounts) ClaimEmail(ctx context.Context, userID uuid.UUID) error {

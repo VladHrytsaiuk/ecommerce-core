@@ -122,3 +122,48 @@ func TestEmailCodeRoutesShareTheLoginLimit(t *testing.T) {
 		t.Fatalf("limited %d times, service reached %d times; want both routes stopped by the limit", limited, len(service.requested)+len(service.verified))
 	}
 }
+
+func TestPhoneCodeRoutesFollowTheirMethodAndReportDeliveryFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for name, testCase := range map[string]struct {
+		methods SignInMethods
+		routed  bool
+	}{
+		"phone code on":   {SignInMethods{PhoneCode: true}, true},
+		"only email code": {SignInMethods{EmailCode: true}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			router := gin.New()
+			RegisterRoutes(router.Group("/api"), &emailCodeAuth{}, nil, testCase.methods, "", nil, nil)
+			for _, path := range []string{"/api/auth/phone-code", "/api/auth/phone-code/verify"} {
+				if routed := postJSON(router, path, `{}`).Code != http.StatusNotFound; routed != testCase.routed {
+					t.Fatalf("%s routed = %v, want %v", path, routed, testCase.routed)
+				}
+			}
+		})
+	}
+
+	for name, testCase := range map[string]struct {
+		path, body string
+		err        error
+		status     int
+		message    string
+	}{
+		"a number outside the store's countries": {"/api/auth/phone-code", `{"phone":"+12025550123"}`, identityDomain.ErrInvalidCodeDestination, http.StatusBadRequest, "invalid phone number"},
+		"a provider that did not take the text":  {"/api/auth/phone-code", `{"phone":"+380501234567"}`, identityDomain.ErrCodeDeliveryFailed, http.StatusServiceUnavailable, "could not be sent"},
+		"a wrong code":                           {"/api/auth/phone-code/verify", `{"phone":"+380501234567","code":"000000"}`, identityDomain.ErrInvalidCode, http.StatusUnauthorized, "invalid or expired code"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			service := &emailCodeAuth{fakeAuth: fakeAuth{err: testCase.err}}
+			router := gin.New()
+			RegisterRoutes(router.Group("/api"), service, nil, SignInMethods{PhoneCode: true}, "", nil, nil)
+			recorder := postJSON(router, testCase.path, testCase.body)
+			if recorder.Code != testCase.status || !strings.Contains(recorder.Body.String(), testCase.message) {
+				t.Fatalf("status = %d body = %s, want %d with %q", recorder.Code, recorder.Body.String(), testCase.status, testCase.message)
+			}
+			if strings.HasSuffix(testCase.path, "/phone-code") && (len(service.requested) != 1 || service.requested[0].Channel != identityDomain.CodeChannelPhone) {
+				t.Fatalf("requested = %+v, want the phone channel", service.requested)
+			}
+		})
+	}
+}

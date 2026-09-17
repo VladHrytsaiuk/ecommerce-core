@@ -65,7 +65,7 @@ type refreshRequest struct {
 
 // Register godoc
 // @Summary Register a customer account
-// @Description Accepts an email, a phone number, or both. Returns a session immediately; the account starts unverified. Where the store sends email, registering with an address also emails a code that confirms it at /api/auth/email-verification/confirm. An email that is not a bare address is 400.
+// @Description Accepts an email, a phone number, or both. A phone number is international, with its country code: +380501234567. Returns a session immediately; the account starts unverified. Where the store sends email, registering with an address also emails a code that confirms it at /api/auth/email-verification/confirm. An email that is not a bare address is 400.
 // @Tags Auth
 // @Accept json
 // @Produce json
@@ -235,6 +235,75 @@ func (h *AuthHandler) VerifyEmailCode(c *gin.Context) {
 		return
 	}
 	session, err := h.service.VerifySignInCode(c.Request.Context(), identityDomain.VerifySignInCodeCommand{Channel: identityDomain.CodeChannelEmail, Destination: request.Email, Code: request.Code, GuestSessionID: guestSessionID(c)})
+	if err != nil {
+		handleAuthError(c, err)
+		return
+	}
+	writeSession(c, stdhttp.StatusOK, session)
+}
+
+type phoneCodeRequest struct {
+	Phone string `json:"phone" binding:"required"`
+}
+
+type phoneCodeVerifyRequest struct {
+	Phone string `json:"phone" binding:"required"`
+	Code  string `json:"code" binding:"required"`
+}
+
+// RequestPhoneCode godoc
+// @Summary Text a one-time sign-in code
+// @Description Sends a six-digit code by SMS. The number is international, with its country code: +380501234567; spaces, dashes and brackets are ignored. Only numbers in the countries the store texts are accepted. The same request signs in to an existing account and registers a new one, and the response is the same either way. A number may be sent one code a minute, five an hour and ten a day, and the store has an hourly cap on texts; past either the response is 429 with Retry-After. 503 means the SMS provider did not take the message; the code still counts, so wait before asking again.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param payload body phoneCodeRequest true "Phone number"
+// @Success 202 {object} codeResponse
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 429 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Failure 503 {object} map[string]string
+// @Router /api/auth/phone-code [post]
+func (h *AuthHandler) RequestPhoneCode(c *gin.Context) {
+	var request phoneCodeRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid sign-in code request"})
+		return
+	}
+	issued, err := h.service.RequestSignInCode(c.Request.Context(), identityDomain.RequestSignInCodeCommand{Channel: identityDomain.CodeChannelPhone, Destination: request.Phone})
+	if errors.Is(err, identityDomain.ErrInvalidCodeDestination) {
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid phone number"})
+		return
+	}
+	if err != nil {
+		handleAuthError(c, err)
+		return
+	}
+	c.JSON(stdhttp.StatusAccepted, codeResponse{ExpiresAt: issued.ExpiresAt, ResendAfter: issued.ResendAfter})
+}
+
+// VerifyPhoneCode godoc
+// @Summary Sign in with a texted code
+// @Description Exchanges the code for a session. A number with no account gets a customer account, with the number verified. An account whose number was never verified is taken over by the person who received the code: its password is removed and its other sign-ins end. A code allows five attempts; a wrong, expired, replaced or used code is 401. A guest cart in the request cookie is carried into the session.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param payload body phoneCodeVerifyRequest true "Phone number and code"
+// @Success 200 {object} sessionResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 429 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/auth/phone-code/verify [post]
+func (h *AuthHandler) VerifyPhoneCode(c *gin.Context) {
+	var request phoneCodeVerifyRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid sign-in code request"})
+		return
+	}
+	session, err := h.service.VerifySignInCode(c.Request.Context(), identityDomain.VerifySignInCodeCommand{Channel: identityDomain.CodeChannelPhone, Destination: request.Phone, Code: request.Code, GuestSessionID: guestSessionID(c)})
 	if err != nil {
 		handleAuthError(c, err)
 		return
@@ -495,6 +564,7 @@ type SignInMethods struct {
 	Password  bool
 	OAuth     bool
 	EmailCode bool
+	PhoneCode bool
 	// PasswordCodes adds email verification and password reset for password
 	// accounts. It needs Password and a way to send codes.
 	PasswordCodes bool
@@ -529,6 +599,10 @@ func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService
 				verification.POST("/confirm", guarded(handler.ConfirmEmail)...)
 			}
 		}
+		if methods.PhoneCode {
+			auth.POST("/phone-code", guarded(handler.RequestPhoneCode)...)
+			auth.POST("/phone-code/verify", guarded(handler.VerifyPhoneCode)...)
+		}
 		if methods.EmailCode {
 			auth.POST("/email-code", guarded(handler.RequestEmailCode)...)
 			auth.POST("/email-code/verify", guarded(handler.VerifyEmailCode)...)
@@ -561,6 +635,10 @@ func handleAuthError(c *gin.Context, err error) {
 		c.AbortWithStatusJSON(stdhttp.StatusTooManyRequests, gin.H{"error": "too many codes requested for this address"})
 	case errors.Is(err, identityDomain.ErrInvalidCodeDestination), errors.Is(err, identityDomain.ErrInvalidEmail):
 		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid email address"})
+	case errors.Is(err, identityDomain.ErrInvalidPhone):
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid phone number"})
+	case errors.Is(err, identityDomain.ErrCodeDeliveryFailed):
+		c.AbortWithStatusJSON(stdhttp.StatusServiceUnavailable, gin.H{"error": "the code could not be sent; try again shortly"})
 	case errors.Is(err, identityDomain.ErrNoEmailToVerify):
 		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "account has no email address"})
 	case errors.Is(err, identityDomain.ErrEmailAlreadyVerified):

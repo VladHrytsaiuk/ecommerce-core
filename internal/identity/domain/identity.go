@@ -15,6 +15,7 @@ var (
 	ErrSignInMethodDisabled       = errors.New("sign-in method is not enabled")
 	ErrInvalidPassword            = errors.New("invalid password")
 	ErrInvalidEmail               = errors.New("invalid email address")
+	ErrInvalidPhone               = errors.New("invalid phone number")
 	ErrUserNotFound               = errors.New("identity user not found")
 	ErrEmailAlreadyExists         = errors.New("identity email already exists")
 	ErrPhoneAlreadyExists         = errors.New("identity phone already exists")

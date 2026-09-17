@@ -258,7 +258,7 @@ func TestPasswordResetFollowsThePasswordMethod(t *testing.T) {
 
 func TestCodeSignInNeedsItsOwnSwitchAsWellAsCodes(t *testing.T) {
 	fixture := newCodeFixture(t)
-	fixture.service.WithCodeSignIn(false)
+	fixture.service.WithCodeSignIn(domain.CodeChannelEmail, false)
 
 	if _, err := fixture.service.RequestSignInCode(context.Background(), domain.RequestSignInCodeCommand{Channel: domain.CodeChannelEmail, Destination: "buyer@example.com"}); !errors.Is(err, domain.ErrSignInMethodDisabled) {
 		t.Fatalf("RequestSignInCode() with code sign-in off = %v, want ErrSignInMethodDisabled", err)

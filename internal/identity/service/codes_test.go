@@ -68,6 +68,7 @@ type codeAccountsFake struct {
 	byEmail   map[string]*domain.User
 	claimed   []uuid.UUID
 	passwords map[uuid.UUID]string
+	byPhone   map[string]*domain.User
 	// addressChanged makes VerifyEmail find the account's address different
 	// from the one the code was sent to.
 	addressChanged bool
@@ -119,6 +120,25 @@ func (f *codeAccountsFake) FindOrCreateByEmail(_ context.Context, email string) 
 	return &copied, nil
 }
 
+func (f *codeAccountsFake) FindOrCreateByPhone(_ context.Context, phone string) (*domain.User, error) {
+	if user, ok := f.byPhone[phone]; ok {
+		copied := *user
+		return &copied, nil
+	}
+	user := &domain.User{ID: uuid.New(), Phone: &phone, PhoneVerified: true, Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	if f.byPhone == nil {
+		f.byPhone = map[string]*domain.User{}
+	}
+	f.byPhone[phone] = user
+	copied := *user
+	return &copied, nil
+}
+
+func (f *codeAccountsFake) ClaimPhone(_ context.Context, userID uuid.UUID) error {
+	f.claimed = append(f.claimed, userID)
+	return nil
+}
+
 func (f *codeAccountsFake) ClaimEmail(_ context.Context, userID uuid.UUID) error {
 	f.claimed = append(f.claimed, userID)
 	return nil
@@ -128,11 +148,20 @@ type codeSenderFake struct {
 	channel domain.CodeChannel
 	sent    []domain.CodeMessage
 	err     error
+	// sentInTransaction records, per send, whether it happened inside the
+	// store's transaction.
+	sentInTransaction []bool
 }
 
 func (f *codeSenderFake) Channel() domain.CodeChannel { return f.channel }
 
-func (f *codeSenderFake) SendCode(_ context.Context, message domain.CodeMessage) error {
+// Transactional follows the channel, as the real senders do: email is queued,
+// a text is sent directly.
+func (f *codeSenderFake) Transactional() bool { return f.channel == domain.CodeChannelEmail }
+
+func (f *codeSenderFake) SendCode(ctx context.Context, message domain.CodeMessage) error {
+	inside, _ := ctx.Value(inCodeTransaction{}).(bool)
+	f.sentInTransaction = append(f.sentInTransaction, inside)
 	if f.err != nil {
 		return f.err
 	}
@@ -159,10 +188,10 @@ func newCodeFixture(t *testing.T) codeFixture {
 	}
 	fixture.users = &userRepositoryFake{byLogin: map[string]*domain.User{}, byID: map[uuid.UUID]*domain.User{}}
 	fixture.service = refreshService(t, fixture.users, fixture.refresh)
-	if _, err := fixture.service.WithCodes(fixture.store, fixture.accounts, codeSecret, 10*time.Minute, fixture.sender); err != nil {
+	if _, err := fixture.service.WithCodes(CodeConfig{Store: fixture.store, Accounts: fixture.accounts, Secret: codeSecret, TTL: 10 * time.Minute, Senders: []domain.CodeSender{fixture.sender}}); err != nil {
 		t.Fatal(err)
 	}
-	fixture.service.WithCodeSignIn(true)
+	fixture.service.WithCodeSignIn(domain.CodeChannelEmail, true)
 	return fixture
 }
 
@@ -260,7 +289,7 @@ func TestACodeIsBoundToTheAddressItWasSentTo(t *testing.T) {
 	}
 	// Keys come from the secret: another store's secret yields other hashes.
 	service := refreshService(t, &userRepositoryFake{}, nil)
-	if _, err := service.WithCodes(&codeStoreFake{}, &codeAccountsFake{}, codeSecret+"-other", 10*time.Minute, &codeSenderFake{channel: domain.CodeChannelEmail}); err != nil {
+	if _, err := service.WithCodes(CodeConfig{Store: &codeStoreFake{}, Accounts: &codeAccountsFake{}, Secret: codeSecret + "-other", TTL: 10 * time.Minute, Senders: []domain.CodeSender{&codeSenderFake{channel: domain.CodeChannelEmail}}}); err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Equal(service.codes.destinationHash(domain.CodeChannelEmail, "buyer@example.com"), buyer) {
@@ -413,7 +442,7 @@ func TestSignInCodesRefuseAConfigurationThatCannotWork(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			service := refreshService(t, &userRepositoryFake{}, nil)
-			if _, err := service.WithCodes(store, accounts, testCase.secret, testCase.ttl, testCase.senders...); err == nil {
+			if _, err := service.WithCodes(CodeConfig{Store: store, Accounts: accounts, Secret: testCase.secret, TTL: testCase.ttl, Senders: testCase.senders}); err == nil {
 				t.Fatal("WithCodes() accepted a configuration that cannot work")
 			}
 			if service.codes != nil {

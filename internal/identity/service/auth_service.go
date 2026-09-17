@@ -38,8 +38,9 @@ type AuthService struct {
 	// WithPasswordSignIn keeps the behaviour it always had.
 	passwordSignInDisabled bool
 	// codes is nil unless WithCodes made one-time codes available.
-	codes             *oneTimeCodes
-	codeSignInEnabled bool
+	codes *oneTimeCodes
+	// codeSignIn holds the channels sign-in by code is enabled on.
+	codeSignIn map[domain.CodeChannel]bool
 }
 
 // WithPasswordSignIn enables or disables registration and sign-in with a
@@ -78,6 +79,15 @@ func (s *AuthService) RegisterPassword(ctx context.Context, command domain.Regis
 			return domain.Session{}, domain.ErrInvalidEmail
 		}
 		email = &normalized
+	}
+	if phone != nil {
+		// Stored in the one form sign-in by code looks numbers up in, so the
+		// same number is never two accounts.
+		normalized, ok := normalizePhone(*phone)
+		if !ok {
+			return domain.Session{}, domain.ErrInvalidPhone
+		}
+		phone = &normalized
 	}
 	if !validPassword(command.Password) {
 		return domain.Session{}, domain.ErrInvalidPassword
@@ -131,7 +141,7 @@ func (s *AuthService) LoginPassword(ctx context.Context, command domain.Password
 	if s.users == nil || s.tokens == nil || s.accessTTL <= 0 {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}
-	user, err := s.users.FindByLogin(ctx, strings.TrimSpace(command.Login))
+	user, err := s.users.FindByLogin(ctx, loginKey(command.Login))
 	usable := err == nil && user != nil && user.Status == domain.UserStatusActive &&
 		validRole(user.Role) && user.PasswordHash != ""
 
@@ -313,6 +323,16 @@ func (s *AuthService) provider(code string) (domain.OAuthProvider, error) {
 		return nil, domain.ErrOAuthProviderUnavailable
 	}
 	return provider, nil
+}
+
+// loginKey is the form a login is looked up in: a phone number as it is stored,
+// anything else as typed.
+func loginKey(login string) string {
+	login = strings.TrimSpace(login)
+	if phone, ok := normalizePhone(login); ok {
+		return phone
+	}
+	return login
 }
 
 func normalizeContact(value *string) *string {
