@@ -85,8 +85,9 @@ func TestProfileUpdateReturnsConflict(t *testing.T) {
 }
 
 type fakeAuth struct {
-	session identityDomain.Session
-	err     error
+	session     identityDomain.Session
+	codeRequest identityDomain.SignInCodeRequest
+	err         error
 }
 
 func (f fakeAuth) RegisterPassword(context.Context, identityDomain.RegisterPasswordCommand) (identityDomain.Session, error) {
@@ -111,6 +112,14 @@ func (f fakeAuth) RefreshSession(context.Context, string) (identityDomain.Sessio
 
 func (f fakeAuth) RevokeSession(context.Context, string) error {
 	return f.err
+}
+
+func (f fakeAuth) RequestSignInCode(context.Context, identityDomain.RequestSignInCodeCommand) (identityDomain.SignInCodeRequest, error) {
+	return f.codeRequest, f.err
+}
+
+func (f fakeAuth) VerifySignInCode(context.Context, identityDomain.VerifySignInCodeCommand) (identityDomain.Session, error) {
+	return f.session, f.err
 }
 
 type fakeProfile struct{ updateErr error }

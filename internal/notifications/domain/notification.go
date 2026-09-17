@@ -20,6 +20,7 @@ const (
 	ReturnRejectedTemplate    = "return_rejected"
 	ReturnReceivedTemplate    = "return_received"
 	ReturnRefundedTemplate    = "return_refunded"
+	SignInCodeTemplate        = "sign_in_code"
 	MaxEmailOperationTimeout  = 30 * time.Second
 )
 

@@ -33,11 +33,13 @@ type Config struct {
 	RefreshTokenDuration time.Duration
 	FrontendURL          string
 	// AuthMethods lists the enabled sign-in methods; see app.AuthMethod.
-	AuthMethods         []string
-	GoogleClientID      string
-	GoogleClientSecret  string
-	GoogleRedirectURI   string
-	OAuthAttemptTTL     time.Duration
+	AuthMethods        []string
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleRedirectURI  string
+	OAuthAttemptTTL    time.Duration
+	// SignInCodeTTL is how long an emailed sign-in code works.
+	SignInCodeTTL       time.Duration
 	ProfilePolicyJSON   string
 	ComparisonMaxItems  int
 	MaxSessions         int
@@ -314,6 +316,11 @@ func Load() *Config {
 			log.Fatal("Fatal: OAUTH_ATTEMPT_TTL must be between 1ns and 1h")
 		}
 		oauthAttemptTTL = parsed
+	}
+
+	signInCodeTTL := getEnvDuration("SIGN_IN_CODE_TTL", 10*time.Minute)
+	if err := validateSignInCodeTTL(signInCodeTTL); err != nil {
+		log.Fatal("Fatal: " + err.Error())
 	}
 
 	maxSessionsStr := os.Getenv("MAX_SESSIONS")
@@ -711,6 +718,7 @@ func Load() *Config {
 		GoogleClientSecret:                   googleClientSecret,
 		GoogleRedirectURI:                    googleRedirectURI,
 		OAuthAttemptTTL:                      oauthAttemptTTL,
+		SignInCodeTTL:                        signInCodeTTL,
 		ProfilePolicyJSON:                    profilePolicyJSON,
 		ComparisonMaxItems:                   comparisonMaxItems,
 		MaxSessions:                          maxSessions,
@@ -931,17 +939,6 @@ func validateShutdownTimeout(shutdown, request time.Duration) error {
 	return nil
 }
 
-// validateNotificationRetention keeps the sent window from outliving the outbox.
-//
-// A notification job is what stops a redelivered outbox event from sending the
-// same message twice: the handler finds the existing job and returns. If sent
-// jobs are purged sooner than completed deliveries are archived, a delivery
-// replayed inside that gap finds no job, creates a new one, and the customer
-// receives a second copy of an email they already have.
-// validateOutboxArchiveRetention keeps the two windows in the only order that
-// makes sense: a delivery reaches the archive after OUTBOX_DONE_RETENTION, so
-// an archive window shorter than that would delete rows the moment they arrive
-// and leave no forensic trail at all.
 // validateRefreshTokenDuration bounds how long a sign-in lasts. It was parsed and
 // then used by nothing, so any value was accepted; now that it decides when a
 // customer has to sign in again, a value that ends the sign-in before its first
@@ -956,6 +953,20 @@ func validateRefreshTokenDuration(refresh, access time.Duration) error {
 	return nil
 }
 
+// validateSignInCodeTTL bounds how long a sign-in code works: long enough to
+// switch to the mailbox and back, short enough that a code read over someone's
+// shoulder is soon useless.
+func validateSignInCodeTTL(ttl time.Duration) error {
+	if ttl < time.Minute || ttl > 30*time.Minute {
+		return fmt.Errorf("SIGN_IN_CODE_TTL (%s) must be between 1m and 30m", ttl)
+	}
+	return nil
+}
+
+// validateOutboxArchiveRetention keeps the two windows in the only order that
+// makes sense: a delivery reaches the archive after OUTBOX_DONE_RETENTION, so
+// an archive window shorter than that would delete rows the moment they arrive
+// and leave no forensic trail at all.
 func validateOutboxArchiveRetention(archive, outboxDone time.Duration) error {
 	if archive <= 0 {
 		return fmt.Errorf("OUTBOX_ARCHIVE_RETENTION must be a positive duration")
@@ -966,6 +977,13 @@ func validateOutboxArchiveRetention(archive, outboxDone time.Duration) error {
 	return nil
 }
 
+// validateNotificationRetention keeps the sent window from outliving the outbox.
+//
+// A notification job is what stops a redelivered outbox event from sending the
+// same message twice: the handler finds the existing job and returns. If sent
+// jobs are purged sooner than completed deliveries are archived, a delivery
+// replayed inside that gap finds no job, creates a new one, and the customer
+// receives a second copy of an email they already have.
 func validateNotificationRetention(sent, dead, outboxDone time.Duration) error {
 	if sent <= 0 || dead <= 0 {
 		return fmt.Errorf("NOTIFICATION_SENT_RETENTION and NOTIFICATION_DEAD_RETENTION must be positive durations")

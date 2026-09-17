@@ -59,3 +59,21 @@ func TestAStoreNobodyCanSignInToDoesNotBoot(t *testing.T) {
 		t.Fatalf("Validate() = %v, want google without credentials refused", err)
 	}
 }
+
+func TestEmailCodesNeedTheModuleThatSendsThem(t *testing.T) {
+	methods, err := resolveAuthMethods([]string{"email_code", "google"}, true)
+	if err != nil || !methods.Has(AuthMethodEmailCode) || !methods.Has(AuthMethodGoogle) || methods.Has(AuthMethodPassword) {
+		t.Fatalf("resolveAuthMethods(email_code, google) = (%v, %v), want exactly those two", methods, err)
+	}
+
+	cfg := validConfig()
+	cfg.AuthMethods = []string{"email_code"}
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "requires ENABLED_MODULES to include notifications") {
+		t.Fatalf("NewStoreConfig(email_code without notifications) = %v, want refused", err)
+	}
+	cfg.EnabledModules = withRequiredModules(string(ModuleNotifications))
+	storeConfig, err := NewStoreConfig(cfg)
+	if err != nil || !storeConfig.AuthMethods.Has(AuthMethodEmailCode) {
+		t.Fatalf("NewStoreConfig(email_code with notifications) = (%v, %v), want accepted", storeConfig.AuthMethods, err)
+	}
+}

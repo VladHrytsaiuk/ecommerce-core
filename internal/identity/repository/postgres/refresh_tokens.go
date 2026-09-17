@@ -100,6 +100,33 @@ func (s *RefreshTokenStore) RevokeFamily(ctx context.Context, presentedHash []by
 	})
 }
 
+// RevokeUser ends every sign-in of an account.
+//
+// It takes each open family's advisory lock before revoking, in family order so
+// two callers cannot deadlock. An UPDATE on its own is not enough: a rotation
+// in progress already holds its family's lock and would commit a successor the
+// UPDATE never saw, leaving the account signed in.
+func (s *RefreshTokenStore) RevokeUser(ctx context.Context, userID uuid.UUID, now time.Time) error {
+	if s == nil || s.db == nil || userID == uuid.Nil || now.IsZero() {
+		return fmt.Errorf("invalid refresh token revocation")
+	}
+	return transaction.Within(ctx, s.db, func(tx *gorm.DB) error {
+		var families []uuid.UUID
+		if err := tx.Raw(`
+SELECT DISTINCT family_id FROM refresh_tokens
+WHERE user_id = ? AND revoked_at IS NULL
+ORDER BY family_id`, userID).Scan(&families).Error; err != nil {
+			return err
+		}
+		for _, family := range families {
+			if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended(?::text, 0))`, family.String()).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Exec(`UPDATE refresh_tokens SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, now, userID).Error
+	})
+}
+
 // PurgeExpired removes tokens whose sign-in has ended. A used or revoked token
 // is kept until then on purpose: it is what recognises a replay, and every
 // token in a family shares one expiry, so nothing is purged while any member

@@ -31,6 +31,7 @@ import (
 	consentPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/consent/repository/postgres"
 	eventsDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events"
 	eventsApp "github.com/VladHrytsaiuk/ecommerce-core/internal/core/events/application"
+	identityNotifications "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/adapter/notifications"
 	identityApplication "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/application"
 	identityDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/domain"
 	identityPostgres "github.com/VladHrytsaiuk/ecommerce-core/internal/identity/repository/postgres"
@@ -399,9 +400,14 @@ type identityRuntime struct {
 	AttemptCleanup *identityApplication.OAuthAttemptCleanup
 	// RefreshTokenCleanup removes refresh tokens once their sign-in has ended.
 	RefreshTokenCleanup *identityApplication.RefreshTokenCleanup
+	// SignInCodeCleanup runs whichever methods are enabled, so codes issued
+	// before a method was switched off are still removed.
+	SignInCodeCleanup *identityApplication.SignInCodeCleanup
 }
 
-func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker, modules ModuleSet, observer identityDomain.UserLoginObserver) (identityRuntime, error) {
+// notifications is nil where the notifications module is off; StoreConfig
+// refuses email_code in that case, and so does this function.
+func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker, modules ModuleSet, observer identityDomain.UserLoginObserver, notifications *notificationsPostgres.Repository) (identityRuntime, error) {
 	providers := make([]identityDomain.OAuthProvider, 0, 1)
 	if storeConfig.AuthMethods.Has(AuthMethodGoogle) {
 		google, err := googleAuthAdapter.New(googleAuthAdapter.Config{
@@ -426,6 +432,18 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 	)
 	auth.WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), cfg.RefreshTokenDuration)
 	auth.WithPasswordSignIn(storeConfig.AuthMethods.Has(AuthMethodPassword))
+	if storeConfig.AuthMethods.Has(AuthMethodEmailCode) {
+		if notifications == nil {
+			return identityRuntime{}, fmt.Errorf("configure email sign-in codes: the notifications module is required")
+		}
+		mailer, err := identityNotifications.NewSignInCodeMailer(notifications)
+		if err != nil {
+			return identityRuntime{}, fmt.Errorf("configure email sign-in codes: %w", err)
+		}
+		if _, err := auth.WithSignInCodes(identityPostgres.NewSignInCodeStore(db), identityPostgres.NewCodeSignInAccounts(db), cfg.JWTSecret, cfg.SignInCodeTTL, mailer); err != nil {
+			return identityRuntime{}, fmt.Errorf("configure email sign-in codes: %w", err)
+		}
+	}
 	if observer != nil {
 		auth.WithUserLoginObserver(observer)
 	}
@@ -438,7 +456,11 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 	if err != nil {
 		return identityRuntime{}, fmt.Errorf("configure refresh token cleanup: %w", err)
 	}
-	runtime := identityRuntime{Auth: auth, AttemptCleanup: attemptCleanup.WithLogger(logger.Log), RefreshTokenCleanup: refreshCleanup.WithLogger(logger.Log)}
+	codeCleanup, err := identityApplication.NewSignInCodeCleanup(identityPostgres.NewSignInCodeStore(db))
+	if err != nil {
+		return identityRuntime{}, fmt.Errorf("configure sign-in code cleanup: %w", err)
+	}
+	runtime := identityRuntime{Auth: auth, AttemptCleanup: attemptCleanup.WithLogger(logger.Log), RefreshTokenCleanup: refreshCleanup.WithLogger(logger.Log), SignInCodeCleanup: codeCleanup.WithLogger(logger.Log)}
 	if modules.Has(ModuleCustomers) {
 		runtime.CustomerProfile = identityApplication.NewCustomerProfileService(identityPostgres.NewCustomerProfileRepository(db))
 	}

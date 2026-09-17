@@ -21,6 +21,8 @@ type refreshStoreFake struct {
 	result    domain.RotationResult
 	rotateErr error
 	revoked   [][]byte
+	// revokedUsers are the accounts whose every sign-in was ended.
+	revokedUsers []uuid.UUID
 }
 
 func (f *refreshStoreFake) Create(_ context.Context, token domain.NewRefreshToken) error {
@@ -35,6 +37,11 @@ func (f *refreshStoreFake) Rotate(_ context.Context, request domain.RotateRefres
 
 func (f *refreshStoreFake) RevokeFamily(_ context.Context, hash []byte, _ time.Time) error {
 	f.revoked = append(f.revoked, hash)
+	return nil
+}
+
+func (f *refreshStoreFake) RevokeUser(_ context.Context, userID uuid.UUID, _ time.Time) error {
+	f.revokedUsers = append(f.revokedUsers, userID)
 	return nil
 }
 

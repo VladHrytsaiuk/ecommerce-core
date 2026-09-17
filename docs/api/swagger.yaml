@@ -536,6 +536,23 @@ definitions:
           type: array
         type: object
     type: object
+  internal_identity_delivery_http.emailCodeRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
+  internal_identity_delivery_http.emailCodeVerifyRequest:
+    properties:
+      code:
+        type: string
+      email:
+        type: string
+    required:
+    - code
+    - email
+    type: object
   internal_identity_delivery_http.loginRequest:
     properties:
       email:
@@ -582,6 +599,15 @@ definitions:
       token_type:
         type: string
       user_id:
+        type: string
+    type: object
+  internal_identity_delivery_http.signInCodeResponse:
+    properties:
+      expires_at:
+        description: ExpiresAt is when the code stops working.
+        type: string
+      resend_after:
+        description: ResendAfter is the earliest another code may be requested.
         type: string
     type: object
   internal_reports_delivery_http.rebuildRequest:
@@ -834,6 +860,113 @@ paths:
       summary: Replace the quantity of one cart line
       tags:
       - Cart
+  /api/auth/email-code:
+    post:
+      consumes:
+      - application/json
+      description: Sends a six-digit code to the address. The same request signs in
+        to an existing account and registers a new one, so the response is the same
+        whether or not the address has an account. A new code replaces any earlier
+        one. An address may be sent one code a minute, five an hour and ten a day;
+        past that the response is 429 with Retry-After.
+      parameters:
+      - description: Address
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.emailCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.signInCodeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Email a one-time sign-in code
+      tags:
+      - Auth
+  /api/auth/email-code/verify:
+    post:
+      consumes:
+      - application/json
+      description: 'Exchanges the code for a session. An address with no account gets
+        a customer account, with the address verified. An account whose address was
+        never verified is taken over by the person who received the code: its password
+        is removed and its other sign-ins end. A code allows five attempts; a wrong,
+        expired, replaced or used code is 401. A guest cart in the request cookie
+        is carried into the session.'
+      parameters:
+      - description: Address and code
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/internal_identity_delivery_http.emailCodeVerifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.sessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "429":
+          description: Too Many Requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Sign in with an emailed code
+      tags:
+      - Auth
   /api/auth/login:
     post:
       consumes:

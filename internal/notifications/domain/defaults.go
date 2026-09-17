@@ -66,4 +66,12 @@ var DefaultTemplates = []Template{
 		Text:    "We have sent the refund for your return.\n\nHow long it takes to appear depends on your bank.",
 		HTML:    "<p>We have sent the refund for your return.</p><p>How long it takes to appear depends on your bank.</p>",
 	},
+	{
+		// The code is kept out of the subject, which lock screens and inbox
+		// previews show to anyone nearby.
+		Key:     SignInCodeTemplate,
+		Subject: "Your sign-in code",
+		Text:    "Your sign-in code is {{.Code}}\n\nIt works for {{.ExpiresInMinutes}} minutes. Do not share it with anyone.\n\nIf you did not ask for this code, you can ignore this email.",
+		HTML:    "<p>Your sign-in code is</p><p><strong>{{.Code}}</strong></p><p>It works for {{.ExpiresInMinutes}} minutes. Do not share it with anyone.</p><p>If you did not ask for this code, you can ignore this email.</p>",
+	},
 }

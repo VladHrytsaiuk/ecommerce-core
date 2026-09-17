@@ -16,10 +16,13 @@ const (
 	AuthMethodPassword AuthMethod = "password"
 	// AuthMethodGoogle is sign-in with Google.
 	AuthMethodGoogle AuthMethod = "google"
+	// AuthMethodEmailCode is registration and sign-in with a one-time code sent
+	// to an email address. It needs the notifications module to send the code.
+	AuthMethodEmailCode AuthMethod = "email_code"
 )
 
 // allAuthMethods is every name AUTH_METHODS accepts.
-var allAuthMethods = []AuthMethod{AuthMethodPassword, AuthMethodGoogle}
+var allAuthMethods = []AuthMethod{AuthMethodPassword, AuthMethodGoogle, AuthMethodEmailCode}
 
 // AuthMethodSet is the normalized set of enabled sign-in methods.
 type AuthMethodSet map[AuthMethod]struct{}

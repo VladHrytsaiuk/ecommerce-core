@@ -316,6 +316,9 @@ func (c StoreConfig) Validate() error {
 	if c.AuthMethods.Has(AuthMethodGoogle) != (c.GoogleOAuth != nil) {
 		return fmt.Errorf("the google sign-in method and the Google OAuth credentials must be configured together")
 	}
+	if c.AuthMethods.Has(AuthMethodEmailCode) && !c.Modules().Has(ModuleNotifications) {
+		return fmt.Errorf("AUTH_METHODS includes email_code, which sends its codes by email and requires ENABLED_MODULES to include notifications")
+	}
 	if c.CheckoutReservationTTL <= 0 || c.CheckoutReservationTTL > 24*time.Hour {
 		return fmt.Errorf("CHECKOUT_RESERVATION_TTL must be between 1ns and 24h")
 	}

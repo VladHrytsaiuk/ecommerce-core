@@ -37,6 +37,8 @@ type AuthService struct {
 	// passwordSignInDisabled is false by default, so a service built without
 	// WithPasswordSignIn keeps the behaviour it always had.
 	passwordSignInDisabled bool
+	// signInCodes is nil unless WithSignInCodes enabled them.
+	signInCodes *signInCodes
 }
 
 // WithPasswordSignIn enables or disables registration and sign-in with a

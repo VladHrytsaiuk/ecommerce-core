@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	stdhttp "net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -170,6 +171,77 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	c.Status(stdhttp.StatusNoContent)
 }
 
+type emailCodeRequest struct {
+	Email string `json:"email" binding:"required"`
+}
+
+type emailCodeVerifyRequest struct {
+	Email string `json:"email" binding:"required"`
+	Code  string `json:"code" binding:"required"`
+}
+
+type signInCodeResponse struct {
+	// ExpiresAt is when the code stops working.
+	ExpiresAt time.Time `json:"expires_at"`
+	// ResendAfter is the earliest another code may be requested.
+	ResendAfter time.Time `json:"resend_after"`
+}
+
+// RequestEmailCode godoc
+// @Summary Email a one-time sign-in code
+// @Description Sends a six-digit code to the address. The same request signs in to an existing account and registers a new one, so the response is the same whether or not the address has an account. A new code replaces any earlier one. An address may be sent one code a minute, five an hour and ten a day; past that the response is 429 with Retry-After.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param payload body emailCodeRequest true "Address"
+// @Success 202 {object} signInCodeResponse
+// @Failure 400 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 429 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/auth/email-code [post]
+func (h *AuthHandler) RequestEmailCode(c *gin.Context) {
+	var request emailCodeRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid sign-in code request"})
+		return
+	}
+	issued, err := h.service.RequestSignInCode(c.Request.Context(), identityDomain.RequestSignInCodeCommand{Channel: identityDomain.SignInCodeEmail, Destination: request.Email})
+	if err != nil {
+		handleAuthError(c, err)
+		return
+	}
+	c.JSON(stdhttp.StatusAccepted, signInCodeResponse{ExpiresAt: issued.ExpiresAt, ResendAfter: issued.ResendAfter})
+}
+
+// VerifyEmailCode godoc
+// @Summary Sign in with an emailed code
+// @Description Exchanges the code for a session. An address with no account gets a customer account, with the address verified. An account whose address was never verified is taken over by the person who received the code: its password is removed and its other sign-ins end. A code allows five attempts; a wrong, expired, replaced or used code is 401. A guest cart in the request cookie is carried into the session.
+// @Tags Auth
+// @Accept json
+// @Produce json
+// @Param payload body emailCodeVerifyRequest true "Address and code"
+// @Success 200 {object} sessionResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Failure 429 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /api/auth/email-code/verify [post]
+func (h *AuthHandler) VerifyEmailCode(c *gin.Context) {
+	var request emailCodeVerifyRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid sign-in code request"})
+		return
+	}
+	session, err := h.service.VerifySignInCode(c.Request.Context(), identityDomain.VerifySignInCodeCommand{Channel: identityDomain.SignInCodeEmail, Destination: request.Email, Code: request.Code, GuestSessionID: guestSessionID(c)})
+	if err != nil {
+		handleAuthError(c, err)
+		return
+	}
+	writeSession(c, stdhttp.StatusOK, session)
+}
+
 // BeginOAuth godoc
 // @Summary Start an OAuth sign-in
 // @Description Redirects to the provider. Returns 404 where the deployment has configured no OAuth provider.
@@ -288,8 +360,9 @@ func (h *ProfileHandler) Update(c *gin.Context) {
 // SignInMethods says which sign-in routes exist. A method the store does not
 // offer has no route at all, rather than a route that answers with a refusal.
 type SignInMethods struct {
-	Password bool
-	OAuth    bool
+	Password  bool
+	OAuth     bool
+	EmailCode bool
 }
 
 func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService, profileService identityDomain.ProfileService, methods SignInMethods, oauthRedirectURI string, authMiddleware, sensitiveLimit gin.HandlerFunc, loginLimit ...gin.HandlerFunc) {
@@ -299,13 +372,22 @@ func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService
 			auth.Use(sensitiveLimit)
 		}
 		handler := NewAuthHandler(authService, oauthRedirectURI)
+		// Signing in, and asking for a code to sign in with, share the per-IP
+		// login limit: the one guards against guessing, the other against using
+		// the store to send mail to strangers.
+		guarded := func(handler gin.HandlerFunc) []gin.HandlerFunc {
+			if len(loginLimit) > 0 && loginLimit[0] != nil {
+				return []gin.HandlerFunc{loginLimit[0], handler}
+			}
+			return []gin.HandlerFunc{handler}
+		}
 		if methods.Password {
 			auth.POST("/register", handler.Register)
-			if len(loginLimit) > 0 && loginLimit[0] != nil {
-				auth.POST("/login", loginLimit[0], handler.Login)
-			} else {
-				auth.POST("/login", handler.Login)
-			}
+			auth.POST("/login", guarded(handler.Login)...)
+		}
+		if methods.EmailCode {
+			auth.POST("/email-code", guarded(handler.RequestEmailCode)...)
+			auth.POST("/email-code/verify", guarded(handler.VerifyEmailCode)...)
 		}
 		// Every method ends in the same session, so these exist whichever
 		// methods are on.
@@ -326,9 +408,17 @@ func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService
 }
 
 func handleAuthError(c *gin.Context, err error) {
+	var throttled *identityDomain.SignInCodeThrottledError
 	switch {
 	case errors.Is(err, identityDomain.ErrSignInMethodDisabled):
 		c.AbortWithStatusJSON(stdhttp.StatusNotFound, gin.H{"error": "sign-in method is not enabled"})
+	case errors.As(err, &throttled):
+		c.Header("Retry-After", strconv.Itoa(retryAfterSeconds(throttled.RetryAfter)))
+		c.AbortWithStatusJSON(stdhttp.StatusTooManyRequests, gin.H{"error": "too many sign-in codes requested for this address"})
+	case errors.Is(err, identityDomain.ErrInvalidSignInDestination):
+		c.AbortWithStatusJSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid email address"})
+	case errors.Is(err, identityDomain.ErrInvalidSignInCode):
+		c.AbortWithStatusJSON(stdhttp.StatusUnauthorized, gin.H{"error": "invalid or expired sign-in code"})
 	case errors.Is(err, identityDomain.ErrInvalidRefreshToken):
 		c.AbortWithStatusJSON(stdhttp.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
 	case errors.Is(err, identityDomain.ErrInvalidCredentials):
@@ -346,6 +436,16 @@ func handleAuthError(c *gin.Context, err error) {
 	default:
 		c.AbortWithStatusJSON(stdhttp.StatusInternalServerError, gin.H{"error": "authentication unavailable"})
 	}
+}
+
+// retryAfterSeconds rounds up, so a client that waits exactly as told is not
+// refused again for a fraction of a second.
+func retryAfterSeconds(wait time.Duration) int {
+	seconds := int((wait + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
 }
 
 func toSessionResponse(session identityDomain.Session) sessionResponse {

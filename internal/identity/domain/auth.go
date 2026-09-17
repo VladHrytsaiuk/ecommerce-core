@@ -19,6 +19,11 @@ type AuthService interface {
 	RefreshSession(context.Context, string) (Session, error)
 	// RevokeSession ends the sign-in a refresh token belongs to.
 	RevokeSession(context.Context, string) error
+	// RequestSignInCode sends a one-time code to an address.
+	RequestSignInCode(context.Context, RequestSignInCodeCommand) (SignInCodeRequest, error)
+	// VerifySignInCode exchanges a code for a session, registering the address
+	// if it has no account yet.
+	VerifySignInCode(context.Context, VerifySignInCodeCommand) (Session, error)
 }
 
 type ProfileService interface {

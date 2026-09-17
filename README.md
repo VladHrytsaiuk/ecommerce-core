@@ -144,11 +144,22 @@ refresh token out of shared storage: it is shown once and stored server-side
 only as a hash.
 
 `AUTH_METHODS` chooses how customers sign in, in any combination: `password`
-(registration and sign-in with an address and a password) and `google`. Unset,
-it is `password`, plus `google` whenever the `GOOGLE_*` settings are present —
-the behaviour before the setting existed. A method that is not listed has no
-route, and the service refuses it as well. Startup rejects `google` without its
-credentials, and Google credentials that no listed method uses.
+(registration and sign-in with an address and a password), `google`, and
+`email_code`. Unset, it is `password`, plus `google` whenever the `GOOGLE_*`
+settings are present — the behaviour before the setting existed. A method that
+is not listed has no route, and the service refuses it as well. Startup rejects
+`google` without its credentials, Google credentials that no listed method uses,
+and `email_code` without the `notifications` module.
+
+With `email_code` there is one field and no password: `POST /api/auth/email-code`
+emails a six-digit code, and `POST /api/auth/email-code/verify` exchanges it for
+a session, registering the address if it has no account. The answer is the same
+whether or not the address is known. A code works for `SIGN_IN_CODE_TTL`
+(10 minutes by default) and allows five attempts; an address is sent at most one
+code a minute, five an hour and ten a day. Only HMACs of the address and the code
+are stored. An account whose address was never verified — registered with a
+password by someone who did not have to prove the address — is taken over by the
+person who receives the code: its password is removed and its sign-ins end.
 
 ### Storefront origin and guest sessions
 

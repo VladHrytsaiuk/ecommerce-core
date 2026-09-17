@@ -73,5 +73,8 @@ type RefreshTokenStore interface {
 	// RevokeFamily ends the sign-in the presented token belongs to. An unknown
 	// token is not an error.
 	RevokeFamily(ctx context.Context, presentedHash []byte, now time.Time) error
+	// RevokeUser ends every sign-in of an account. It joins a transaction
+	// carried in ctx.
+	RevokeUser(ctx context.Context, userID uuid.UUID, now time.Time) error
 	PurgeExpired(ctx context.Context, now time.Time, limit int) (int, error)
 }

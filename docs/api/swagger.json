@@ -8,6 +8,155 @@
     },
     "basePath": "/",
     "paths": {
+        "/api/auth/email-code": {
+            "post": {
+                "description": "Sends a six-digit code to the address. The same request signs in to an existing account and registers a new one, so the response is the same whether or not the address has an account. A new code replaces any earlier one. An address may be sent one code a minute, five an hour and ten a day; past that the response is 429 with Retry-After.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Email a one-time sign-in code",
+                "parameters": [
+                    {
+                        "description": "Address",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.emailCodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.signInCodeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/email-code/verify": {
+            "post": {
+                "description": "Exchanges the code for a session. An address with no account gets a customer account, with the address verified. An account whose address was never verified is taken over by the person who received the code: its password is removed and its other sign-ins end. A code allows five attempts; a wrong, expired, replaced or used code is 401. A guest cart in the request cookie is carried into the session.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Sign in with an emailed code",
+                "parameters": [
+                    {
+                        "description": "Address and code",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.emailCodeVerifyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.sessionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/login": {
             "post": {
                 "description": "The login field accepts an email or a phone number. Failed attempts cost the same as successful ones, so timing does not reveal whether an account exists.",
@@ -5815,6 +5964,32 @@
                 }
             }
         },
+        "internal_identity_delivery_http.emailCodeRequest": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_identity_delivery_http.emailCodeVerifyRequest": {
+            "type": "object",
+            "required": [
+                "code",
+                "email"
+            ],
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_identity_delivery_http.loginRequest": {
             "type": "object",
             "required": [
@@ -5882,6 +6057,19 @@
                     "type": "string"
                 },
                 "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_identity_delivery_http.signInCodeResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "description": "ExpiresAt is when the code stops working.",
+                    "type": "string"
+                },
+                "resend_after": {
+                    "description": "ResendAfter is the earliest another code may be requested.",
                     "type": "string"
                 }
             }

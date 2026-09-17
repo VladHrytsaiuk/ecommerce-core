@@ -25,6 +25,7 @@ func TestEveryTemplateKeyTheSystemCanAskForHasADefault(t *testing.T) {
 		ReturnRejectedTemplate,
 		ReturnReceivedTemplate,
 		ReturnRefundedTemplate,
+		SignInCodeTemplate,
 	}
 	present := make(map[string]struct{}, len(DefaultTemplates))
 	for _, candidate := range DefaultTemplates {
@@ -71,6 +72,7 @@ func TestATemplateOnlyReferencesFieldsItsSenderSupplies(t *testing.T) {
 		OrderPaidTemplate:         {"OrderNumber"},
 		SupportAgentReplyTemplate: {"Subject", "MessageBody"},
 		AbandonedCartTemplate:     {"UnsubscribeURL"},
+		SignInCodeTemplate:        {"Code", "ExpiresInMinutes"},
 	}
 	for _, candidate := range DefaultTemplates {
 		fields := supplied[candidate.Key]
