@@ -143,6 +143,13 @@ never extends a sign-in past `refresh_expires_at` (`REFRESH_TOKEN_DURATION`).
 refresh token out of shared storage: it is shown once and stored server-side
 only as a hash.
 
+`AUTH_METHODS` chooses how customers sign in, in any combination: `password`
+(registration and sign-in with an address and a password) and `google`. Unset,
+it is `password`, plus `google` whenever the `GOOGLE_*` settings are present —
+the behaviour before the setting existed. A method that is not listed has no
+route, and the service refuses it as well. Startup rejects `google` without its
+credentials, and Google credentials that no listed method uses.
+
 ### Storefront origin and guest sessions
 
 Deploy the storefront on the same site as the API — for example

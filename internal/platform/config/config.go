@@ -32,18 +32,20 @@ type Config struct {
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
 	FrontendURL          string
-	GoogleClientID       string
-	GoogleClientSecret   string
-	GoogleRedirectURI    string
-	OAuthAttemptTTL      time.Duration
-	ProfilePolicyJSON    string
-	ComparisonMaxItems   int
-	MaxSessions          int
-	Env                  string
-	CookieSecure         bool
-	APIRateLimitPerMin   int
-	WebhookRatePerMin    int
-	SensitiveRatePerMin  int
+	// AuthMethods lists the enabled sign-in methods; see app.AuthMethod.
+	AuthMethods         []string
+	GoogleClientID      string
+	GoogleClientSecret  string
+	GoogleRedirectURI   string
+	OAuthAttemptTTL     time.Duration
+	ProfilePolicyJSON   string
+	ComparisonMaxItems  int
+	MaxSessions         int
+	Env                 string
+	CookieSecure        bool
+	APIRateLimitPerMin  int
+	WebhookRatePerMin   int
+	SensitiveRatePerMin int
 
 	// HTTP server
 	// RequestTimeout is the upper bound on one HTTP request, applied as a
@@ -300,6 +302,7 @@ func Load() *Config {
 		frontendURL = "http://localhost:3000"
 	}
 
+	authMethods := getEnvList("AUTH_METHODS", nil)
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	googleRedirectURI := os.Getenv("GOOGLE_REDIRECT_URI")
@@ -703,6 +706,7 @@ func Load() *Config {
 		AccessTokenDuration:                  accessTokenDuration,
 		RefreshTokenDuration:                 refreshTokenDuration,
 		FrontendURL:                          frontendURL,
+		AuthMethods:                          authMethods,
 		GoogleClientID:                       googleClientID,
 		GoogleClientSecret:                   googleClientSecret,
 		GoogleRedirectURI:                    googleRedirectURI,

@@ -50,9 +50,11 @@ type StoreConfig struct {
 	ReturnWindowDays              int
 	DefaultWarehouseID            uuid.UUID
 	GoogleOAuth                   *GoogleOAuthConfig
-	OAuthAttemptTTL               time.Duration
-	ProfilePolicy                 *identityDomain.ProfilePolicy
-	ComparisonMaxItems            int
+	// AuthMethods are the sign-in methods this store offers.
+	AuthMethods        AuthMethodSet
+	OAuthAttemptTTL    time.Duration
+	ProfilePolicy      *identityDomain.ProfilePolicy
+	ComparisonMaxItems int
 }
 
 type GoogleOAuthConfig struct {
@@ -104,6 +106,11 @@ func NewStoreConfig(cfg *config.Config) (StoreConfig, error) {
 	if strings.TrimSpace(cfg.GoogleClientID) != "" || strings.TrimSpace(cfg.GoogleClientSecret) != "" || strings.TrimSpace(cfg.GoogleRedirectURI) != "" {
 		storeConfig.GoogleOAuth = &GoogleOAuthConfig{ClientID: strings.TrimSpace(cfg.GoogleClientID), ClientSecret: strings.TrimSpace(cfg.GoogleClientSecret), RedirectURI: strings.TrimSpace(cfg.GoogleRedirectURI)}
 	}
+	authMethods, err := resolveAuthMethods(cfg.AuthMethods, storeConfig.GoogleOAuth != nil)
+	if err != nil {
+		return StoreConfig{}, err
+	}
+	storeConfig.AuthMethods = authMethods
 	if err := storeConfig.Validate(); err != nil {
 		return StoreConfig{}, err
 	}
@@ -299,6 +306,15 @@ func (c StoreConfig) Validate() error {
 	// one of them.
 	if err := c.Modules().Validate(); err != nil {
 		return err
+	}
+	// Checked here as well as when AUTH_METHODS is read, because Bootstrap
+	// validates a StoreConfig it did not build. A store nobody can sign in to,
+	// or one whose Google setting and Google credentials disagree, does not boot.
+	if len(c.AuthMethods) == 0 {
+		return fmt.Errorf("at least one sign-in method must be enabled in AUTH_METHODS")
+	}
+	if c.AuthMethods.Has(AuthMethodGoogle) != (c.GoogleOAuth != nil) {
+		return fmt.Errorf("the google sign-in method and the Google OAuth credentials must be configured together")
 	}
 	if c.CheckoutReservationTTL <= 0 || c.CheckoutReservationTTL > 24*time.Hour {
 		return fmt.Errorf("CHECKOUT_RESERVATION_TTL must be between 1ns and 24h")

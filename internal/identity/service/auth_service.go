@@ -34,6 +34,17 @@ type AuthService struct {
 	// refreshTokens is nil unless WithRefreshTokens enabled them.
 	refreshTokens domain.RefreshTokenStore
 	refreshTTL    time.Duration
+	// passwordSignInDisabled is false by default, so a service built without
+	// WithPasswordSignIn keeps the behaviour it always had.
+	passwordSignInDisabled bool
+}
+
+// WithPasswordSignIn enables or disables registration and sign-in with a
+// password. Disabling it here, and not only by leaving the routes out, means
+// no other caller can reach a method the store turned off.
+func (s *AuthService) WithPasswordSignIn(enabled bool) *AuthService {
+	s.passwordSignInDisabled = !enabled
+	return s
 }
 
 // WithUserLoginObserver attaches an optional module subscriber assembled by
@@ -48,6 +59,9 @@ func NewAuthService(users domain.UserRepository, identities domain.OAuthIdentity
 }
 
 func (s *AuthService) RegisterPassword(ctx context.Context, command domain.RegisterPasswordCommand) (domain.Session, error) {
+	if s.passwordSignInDisabled {
+		return domain.Session{}, domain.ErrSignInMethodDisabled
+	}
 	if s.users == nil || s.tokens == nil || s.accessTTL <= 0 {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}
@@ -86,6 +100,9 @@ var passwordCostEqualizer = sync.OnceValue(func() string {
 })
 
 func (s *AuthService) LoginPassword(ctx context.Context, command domain.PasswordLoginCommand) (domain.Session, error) {
+	if s.passwordSignInDisabled {
+		return domain.Session{}, domain.ErrSignInMethodDisabled
+	}
 	if s.users == nil || s.tokens == nil || s.accessTTL <= 0 {
 		return domain.Session{}, domain.ErrInvalidCredentials
 	}

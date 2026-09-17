@@ -205,3 +205,18 @@ func TestWithoutRefreshTokensSessionsCarryNone(t *testing.T) {
 		t.Fatalf("RefreshSession() error = %v, want ErrInvalidRefreshToken", err)
 	}
 }
+
+func TestADisabledPasswordMethodCannotBeReachedThroughTheService(t *testing.T) {
+	// The routes are left out when password sign-in is off; this is what stops
+	// any other caller from reaching it anyway.
+	user := activeCustomer(t)
+	service := refreshService(t, usersWith(user), nil).WithPasswordSignIn(false)
+
+	if _, err := service.LoginPassword(context.Background(), domain.PasswordLoginCommand{Login: *user.Email, Password: "correct-horse-battery"}); !errors.Is(err, domain.ErrSignInMethodDisabled) {
+		t.Fatalf("LoginPassword() error = %v, want ErrSignInMethodDisabled", err)
+	}
+	email := "new@example.com"
+	if _, err := service.RegisterPassword(context.Background(), domain.RegisterPasswordCommand{Email: &email, Password: "correct-horse-battery"}); !errors.Is(err, domain.ErrSignInMethodDisabled) {
+		t.Fatalf("RegisterPassword() error = %v, want ErrSignInMethodDisabled", err)
+	}
+}

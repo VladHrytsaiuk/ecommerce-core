@@ -403,7 +403,7 @@ type identityRuntime struct {
 
 func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tokenMaker token.Maker, modules ModuleSet, observer identityDomain.UserLoginObserver) (identityRuntime, error) {
 	providers := make([]identityDomain.OAuthProvider, 0, 1)
-	if storeConfig.GoogleOAuth != nil {
+	if storeConfig.AuthMethods.Has(AuthMethodGoogle) {
 		google, err := googleAuthAdapter.New(googleAuthAdapter.Config{
 			ClientID:            storeConfig.GoogleOAuth.ClientID,
 			ClientSecret:        storeConfig.GoogleOAuth.ClientSecret,
@@ -425,6 +425,7 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 		storeConfig.OAuthAttemptTTL,
 	)
 	auth.WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), cfg.RefreshTokenDuration)
+	auth.WithPasswordSignIn(storeConfig.AuthMethods.Has(AuthMethodPassword))
 	if observer != nil {
 		auth.WithUserLoginObserver(observer)
 	}

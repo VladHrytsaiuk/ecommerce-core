@@ -47,7 +47,11 @@ func InitRouter(application *app.Application) *gin.Engine {
 	if application.StoreConfig.GoogleOAuth != nil {
 		oauthRedirectURI = application.StoreConfig.GoogleOAuth.RedirectURI
 	}
-	identityHTTP.RegisterRoutes(api, application.IdentityAuthService, application.IdentityProfileService, oauthRedirectURI, middleware.AuthMiddleware(application.TokenMaker), sensitiveLimit, application.HTTP.LoginRateLimit)
+	signInMethods := identityHTTP.SignInMethods{
+		Password: application.StoreConfig.AuthMethods.Has(app.AuthMethodPassword),
+		OAuth:    application.StoreConfig.AuthMethods.Has(app.AuthMethodGoogle),
+	}
+	identityHTTP.RegisterRoutes(api, application.IdentityAuthService, application.IdentityProfileService, signInMethods, oauthRedirectURI, middleware.AuthMiddleware(application.TokenMaker), sensitiveLimit, application.HTTP.LoginRateLimit)
 	if application.WishlistService != nil {
 		wishlist := api.Group("/wishlist")
 		wishlist.Use(application.HTTP.OptionalAuth)

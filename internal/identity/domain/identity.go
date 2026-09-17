@@ -10,7 +10,9 @@ import (
 )
 
 var (
-	ErrInvalidCredentials         = errors.New("invalid credentials")
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	// ErrSignInMethodDisabled refuses a sign-in method this store does not offer.
+	ErrSignInMethodDisabled       = errors.New("sign-in method is not enabled")
 	ErrInvalidPassword            = errors.New("invalid password")
 	ErrUserNotFound               = errors.New("identity user not found")
 	ErrEmailAlreadyExists         = errors.New("identity email already exists")

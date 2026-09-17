@@ -285,23 +285,36 @@ func (h *ProfileHandler) Update(c *gin.Context) {
 	c.JSON(stdhttp.StatusOK, profileResponse(profile))
 }
 
-func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService, profileService identityDomain.ProfileService, oauthRedirectURI string, authMiddleware, sensitiveLimit gin.HandlerFunc, loginLimit ...gin.HandlerFunc) {
+// SignInMethods says which sign-in routes exist. A method the store does not
+// offer has no route at all, rather than a route that answers with a refusal.
+type SignInMethods struct {
+	Password bool
+	OAuth    bool
+}
+
+func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService, profileService identityDomain.ProfileService, methods SignInMethods, oauthRedirectURI string, authMiddleware, sensitiveLimit gin.HandlerFunc, loginLimit ...gin.HandlerFunc) {
 	if authService != nil {
 		auth := api.Group("/auth")
 		if sensitiveLimit != nil {
 			auth.Use(sensitiveLimit)
 		}
 		handler := NewAuthHandler(authService, oauthRedirectURI)
-		auth.POST("/register", handler.Register)
-		if len(loginLimit) > 0 && loginLimit[0] != nil {
-			auth.POST("/login", loginLimit[0], handler.Login)
-		} else {
-			auth.POST("/login", handler.Login)
+		if methods.Password {
+			auth.POST("/register", handler.Register)
+			if len(loginLimit) > 0 && loginLimit[0] != nil {
+				auth.POST("/login", loginLimit[0], handler.Login)
+			} else {
+				auth.POST("/login", handler.Login)
+			}
 		}
+		// Every method ends in the same session, so these exist whichever
+		// methods are on.
 		auth.POST("/refresh", handler.Refresh)
 		auth.POST("/logout", handler.Logout)
-		auth.GET("/oauth/:provider/login", handler.BeginOAuth)
-		auth.GET("/oauth/:provider/callback", handler.CompleteOAuth)
+		if methods.OAuth {
+			auth.GET("/oauth/:provider/login", handler.BeginOAuth)
+			auth.GET("/oauth/:provider/callback", handler.CompleteOAuth)
+		}
 	}
 	if profileService != nil && authMiddleware != nil {
 		profile := api.Group("/me/profile")
@@ -314,6 +327,8 @@ func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService
 
 func handleAuthError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, identityDomain.ErrSignInMethodDisabled):
+		c.AbortWithStatusJSON(stdhttp.StatusNotFound, gin.H{"error": "sign-in method is not enabled"})
 	case errors.Is(err, identityDomain.ErrInvalidRefreshToken):
 		c.AbortWithStatusJSON(stdhttp.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
 	case errors.Is(err, identityDomain.ErrInvalidCredentials):

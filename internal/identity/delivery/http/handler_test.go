@@ -20,7 +20,7 @@ func TestSessionRoutesDisableCaching(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	userID := uuid.New()
 	router := gin.New()
-	RegisterRoutes(router.Group("/api"), fakeAuth{session: identityDomain.Session{AccessToken: "jwt", UserID: userID, Role: identityDomain.RoleOwner, ExpiresAt: time.Now()}}, nil, "https://store.example.test/api/auth/oauth/google/callback", nil, nil)
+	RegisterRoutes(router.Group("/api"), fakeAuth{session: identityDomain.Session{AccessToken: "jwt", UserID: userID, Role: identityDomain.RoleOwner, ExpiresAt: time.Now()}}, nil, SignInMethods{Password: true, OAuth: true}, "https://store.example.test/api/auth/oauth/google/callback", nil, nil)
 
 	for _, testCase := range []struct {
 		name, method, target, body string
@@ -51,7 +51,7 @@ func TestSessionRoutesDisableCaching(t *testing.T) {
 func TestProfileRoutesRequireAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	RegisterRoutes(router.Group("/api"), nil, fakeProfile{}, "", func(c *gin.Context) {
+	RegisterRoutes(router.Group("/api"), nil, fakeProfile{}, SignInMethods{}, "", func(c *gin.Context) {
 		c.AbortWithStatus(http.StatusUnauthorized)
 	}, nil)
 
@@ -73,7 +73,7 @@ func TestProfileUpdateReturnsConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	RegisterRoutes(router.Group("/api"), nil, fakeProfile{updateErr: identityDomain.ErrProfileConflict}, "", middleware.AuthMiddleware(maker), nil)
+	RegisterRoutes(router.Group("/api"), nil, fakeProfile{updateErr: identityDomain.ErrProfileConflict}, SignInMethods{}, "", middleware.AuthMiddleware(maker), nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPatch, "/api/me/profile", strings.NewReader(`{"first_name":"Grace"}`))
