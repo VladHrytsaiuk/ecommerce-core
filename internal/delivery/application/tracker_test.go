@@ -1,0 +1,54 @@
+package application
+
+import (
+	"context"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
+	"github.com/google/uuid"
+	"testing"
+	"time"
+)
+
+func TestTrackerMapsCarrierStatusToActiveDelivery(t *testing.T) {
+	store := &fakeTrackingStore{active: []domain.TrackingDelivery{{ID: uuid.New(), Provider: "fake", TrackingNumber: "TTN", RecipientPhone: "+1"}}}
+	tracker := NewTracker(store, mustRegistry(t, trackingCarrier{}))
+	if err := tracker.ReconcileOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.updated.ID != store.active[0].ID || store.updated.Status != "delivered" {
+		t.Fatalf("updated=%+v", store.updated)
+	}
+}
+
+type fakeTrackingStore struct {
+	active  []domain.TrackingDelivery
+	updated struct {
+		ID uuid.UUID
+		domain.TrackingResult
+	}
+	claimedLimit    int
+	claimedInterval time.Duration
+}
+
+func (f *fakeTrackingStore) ClaimDue(_ context.Context, limit int, _ time.Time, interval time.Duration) ([]domain.TrackingDelivery, error) {
+	f.claimedLimit, f.claimedInterval = limit, interval
+	return f.active, nil
+}
+func (f *fakeTrackingStore) UpdateStatusAndTransition(_ context.Context, delivery domain.TrackingDelivery, r domain.TrackingResult, _ domain.OrderTransitioner) error {
+	id := delivery.ID
+	f.updated.ID = id
+	f.updated.TrackingResult = r
+	return nil
+}
+
+type trackingCarrier struct{}
+
+func (trackingCarrier) Code() string { return "fake" }
+func (trackingCarrier) Quote(context.Context, domain.ShipmentQuoteRequest) ([]domain.ShippingOption, error) {
+	return nil, nil
+}
+func (trackingCarrier) CreateShipment(context.Context, domain.CreateShipmentRequest) (domain.ShipmentResult, error) {
+	return domain.ShipmentResult{}, nil
+}
+func (trackingCarrier) Track(context.Context, domain.TrackingRequest) (domain.TrackingResult, error) {
+	return domain.TrackingResult{Status: "delivered"}, nil
+}

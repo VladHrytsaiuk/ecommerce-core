@@ -1,0 +1,7 @@
+ALTER TABLE payment_anomalies DROP CONSTRAINT IF EXISTS payment_anomalies_currency_iso_check;
+ALTER TABLE payment_webhook_events DROP CONSTRAINT IF EXISTS payment_webhook_events_currency_iso_check;
+ALTER TABLE payment_checkout_attempts DROP CONSTRAINT IF EXISTS payment_checkout_attempts_currency_iso_check;
+ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_currency_iso_check;
+ALTER TABLE order_items DROP CONSTRAINT IF EXISTS order_items_currency_iso_check;
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_currency_iso_check;
+ALTER TABLE product_variants DROP CONSTRAINT IF EXISTS product_variants_currency_iso_check;

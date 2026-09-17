@@ -1,0 +1,33 @@
+package http
+
+import (
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
+	cartDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/cart/domain"
+	checkoutDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/checkout/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
+)
+
+// RegisterV1Routes adds the versioned transport contract without changing the
+// legacy checkout endpoints.
+func RegisterV1Routes(group *gin.RouterGroup, service checkoutDomain.Service, carts cartDomain.Service, reservationTTL time.Duration, warehouseID uuid.UUID, secureCookies bool, renderer *apiresponse.ErrorRenderer) {
+	if group == nil || service == nil || carts == nil || warehouseID == uuid.Nil || renderer == nil {
+		return
+	}
+	handler := NewCheckoutV1Handler(NewHandler(service, carts, reservationTTL, warehouseID, secureCookies), renderer)
+	group.POST("/delivery-options", handler.QuoteDelivery)
+	group.POST("/payment", handler.StartPayment)
+}
+
+// RegisterV1ContactRoute keeps the early-contact endpoint non-localized. The
+// contact is an opaque checkout workflow input, not translatable content.
+func RegisterV1ContactRoute(group *gin.RouterGroup, service checkoutDomain.Service, contacts checkoutDomain.ContactCaptureService, carts cartDomain.Service, reservationTTL time.Duration, warehouseID uuid.UUID, secureCookies bool, renderer *apiresponse.ErrorRenderer) {
+	if group == nil || service == nil || contacts == nil || carts == nil || warehouseID == uuid.Nil || renderer == nil {
+		return
+	}
+	handler := NewCheckoutV1Handler(NewHandler(service, carts, reservationTTL, warehouseID, secureCookies), renderer).WithContactCapture(contacts)
+	group.POST("/contact", handler.CaptureContact)
+}

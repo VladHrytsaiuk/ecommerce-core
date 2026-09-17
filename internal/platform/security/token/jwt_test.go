@@ -59,7 +59,7 @@ func TestNewJWTMaker_ImplementsMakerInterface(t *testing.T) {
 	require.NoError(t, err)
 
 	// Перевіряємо, що повернутий об'єкт реалізує інтерфейс Maker
-	var _ Maker = maker
+	_ = maker
 }
 
 // ==========================================
@@ -78,6 +78,18 @@ func TestCreateToken_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, tokenStr)
 	assert.NotNil(t, claims)
+	assert.Equal(t, "customer", claims.Role)
+}
+
+func TestCreateTokenForRoleStoresStringRole(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+	tokenString, _, err := maker.CreateTokenForRole(uuid.New(), RoleAdmin, time.Minute)
+	require.NoError(t, err)
+	claims, err := maker.VerifyToken(tokenString)
+	require.NoError(t, err)
+	assert.Equal(t, RoleAdmin, claims.Role)
+	assert.Zero(t, claims.RoleID, "legacy integer role must not be serialized")
 }
 
 func TestCreateToken_CorrectClaims(t *testing.T) {
@@ -110,13 +122,13 @@ func TestCreateToken_ExpiresAtCorrectTime(t *testing.T) {
 	require.NoError(t, err)
 
 	// Перевіряємо, що IssuedAt в очікуваних межах
-	assert.True(t, !claims.IssuedAt.Time.Before(beforeCreate.Add(-time.Second)),
+	assert.True(t, !claims.IssuedAt.Before(beforeCreate.Add(-time.Second)),
 		"IssuedAt не повинен бути до часу створення")
-	assert.True(t, !claims.IssuedAt.Time.After(afterCreate.Add(time.Second)),
+	assert.True(t, !claims.IssuedAt.After(afterCreate.Add(time.Second)),
 		"IssuedAt не повинен бути після часу створення")
 
 	// Перевіряємо, що ExpiresAt відповідає duration
-	expectedExpiry := claims.IssuedAt.Time.Add(duration)
+	expectedExpiry := claims.IssuedAt.Add(duration)
 	assert.WithinDuration(t, expectedExpiry, claims.ExpiresAt.Time, time.Second,
 		"ExpiresAt має відповідати IssuedAt + duration")
 }
@@ -175,7 +187,7 @@ func TestCreateToken_DifferentDurations(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, tokenStr)
-			assert.WithinDuration(t, claims.IssuedAt.Time.Add(d), claims.ExpiresAt.Time, time.Second)
+			assert.WithinDuration(t, claims.IssuedAt.Add(d), claims.ExpiresAt.Time, time.Second)
 		})
 	}
 }
@@ -372,4 +384,152 @@ func TestCreateAndVerify_MultipleUsers(t *testing.T) {
 		assert.Equal(t, users[i], claims.UserID,
 			"Токен %d має містити правильний UserID", i)
 	}
+}
+
+func TestVerifyTokenRejectsTokenMintedForAnotherPurpose(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+
+	// Same key, same issuer and audience, but not an API access token. Without
+	// the typ claim a refresh or single-use token would authenticate requests.
+	claims := &CustomClaims{
+		UserID: uuid.New(), Role: RoleCustomer, TokenType: "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID: uuid.NewString(), Issuer: DefaultIssuer,
+			Audience:  jwt.ClaimStrings{DefaultAudience},
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSecretKey))
+	require.NoError(t, err)
+
+	verified, err := maker.VerifyToken(signed)
+	assert.Nil(t, verified)
+	assert.ErrorContains(t, err, "invalid token type")
+}
+
+func TestVerifyTokenRejectsTokenFromAnotherDeployment(t *testing.T) {
+	// Two stores may legitimately share JWT_SECRET; the configuration permits
+	// it. Distinct issuer and audience keep their sessions separate.
+	storeA, err := NewJWTMakerFor(testSecretKey, "store-a", "store-a-api")
+	require.NoError(t, err)
+	storeB, err := NewJWTMakerFor(testSecretKey, "store-b", "store-b-api")
+	require.NoError(t, err)
+
+	signed, _, err := storeA.CreateTokenForRole(uuid.New(), RoleAdmin, time.Hour)
+	require.NoError(t, err)
+
+	accepted, err := storeA.VerifyToken(signed)
+	require.NoError(t, err)
+	assert.Equal(t, RoleAdmin, accepted.Role)
+
+	rejected, err := storeB.VerifyToken(signed)
+	assert.Nil(t, rejected)
+	assert.Error(t, err)
+}
+
+func TestIdentityForStoreSeparatesTwoStoresSharingASecret(t *testing.T) {
+	// This is the production path: cmd/api derives the identity from
+	// STORE_CODE rather than naming an issuer by hand, so the derivation
+	// itself has to be what keeps two deployments apart.
+	issuerA, audienceA := IdentityForStore("northwind")
+	issuerB, audienceB := IdentityForStore("contoso")
+	require.NotEqual(t, issuerA, issuerB)
+	require.NotEqual(t, audienceA, audienceB)
+
+	storeA, err := NewJWTMakerFor(testSecretKey, issuerA, audienceA)
+	require.NoError(t, err)
+	storeB, err := NewJWTMakerFor(testSecretKey, issuerB, audienceB)
+	require.NoError(t, err)
+
+	signed, _, err := storeA.CreateTokenForRole(uuid.New(), RoleAdmin, time.Hour)
+	require.NoError(t, err)
+
+	verified, err := storeA.VerifyToken(signed)
+	require.NoError(t, err)
+	assert.Equal(t, RoleAdmin, verified.Role)
+
+	rejected, err := storeB.VerifyToken(signed)
+	assert.Nil(t, rejected)
+	assert.Error(t, err)
+
+	// A deployment that still uses the shared defaults must not be a way back
+	// in either, or the separation would only hold between configured stores.
+	shared, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+	rejected, err = shared.VerifyToken(signed)
+	assert.Nil(t, rejected)
+	assert.Error(t, err)
+}
+
+func TestIdentityForStoreIsNormalizedAndFallsBackWithoutAStore(t *testing.T) {
+	// STORE_CODE is already validated as lowercase, but tooling calls this
+	// with whatever it has; a differently cased code must not produce a second
+	// identity for the same store.
+	issuer, audience := IdentityForStore("  Northwind  ")
+	expectedIssuer, expectedAudience := IdentityForStore("northwind")
+	assert.Equal(t, expectedIssuer, issuer)
+	assert.Equal(t, expectedAudience, audience)
+
+	// No store configured: degrade to the previous behaviour rather than mint
+	// tokens with a trailing separator that nothing would verify.
+	issuer, audience = IdentityForStore("")
+	assert.Equal(t, DefaultIssuer, issuer)
+	assert.Equal(t, DefaultAudience, audience)
+}
+
+func TestVerifyTokenRejectsUnexpectedSigningAlgorithm(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+
+	// "none" carries no signature at all; it must be refused by the algorithm
+	// allow-list rather than reaching signature verification.
+	claims := &CustomClaims{
+		UserID: uuid.New(), Role: RoleAdmin, TokenType: TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer: DefaultIssuer, Audience: jwt.ClaimStrings{DefaultAudience},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	unsigned, err := jwt.NewWithClaims(jwt.SigningMethodNone, claims).SignedString(jwt.UnsafeAllowNoneSignatureType)
+	require.NoError(t, err)
+
+	verified, err := maker.VerifyToken(unsigned)
+	assert.Nil(t, verified)
+	assert.Error(t, err)
+}
+
+func TestVerifyTokenRejectsUnknownRole(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+
+	claims := &CustomClaims{
+		UserID: uuid.New(), Role: "superuser", TokenType: TokenTypeAccess,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer: DefaultIssuer, Audience: jwt.ClaimStrings{DefaultAudience},
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	}
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(testSecretKey))
+	require.NoError(t, err)
+
+	verified, err := maker.VerifyToken(signed)
+	assert.Nil(t, verified)
+	assert.ErrorContains(t, err, "invalid token role")
+}
+
+func TestCreateTokenStampsPurposeIssuerAndAudience(t *testing.T) {
+	maker, err := NewJWTMaker(testSecretKey)
+	require.NoError(t, err)
+
+	signed, claims, err := maker.CreateTokenForRole(uuid.New(), RoleManager, time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, TokenTypeAccess, claims.TokenType)
+	assert.Equal(t, DefaultIssuer, claims.Issuer)
+	assert.Equal(t, jwt.ClaimStrings{DefaultAudience}, claims.Audience)
+
+	verified, err := maker.VerifyToken(signed)
+	require.NoError(t, err)
+	assert.Equal(t, TokenTypeAccess, verified.TokenType)
 }

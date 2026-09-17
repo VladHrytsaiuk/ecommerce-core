@@ -1,0 +1,17 @@
+DROP TABLE IF EXISTS delivery_jobs;
+DROP TABLE IF EXISTS order_delivery_details;
+DROP TABLE IF EXISTS deliveries;
+DROP TABLE IF EXISTS payment_webhook_events;
+DROP TABLE IF EXISTS payment_checkout_attempts;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS order_items;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS cart_items;
+DROP TABLE IF EXISTS carts;
+DROP TABLE IF EXISTS product_variants;
+DROP TABLE IF EXISTS product_translations;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS category_translations;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS locales;
+DROP TABLE IF EXISTS users;

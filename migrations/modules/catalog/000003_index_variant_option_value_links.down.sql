@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS variant_option_values_option_value_idx;

@@ -10,7 +10,7 @@
 - **GORM** — ORM для роботи з PostgreSQL.
 - **Uber-go/Zap** — швидке структуроване логування.
 - **Swagger** — генерація та документація API.
-- **Docker** та **docker-compose** — контейнеризація та локальне оточення (API, БД, фонові процеси).
+- **Docker** та **Docker Compose v2** — контейнеризація та локальне оточення (API, БД, фонові процеси).
 - **Testify** та **Mockery** — юніт‑тести та mock‑об’єкти для інтерфейсів.
 - **Testcontainers** — інтеграційні тести з реальним PostgreSQL‑контейнером.
 
@@ -22,12 +22,12 @@
 
 1. Встанови **Go 1.25 або новіше**:
     - офіційний інсталятор: https://go.dev/dl/
-2. Встанови **Docker** та **docker-compose**:
+2. Встанови **Docker** та **Docker Compose v2**:
     - Docker: https://www.docker.com/get-started
 3. Переконайся, що в PATH є:
     - `go`
     - `docker`
-    - `docker-compose`
+    - `docker compose` (плагін Compose v2)
 
 ### 2. Клонування репозиторію
 
@@ -67,7 +67,7 @@ DB_URL=postgres://user:password@host:port/dbname
 2. Запусти сервіси:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 Після запуску:
@@ -116,16 +116,17 @@ API також запуститься на `http://localhost:8080` (порт м�
 2. Запусти міграції (через Docker‑контейнер або локально):
 
 ```bash
-docker-compose run --rm migrate
+docker compose run --rm migrate
 ```
 
 або, якщо використовуєш Go без Docker:
 
 ```bash
-go run cmd/migrate/main.go
+go run ./cmd/migrate up
 ```
 
-Після цього до БД застосуються таблиці та необхідна структура схеми.
+Аргумент `up` обов'язковий. Після цього до БД застосуються таблиці core та кожного модуля
+з `ENABLED_MODULES`.
 
 ***
 
@@ -148,13 +149,13 @@ go test ./... -v
 
 ## Коротко: один путь запуску (рекомендований)
 
-1. Встановити **Go**, **Docker**, **docker-compose**.
+1. Встановити **Go**, **Docker**, **Docker Compose v2**.
 2. Клонувати репу.
 3. Створити та налаштувати `.env`.
 4. Запустити через Docker Compose:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 5. Відкрити в браузері:
@@ -163,5 +164,5 @@ docker-compose up --build
 6. (Опціонально) запустити міграції:
 
 ```bash
-docker-compose run --rm migrate
+docker compose run --rm migrate
 ```

@@ -1,13 +1,15 @@
 package logger
 
 import (
+	"context"
 	"os"
 
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-// Logger визначає основний контракт для логування в проекті (згідно з docs/infra/logger.md)
+// Logger is the logging contract used across this core (see docs/infra/logger.md).
 type Logger interface {
 	Debug(msg string, fields ...zap.Field)
 	Info(msg string, fields ...zap.Field)
@@ -15,14 +17,14 @@ type Logger interface {
 	Error(msg string, fields ...zap.Field)
 	Fatal(msg string, fields ...zap.Field)
 
-	// Цукрові методи (Printf-style)
+	// Printf-style
 	Debugf(template string, args ...interface{})
 	Infof(template string, args ...interface{})
 	Warnf(template string, args ...interface{})
 	Errorf(template string, args ...interface{})
 	Fatalf(template string, args ...interface{})
 
-	// Цукрові методи (Structured-style)
+	// Structured key/value style
 	Debugw(msg string, keysAndValues ...interface{})
 	Infow(msg string, keysAndValues ...interface{})
 	Warnw(msg string, keysAndValues ...interface{})
@@ -33,10 +35,19 @@ type Logger interface {
 	Sync() error
 }
 
-// Log — це глобальний логер, який можна використовувати без DI (для main, ініціалізацій тощо).
+// ContextLogger is an optional extension of Logger for adapters at the
+// transport boundary. Keeping it separate preserves the small Logger port
+// used by domain services and their test doubles.
+type ContextLogger interface {
+	Logger
+	WithContext(context.Context) Logger
+}
+
+// Log is the process-wide logger, for main and for composition where there is
+// nothing yet to inject one into. Modules take a logger through a port.
 var Log Logger
 
-// Init ініціалізує глобальний логер
+// Init builds the process-wide logger. main calls it before anything else.
 func Init() {
 	config := zap.NewProductionEncoderConfig()
 	config.EncodeTime = zapcore.ISO8601TimeEncoder
@@ -52,7 +63,7 @@ func Init() {
 	Log = &zapLogger{l.Sugar()}
 }
 
-// zapLogger — обгортка над SugaredLogger для підтримки як структурованого, так і "цукрового" логування.
+// zapLogger adapts zap's SugaredLogger to both halves of the Logger contract.
 type zapLogger struct {
 	s *zap.SugaredLogger
 }
@@ -80,4 +91,35 @@ func (l *zapLogger) Sync() error { return l.s.Sync() }
 func (l *zapLogger) With(fields ...zap.Field) Logger {
 	newLogger := l.s.Desugar().With(fields...).Sugar()
 	return &zapLogger{newLogger}
+}
+
+type requestIDKey struct{}
+
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, requestIDKey{}, requestID)
+}
+
+func RequestID(ctx context.Context) string {
+	value, _ := ctx.Value(requestIDKey{}).(string)
+	return value
+}
+
+// WithContext attaches correlation identifiers to the global logger without
+// making transports leak into business-facing Logger ports.
+func WithContext(ctx context.Context) Logger {
+	if contextual, ok := Log.(ContextLogger); ok {
+		return contextual.WithContext(ctx)
+	}
+	return Log
+}
+
+func (l *zapLogger) WithContext(ctx context.Context) Logger {
+	fields := make([]zap.Field, 0, 3)
+	if id := RequestID(ctx); id != "" {
+		fields = append(fields, zap.String("request_id", id))
+	}
+	if span := trace.SpanContextFromContext(ctx); span.IsValid() {
+		fields = append(fields, zap.String("trace_id", span.TraceID().String()), zap.String("span_id", span.SpanID().String()))
+	}
+	return l.With(fields...)
 }

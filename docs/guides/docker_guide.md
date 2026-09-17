@@ -18,7 +18,7 @@
 ### 1. Етап збірки (Builder)
 
 ```dockerfile
-FROM golang:1.25.4-alpine AS builder
+FROM golang:1.26.8-alpine AS builder
 
 WORKDIR /app
 
@@ -33,7 +33,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/api/main.go
 ```
 
-- `golang:1.25.4-alpine` — повне Go-середовище для збірки.
+- `golang:1.26.8-alpine` — повне Go-середовище для збірки.
 - Ми **спочатку копіюємо** `go.mod/go.sum`, щоб в Docker‑лайєрі не перекомпілювалися залежності кожного разу.
 - Бінарник збирається статичним (`CGO_ENABLED=0`), тому не вимагає додаткових бібліотек у runtime‑оточенні.
 

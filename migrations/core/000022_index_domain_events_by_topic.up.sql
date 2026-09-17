@@ -1,0 +1,21 @@
+-- domain_events had exactly one index, (aggregate_type, aggregate_id,
+-- occurred_at), and not one of its readers supplies aggregate_type. Every
+-- Reports query filters on aggregate_id and topic, so the leading column was
+-- never constrained and the index could not be used at all.
+--
+-- The cost is paid per paid order: the daily-sales projector calls
+-- GetAnalyticsSnapshot for each orders.paid.v1 delivery, inside the transaction
+-- that holds the projection lock. At 200k events that was a parallel sequential
+-- scan of 3849 buffers and 5.8 ms per order; the rebuild query, which scans the
+-- table twice, took 7879 buffers and 26.7 ms. With this index they are 6
+-- buffers / 0.029 ms and 12 buffers / 0.042 ms.
+--
+-- It degrades linearly and nothing prunes domain_events, so the scan only ever
+-- gets more expensive. It is also invisible in staging: while orders.paid.v1 is
+-- rare the planner reaches for the (topic, idempotency_key) unique index, and
+-- switches to the sequential scan only once the store has real volume.
+--
+-- occurred_at DESC matches the ORDER BY ... DESC LIMIT 1 both readers use to
+-- take the latest event per aggregate, so the index supplies the ordering too.
+CREATE INDEX domain_events_topic_aggregate_idx
+    ON domain_events (topic, aggregate_id, occurred_at DESC);

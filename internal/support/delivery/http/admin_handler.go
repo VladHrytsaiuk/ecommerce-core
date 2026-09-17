@@ -1,0 +1,182 @@
+package http
+
+import (
+	"errors"
+	stdhttp "net/http"
+	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
+	adminDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/admin/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/http/apiresponse"
+	shared "github.com/VladHrytsaiuk/ecommerce-core/internal/http/middleware"
+	support "github.com/VladHrytsaiuk/ecommerce-core/internal/support/application"
+	supportDomain "github.com/VladHrytsaiuk/ecommerce-core/internal/support/domain"
+)
+
+const (
+	PermissionSupportRead  = "support:read"
+	PermissionSupportWrite = "support:write"
+)
+
+type adminHandler struct {
+	service *support.Service
+	errors  *apiresponse.ErrorRenderer
+}
+
+func RegisterV1AdminRoutes(group *gin.RouterGroup, authorizer adminDomain.Authorizer, service *support.Service, renderer *apiresponse.ErrorRenderer) {
+	if group == nil || authorizer == nil || service == nil || renderer == nil {
+		return
+	}
+	h := &adminHandler{service, renderer}
+	g := group.Group("/support/tickets")
+	g.GET("", shared.RequirePermissionV1(authorizer, PermissionSupportRead, renderer), h.list)
+	g.GET("/:id", shared.RequirePermissionV1(authorizer, PermissionSupportRead, renderer), h.get)
+	g.POST("/:id/messages", shared.RequirePermissionV1(authorizer, PermissionSupportWrite, renderer), h.reply)
+	g.PATCH("/:id/status", shared.RequirePermissionV1(authorizer, PermissionSupportWrite, renderer), h.transition)
+}
+
+// list godoc
+// @Summary List support tickets (v1 admin)
+// @Tags Admin v1
+// @Produce json
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 401,403 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/support/tickets [get]
+func (h *adminHandler) list(c *gin.Context) {
+	page, limit := pageLimit(c)
+	tickets, total, err := h.service.ListTickets(c.Request.Context(), c.Query("status"), page, limit)
+	if err != nil {
+		h.abort(c, err)
+		return
+	}
+	h.data(c, stdhttp.StatusOK, gin.H{"tickets": tickets, "total": total, "page": page, "limit": limit})
+}
+
+// get godoc
+// @Summary Read one support ticket with its messages (v1 admin)
+// @Tags Admin v1
+// @Produce json
+// @Param id path string true "Ticket UUID"
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/support/tickets/{id} [get]
+func (h *adminHandler) get(c *gin.Context) {
+	id, ok := h.id(c)
+	if !ok {
+		return
+	}
+	ticket, messages, err := h.service.GetTicket(c.Request.Context(), id)
+	if err != nil {
+		h.abort(c, err)
+		return
+	}
+	h.data(c, stdhttp.StatusOK, gin.H{"ticket": ticket, "messages": messages})
+}
+
+// reply godoc
+// @Summary Reply to a support ticket (v1 admin)
+// @Tags Admin v1
+// @Accept json
+// @Produce json
+// @Param id path string true "Ticket UUID"
+// @Success 201 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/support/tickets/{id}/messages [post]
+func (h *adminHandler) reply(c *gin.Context) {
+	id, ok := h.id(c)
+	if !ok {
+		return
+	}
+	agent, ok := shared.AuthenticatedUserID(c)
+	if !ok {
+		h.errors.Abort(c, apiresponse.Unauthenticated(nil))
+		return
+	}
+	var r messageRequest
+	if err := c.ShouldBindJSON(&r); err != nil {
+		h.errors.Abort(c, apiresponse.InvalidPayload(err))
+		return
+	}
+	ticket, err := h.service.ReplyAsAgent(c.Request.Context(), id, agent, r.Body)
+	if err != nil {
+		h.abort(c, err)
+		return
+	}
+	h.data(c, stdhttp.StatusCreated, ticket)
+}
+
+// transition godoc
+// @Summary Change a support ticket's status (v1 admin)
+// @Tags Admin v1
+// @Accept json
+// @Produce json
+// @Param id path string true "Ticket UUID"
+// @Success 200 {object} apiresponse.SuccessResponse
+// @Failure 400,401,403,404,422 {object} apiresponse.ProblemDetails
+// @Router /api/v1/admin/support/tickets/{id}/status [patch]
+func (h *adminHandler) transition(c *gin.Context) {
+	id, ok := h.id(c)
+	if !ok {
+		return
+	}
+	agent, ok := shared.AuthenticatedUserID(c)
+	if !ok {
+		h.errors.Abort(c, apiresponse.Unauthenticated(nil))
+		return
+	}
+	var r struct {
+		Status string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&r); err != nil {
+		h.errors.Abort(c, apiresponse.InvalidPayload(err))
+		return
+	}
+	ticket, err := h.service.ChangeStatus(c.Request.Context(), id, agent, strings.TrimSpace(r.Status))
+	if err != nil {
+		h.abort(c, err)
+		return
+	}
+	h.data(c, stdhttp.StatusOK, ticket)
+}
+func (h *adminHandler) id(c *gin.Context) (uuid.UUID, bool) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil || id == uuid.Nil {
+		h.errors.Abort(c, apiresponse.InvalidPayload(err))
+		return uuid.Nil, false
+	}
+	return id, true
+}
+func (h *adminHandler) data(c *gin.Context, status int, data any) {
+	apiresponse.Success(c, status, data)
+}
+
+// abort classifies what went wrong. Everything used to render as 422, so a
+// dropped database connection told the operator their input was invalid,
+// produced a 4xx that no error-rate alert counts, and invited a retry that
+// could not succeed. Only the domain's own refusals are the caller's fault;
+// anything else is ours and belongs in the 5xx the renderer produces.
+func (h *adminHandler) abort(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, supportDomain.ErrTicketNotFound):
+		h.errors.Abort(c, apiresponse.NotFound(err, "Support ticket was not found."))
+	case errors.Is(err, supportDomain.ErrSpam):
+		h.errors.Abort(c, apiresponse.RateLimited(err))
+	case errors.Is(err, supportDomain.ErrInvalidTicket), errors.Is(err, supportDomain.ErrMessageForbidden):
+		h.errors.Abort(c, apiresponse.ValidationFailed(err))
+	default:
+		h.errors.Abort(c, err)
+	}
+}
+func pageLimit(c *gin.Context) (int, int) {
+	page, limit := 1, 20
+	if v, e := strconv.Atoi(c.DefaultQuery("page", "1")); e == nil && v > 0 && v <= 1000 {
+		page = v
+	}
+	if v, e := strconv.Atoi(c.DefaultQuery("limit", "20")); e == nil && v > 0 && v <= 100 {
+		limit = v
+	}
+	return page, limit
+}

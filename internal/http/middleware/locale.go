@@ -6,43 +6,37 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	LanguageKey = "language"
-	DefaultLang = "uk"
-	LangParam   = "lang"
-)
+const LanguageKey = "language"
 
-var SupportedLanguages = map[string]bool{
-	"uk": true,
-	"en": true,
+type LocaleOptions struct {
+	DefaultLocale    string
+	FallbackLocale   string
+	SupportedLocales []string
 }
 
-// LocaleMiddleware витягує код мови з параметра URL (наприклад, :lang),
-// перевіряє підтримку і зберігає в контексті запиту.
-func LocaleMiddleware() gin.HandlerFunc {
+// NewLocaleMiddleware resolves a locale exclusively from validated store policy.
+func NewLocaleMiddleware(options LocaleOptions) gin.HandlerFunc {
+	fallbackLocale := normalizeLocale(options.FallbackLocale)
+	supported := make(map[string]struct{}, len(options.SupportedLocales))
+	for _, locale := range options.SupportedLocales {
+		if locale = normalizeLocale(locale); locale != "" {
+			supported[locale] = struct{}{}
+		}
+	}
 	return func(c *gin.Context) {
-		lang := c.Param(LangParam)
-		lang = strings.ToLower(strings.TrimSpace(lang))
-
-		// Перетворення "ua" (яке часто використовують на фронті) у стандарт "uk"
-		if lang == "ua" {
-			lang = "uk"
+		locale := normalizeLocale(c.Param("lang"))
+		if _, ok := supported[locale]; !ok {
+			locale = fallbackLocale
 		}
-
-		if !SupportedLanguages[lang] {
-			// Відповідно до вимог fallback на українську мову
-			lang = DefaultLang
-		}
-
-		c.Set(LanguageKey, lang)
+		c.Set(LanguageKey, locale)
 		c.Next()
 	}
 }
 
-// GetLanguage - допоміжна функція для безпечного отримання мови в хендлерах
 func GetLanguage(c *gin.Context) string {
-	if lang, exists := c.Get(LanguageKey); exists {
-		return lang.(string)
-	}
-	return DefaultLang
+	value, _ := c.Get(LanguageKey)
+	locale, _ := value.(string)
+	return locale
 }
+
+func normalizeLocale(value string) string { return strings.ToLower(strings.TrimSpace(value)) }

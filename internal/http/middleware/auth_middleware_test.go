@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/logger"
-	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/security/token"
 )
 
 // TestMain ініціалізує глобальний логер, який використовується в AuthMiddleware
@@ -31,6 +31,14 @@ func TestMain(m *testing.M) {
 
 type MockTokenMaker struct {
 	mock.Mock
+}
+
+func (m *MockTokenMaker) CreateTokenForRole(userID uuid.UUID, role string, duration time.Duration) (string, *token.CustomClaims, error) {
+	args := m.Called(userID, role, duration)
+	if args.Get(1) == nil {
+		return args.String(0), nil, args.Error(2)
+	}
+	return args.String(0), args.Get(1).(*token.CustomClaims), args.Error(2)
 }
 
 func (m *MockTokenMaker) CreateToken(userID uuid.UUID, roleID int, duration time.Duration) (string, *token.CustomClaims, error) {
@@ -177,6 +185,19 @@ func TestAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestAuthMiddleware_ShortInvalidTokenReturns401WithoutPanic(t *testing.T) {
+	tokenMaker := &MockTokenMaker{}
+	tokenMaker.On("VerifyToken", "a").Return(nil, errors.New("invalid token"))
+	router := newMiddlewareRouter(tokenMaker)
+
+	req, _ := http.NewRequest(http.MethodGet, "/protected", nil)
+	req.Header.Set("Authorization", "Bearer a")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 func TestAuthMiddleware_ExpiredToken_Returns401(t *testing.T) {
 	tokenMaker := &MockTokenMaker{}
 	tokenMaker.On("VerifyToken", "expired-token").
@@ -227,4 +248,52 @@ func TestAuthMiddleware_BlocksRequest_WithoutCallingHandler(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.False(t, handlerCalled, "handler не повинен бути викликаний без токена")
+}
+
+func TestAuthMiddlewareDoesNotPublishTheTokenRole(t *testing.T) {
+	tokenMaker := &MockTokenMaker{}
+	claims := makeValidClaims(uuid.New())
+	claims.Role = token.RoleAdmin
+	tokenMaker.On("VerifyToken", mock.Anything).Return(claims, nil)
+
+	var published bool
+	r := gin.New()
+	r.GET("/check", AuthMiddleware(tokenMaker), func(c *gin.Context) {
+		_, published = c.Get("role")
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest(http.MethodGet, "/check", nil)
+	req.Header.Set("Authorization", "Bearer any-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	// The role in a token is as old as the token. Authorization reads
+	// admin_users fresh on every call, so a deactivated administrator is
+	// refused immediately; publishing the claim would invite a handler to
+	// short-circuit that and trust a stale privilege instead.
+	assert.False(t, published, "the token role must not reach the request context")
+}
+
+func TestOptionalAuthMiddlewareDoesNotPublishTheTokenRole(t *testing.T) {
+	tokenMaker := &MockTokenMaker{}
+	claims := makeValidClaims(uuid.New())
+	claims.Role = token.RoleOwner
+	tokenMaker.On("VerifyToken", mock.Anything).Return(claims, nil)
+
+	var published bool
+	r := gin.New()
+	r.GET("/check", OptionalAuthMiddleware(tokenMaker), func(c *gin.Context) {
+		_, published = c.Get("role")
+		c.Status(http.StatusOK)
+	})
+
+	req, _ := http.NewRequest(http.MethodGet, "/check", nil)
+	req.Header.Set("Authorization", "Bearer any-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.False(t, published, "the token role must not reach the request context")
 }

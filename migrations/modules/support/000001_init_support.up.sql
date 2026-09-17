@@ -1,0 +1,4 @@
+CREATE TABLE support_tickets (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), customer_id UUID, email VARCHAR(320) NOT NULL, subject VARCHAR(255) NOT NULL, status VARCHAR(32) NOT NULL DEFAULT 'new', created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(status IN ('new','open','pending_customer','resolved','closed')));
+CREATE INDEX support_tickets_customer_idx ON support_tickets(customer_id,created_at DESC);
+CREATE TABLE support_messages (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), ticket_id UUID NOT NULL, sender_type VARCHAR(32) NOT NULL, sender_id UUID, body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK(sender_type IN ('customer','agent','bot')), CHECK(body <> ''));
+CREATE INDEX support_messages_ticket_idx ON support_messages(ticket_id,created_at,id);

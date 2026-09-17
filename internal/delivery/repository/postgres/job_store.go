@@ -1,0 +1,160 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/core/money"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/delivery/domain"
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/postgres/transaction"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+	"time"
+)
+
+type JobStore struct{ db *gorm.DB }
+
+func NewJobStore(db *gorm.DB) *JobStore { return &JobStore{db: db} }
+
+type jobRecord struct {
+	ID, OrderID, IdempotencyKey uuid.UUID
+	Provider, Status            string
+	Attempts                    int
+	AvailableAt                 time.Time
+	LockedAt                    *time.Time
+	LockToken                   *uuid.UUID
+	LastError                   string
+	LastFailureDefinite         bool
+}
+
+func (jobRecord) TableName() string { return "delivery_jobs" }
+
+type orderRecord struct {
+	ID          uuid.UUID
+	Currency    string
+	TotalAmount int64
+}
+
+func (orderRecord) TableName() string { return "orders" }
+
+type detailsRecord struct {
+	OrderID                                                                                                uuid.UUID
+	RecipientName, RecipientPhone, CountryCode, PostalCode, City, Line1, Line2, LocalityID, ServicePointID string
+}
+
+func (detailsRecord) TableName() string { return "order_delivery_details" }
+
+type itemRecord struct {
+	VariantID       *uuid.UUID
+	Quantity        int
+	UnitWeightGrams int
+}
+
+func (itemRecord) TableName() string { return "order_items" }
+func (s *JobStore) Claim(ctx context.Context, now time.Time) (*domain.DispatchJob, error) {
+	var claimed *domain.DispatchJob
+	err := transaction.Within(ctx, s.db, func(tx *gorm.DB) error {
+		if err := tx.Model(&jobRecord{}).Where("status = 'processing' AND locked_at < ?", now.Add(-5*time.Minute)).Updates(map[string]any{"status": "retrying", "available_at": now, "locked_at": nil}).Error; err != nil {
+			return err
+		}
+		var job jobRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Where("status IN ? AND available_at <= ?", []string{"pending", "retrying"}, now).Order("created_at").First(&job).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return nil
+			}
+			return err
+		}
+		// A fresh token per claim. The reclaim sweep above can return a job to
+		// 'retrying' while the previous worker is still running it; that worker
+		// then holds a token this row no longer carries and its terminal write
+		// is refused rather than landing on someone else's claim.
+		token := uuid.New()
+		if err := tx.Model(&job).Updates(map[string]any{"status": "processing", "locked_at": now, "lock_token": token, "attempts": gorm.Expr("attempts + 1"), "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error; err != nil {
+			return err
+		}
+		var order orderRecord
+		var details detailsRecord
+		var items []itemRecord
+		if err := tx.First(&order, "id = ?", job.OrderID).Error; err != nil {
+			return err
+		}
+		if err := tx.First(&details, "order_id = ?", job.OrderID).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("order_id = ?", job.OrderID).Find(&items).Error; err != nil {
+			return err
+		}
+		amount, err := money.NewMoney(order.TotalAmount, order.Currency)
+		if err != nil {
+			return err
+		}
+		shipmentItems := make([]domain.ShipmentItem, 0, len(items))
+		for _, item := range items {
+			if item.VariantID != nil {
+				shipmentItems = append(shipmentItems, domain.ShipmentItem{VariantID: *item.VariantID, Quantity: item.Quantity, WeightGrams: item.UnitWeightGrams})
+			}
+		}
+		claimed = &domain.DispatchJob{ID: job.ID, OrderID: job.OrderID, Provider: job.Provider, IdempotencyKey: job.IdempotencyKey, Destination: domain.Address{RecipientName: details.RecipientName, RecipientPhone: details.RecipientPhone, CountryCode: details.CountryCode, PostalCode: details.PostalCode, City: details.City, Line1: details.Line1, Line2: details.Line2, LocalityID: details.LocalityID, ServicePointID: details.ServicePointID}, Items: shipmentItems, DeclaredValue: amount, Attempts: job.Attempts + 1, LockToken: token, LastFailureWasDefinite: job.LastFailureDefinite}
+		return nil
+	})
+	return claimed, err
+}
+func (s *JobStore) Complete(ctx context.Context, claimed domain.DispatchJob, result domain.ShipmentResult) error {
+	return transaction.Within(ctx, s.db, func(tx *gorm.DB) error {
+		var job jobRecord
+		if err := tx.First(&job, "id = ? AND status = 'processing' AND lock_token = ?", claimed.ID, claimed.LockToken).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// Reclaimed while this worker was at the carrier. Writing the
+				// shipment now would overwrite whatever the newer claim
+				// produced with this worker's older result.
+				return domain.ErrLeaseLost
+			}
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO deliveries (id, order_id, provider, provider_reference, tracking_number, status)
+            VALUES (?, ?, ?, ?, ?, 'created')
+            ON CONFLICT (order_id, provider) DO UPDATE
+            SET provider_reference = EXCLUDED.provider_reference,
+                tracking_number = EXCLUDED.tracking_number,
+                -- Preserve a terminal state. This named 'received', which is
+                -- not one of this column's statuses, so a re-dispatch of an
+                -- already delivered shipment reset it to 'created' and put it
+                -- back into tracking.
+                status = CASE WHEN deliveries.status IN ('cancelled', 'delivered', 'failed') THEN deliveries.status ELSE 'created' END,
+                updated_at = CURRENT_TIMESTAMP`, uuid.New(), job.OrderID, job.Provider, result.ProviderReference, result.TrackingNumber).Error; err != nil {
+			return err
+		}
+		return tx.Model(&job).Updates(map[string]any{"status": "completed", "locked_at": nil, "lock_token": nil, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}).Error
+	})
+}
+func (s *JobStore) Retry(ctx context.Context, claimed domain.DispatchJob, cause error, availableAt time.Time, definite bool) error {
+	return s.transition(ctx, claimed, "retrying", cause, availableAt, definite)
+}
+func (s *JobStore) Fail(ctx context.Context, claimed domain.DispatchJob, cause error) error {
+	return s.transition(ctx, claimed, "failed", cause, time.Time{}, false)
+}
+func (s *JobStore) Dead(ctx context.Context, claimed domain.DispatchJob, cause error) error {
+	return s.transition(ctx, claimed, "dead", cause, time.Time{}, false)
+}
+
+// transition clears the lease along with the token, so the next claim starts
+// from a row that carries no stale authorization.
+func (s *JobStore) transition(ctx context.Context, claimed domain.DispatchJob, status string, cause error, availableAt time.Time, definite bool) error {
+	values := map[string]any{"status": status, "locked_at": nil, "lock_token": nil, "last_error": fmt.Sprint(cause), "last_failure_definite": definite, "updated_at": gorm.Expr("CURRENT_TIMESTAMP")}
+	if !availableAt.IsZero() {
+		values["available_at"] = availableAt
+	}
+	result := s.db.WithContext(ctx).Model(&jobRecord{}).
+		Where("id = ? AND status = 'processing' AND lock_token = ?", claimed.ID, claimed.LockToken).
+		Updates(values)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		// The newer claim decides this job's outcome, not this worker's.
+		return domain.ErrLeaseLost
+	}
+	return nil
+}
+
+var _ domain.JobStore = (*JobStore)(nil)

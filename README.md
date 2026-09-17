@@ -1,265 +1,575 @@
-# 🛒 AquaWheel Store Backend
+# ecommerce-core
 
-Backend сервіс для платформи електронної комерції **AquaWheel Store**.
+`ecommerce-core` is a flexible, modular Go backend engine for online stores.
+It provides a stable commerce foundation while allowing each store to select
+its integrations, locales, policies, and enabled modules through configuration.
 
-Проєкт реалізує серверну частину магазину: управління товарами, замовленнями, користувачами, оплатою та доставкою.
+## Core Philosophy
 
-На даному етапі це початок розробки production-системи, а структура проєкту вже підготовлена для масштабованого e-commerce backend.
+**One codebase. No store-specific forks.**
 
-## 🌟 Можливості
+A new store is configured rather than rewritten. Payment providers, carriers,
+languages, currencies, tax rules, checkout behaviour, inventory mode, and
+optional modules are selected through environment configuration and Dependency
+Injection in the Composition Root (`internal/app/bootstrap.go`).
 
-- REST API для ecommerce-платформи.
-- Модульна архітектура у форматі **Modular Monolith**.
-- Інтеграції з платіжними та логістичними сервісами.
-- Background jobs для фонових задач.
-- Система міграцій бази даних.
-- Swagger-документація API.
-- Тестування бізнес-логіки та інтеграцій.
+The core owns durable commerce invariants such as orders, reservations,
+security, and provider-neutral workflows. Integrations are isolated adapters,
+not business logic embedded in the order flow.
 
-## 🛠 Технологічний стек
+## Features
 
-| Технологія      | Призначення                                           |
-|-----------------|-------------------------------------------------------|
-| Go 1.25+        | Основна мова розробки.                                |
-| Gin             | HTTP framework для роутингу та API.                   |
-| PostgreSQL      | Основна база даних, наразі розміщена на Supabase.     |
-| GORM            | ORM для зручної роботи з БД.                          |
-| Uber-go/Zap     | Структуроване та швидке логування.                    |
-| Swagger         | Автоматична документація API.                         |
-| Gomarkdoc/Godoc | Документація архітектури та коду.                     |
-| Testify         | Assertion-бібліотека для тестів.                      |
-| Testcontainers  | Інтеграційні тести з реальним PostgreSQL-контейнером. |
-| Mockery         | Генерація mock-об'єктів для unit-тестів.              |
-| Docker          | Контейнеризація та запуск локального середовища.      |
+- **Pluggable payments and delivery** — provider-neutral ports for LiqPay,
+  Monobank, Stripe, Redsys, Nova Poshta, DHL Express, Correos, and future adapters.
+  LiqPay, Monobank, Stripe, Redsys, Nova Poshta and DHL Express are implemented clean
+  adapters. Correos remains deferred until its deployment-specific contract is
+  available.
+- **Flexible inventory** — run autonomously with internal inventory, or use a
+  Master-Slave storefront-cache model synchronized with 1C or another ERP.
+- **Database-level i18n** — normalized translation tables make product,
+  category, attribute, and content localization scalable from day one.
+- **Modular schema evolution** — stable core tables with additive module-owned
+  migrations for inventory, vertical-specific data, and integrations.
+- **Configurable commerce rules** — money, tax, checkout, shipping, and module
+  behaviour are explicit policies rather than store-specific hardcode.
+- **Customer self-service** — optional `customers` supplies a JWT-scoped
+  profile and address book; Checkout consumes only configured field-presence
+  facts and orders preserve immutable delivery snapshots.
+- **Customer support** — optional `support` provides bounded public ticket
+  intake with IP/email anti-spam controls and JWT-scoped customer follow-ups.
+- **Consent and GDPR** — optional `consent` owns versioned legal-document
+  references, customer-consent history, and privacy-request intake. Erasure is
+  a port, not an implementation: what a store must delete and what it must
+  retain follows from its jurisdiction and its own commitments, so the core
+  refuses erasure requests until a deployment supplies an `ErasureExecutor`
+  that names the policy it applies.
 
-## 🚀 Швидкий старт
+## Architecture and Roadmap
 
-### 1. Налаштування середовища
+The repository is being built as a clean-slate commerce engine. Older code may
+be used temporarily as an implementation reference, but no legacy database or
+store deployment is a compatibility target.
 
-Створіть файл `.env` у корені проєкту на основі прикладу:
+- [Target Architecture](ARCHITECTURE.md) — architectural principles, module
+  boundaries, ports/adapters, database ownership, inventory, and Sync.
+- [Migration Roadmap](ROADMAP.md) — practical, phased migration plan with
+  concrete packages, compatibility gates, and definitions of done.
+
+## Getting Started
+
+### Prerequisites
+
+- Go (version declared in `go.mod`)
+- PostgreSQL, or Docker and Docker Compose
+
+### Local setup
+
+```bash
+git clone <repository-url>
+cd ecommerce-core
+cp .env.example .env
+# Set strong JWT_SECRET and POSTGRES_PASSWORD in .env first.
+# STORE_CODE scopes issued tokens to this deployment; changing it later signs
+# every user out.
+go mod tidy
+go run ./cmd/migrate up
+go run ./cmd/api
+```
+
+Update `DB_URL` and other required values in `.env` before running migrations.
+Never commit `.env`; use `.env.example` for safe placeholders.
+
+### Licence
+
+This software is proprietary; see [LICENSE](LICENSE). Using it for a deployment
+requires written permission from the copyright holder. Third-party dependencies
+keep their own licences.
+
+### Renaming the module for your own deployment
+
+The import path is `github.com/VladHrytsaiuk/ecommerce-core`. A fork under a
+different organization renames it in one pass:
+
+```bash
+NEW=github.com/your-org/your-store
+OLD=github.com/VladHrytsaiuk/ecommerce-core
+go mod edit -module "$NEW"
+grep -rl "$OLD" --include='*.go' . | xargs sed -i '' "s|$OLD|$NEW|g"   # GNU sed: -i without ''
+go build ./... && go test ./...
+```
+
+Nothing outside Go imports carries the path: `scripts/check-package-reachability.sh`
+reads it from `go list -m`, and the Dockerfile, Compose file and migrations do
+not mention it. Rename `go.mod` and the imports together — a half-done rename
+leaves that script comparing an empty set and silently checking nothing.
+
+The Inventory migrations seed the warehouse that `.env.example` already names in
+`DEFAULT_WAREHOUSE_ID`, so a fresh database needs no manual step here. That
+warehouse is where checkout reserves, where the admin catalog facade adjusts
+stock, and where returns restock; it is separate from a carrier's sender
+address. A store with its own warehouse inserts that row and points
+`DEFAULT_WAREHOUSE_ID` at it instead.
+
+`ENABLED_MODULES` ships as `catalog,inventory,admin`. The first two are
+mandatory — startup refuses a list without them and says why — and `admin` is
+what the next two steps need: its migrations create the RBAC tables, and
+without it none of the `/api/v1/admin/...` routes are registered.
+
+Create the first store owner after migrations, before using the protected
+admin catalog endpoints. In the Docker starter use the CLI container, which
+has access to the internal PostgreSQL hostname:
+
+```bash
+docker compose run --rm \
+  -e OWNER_EMAIL=owner@example.com \
+  -e OWNER_PASSWORD='use-a-long-unique-password' \
+  cli create-owner
+```
+
+For a locally managed PostgreSQL instance, the equivalent is
+`go run ./cmd/cli create-owner -email ... -password ...`.
+
+Then obtain a JWT through `POST /api/auth/login` and use it as
+`Authorization: Bearer <access_token>` for `/api/v1/admin/...` routes.
+
+Every sign-in — registration, password login and OAuth — also returns a
+`refresh_token` and `refresh_expires_at`. Access tokens are short-lived and
+carry the role, so they are not revocable; when one expires, exchange the
+refresh token at `POST /api/auth/refresh` for a new access token and a new
+refresh token. The one presented stops working, and presenting it again later
+ends the whole sign-in, which is how a copied token is detected. Refreshing
+never extends a sign-in past `refresh_expires_at` (`REFRESH_TOKEN_DURATION`).
+`POST /api/auth/logout` with the refresh token ends the sign-in. Keep the
+refresh token out of shared storage: it is shown once and stored server-side
+only as a hash.
+
+### Storefront origin and guest sessions
+
+Deploy the storefront on the same site as the API — for example
+`shop.example.com` and `api.example.com`, which share the registrable domain
+`example.com`. A guest's cart, wishlist and comparison list are keyed by the
+`cart_session` cookie, issued `HttpOnly` and `SameSite=Lax`. Browsers send a
+Lax cookie between subdomains of one site, but not from a storefront on
+another site such as a `*.vercel.app` preview domain: there every request would
+start a new, empty guest cart, with no error to say why. List the storefront's
+exact origin in `CORS_ALLOW_ORIGINS` and send requests with credentials
+included. Signed-in customers authenticate with a bearer token and are not
+affected.
+
+`Lax` is deliberate. It is what keeps the cookie-keyed cart endpoints safe from
+cross-site request forgery, and browsers are withdrawing cross-site cookies in
+any case — so a storefront on a separate site should get a custom domain on the
+store's own site rather than a looser cookie.
+
+### API v1 contract
+
+The additive `/api/v1` surface is the stable client-integration contract. It
+includes localized Catalog and Checkout routes, authenticated customer Orders,
+and permission-protected Admin Facades. Catalog lists paginate in PostgreSQL;
+they never materialize a full catalog in the API process. Successful responses
+always contain `data` and `request_id`; collection responses additionally
+contain `meta` with `page`, `limit`, `total`, `total_pages`, `has_next`, and
+`has_previous`. Errors use `application/problem+json` with a stable `code`,
+such as `INVALID_PAYLOAD` or `RESOURCE_NOT_FOUND`. The only routes outside it
+are the ones that were never versioned: authentication under `/api/auth/*`, the
+profile at `/api/me/profile`, `/api/wishlist`, `/api/comparison`, and provider
+webhooks at `/api/webhooks/*`. The duplicate `/api/admin/*` and
+`/api/:lang/checkout/*` surfaces this document used to describe were removed
+once v1 covered every one of their operations. The generated OpenAPI contract
+is served at `/swagger/index.html` and stored in `docs/api/swagger.yaml`; where
+this file and that contract disagree, the contract is right, because CI
+regenerates it and fails on a difference.
+All v1 request bodies are capped at 1 MiB (`PAYLOAD_TOO_LARGE` on overflow),
+and v1 public traffic uses the Redis-backed distributed limiter when Redis is
+enabled, falling back to per-process windows if that store becomes unreachable
+so a cache outage degrades limits instead of taking the API down. Login does not
+fall back: it refuses the request rather than run without brute-force
+protection.
+
+The PostgreSQL client uses a bounded production pool (25 open / 10 idle
+connections, 30-minute maximum lifetime and 5-minute maximum idle time).
+
+Money values use non-negative minor units and ISO-4217 codes. The application
+and the `supported_currencies` core table are versioned together from the
+pinned `golang.org/x/text` currency registry. Upgrade that dependency only
+with a forward migration that adds any newly accepted codes; do not edit an
+applied seed migration.
+
+### Optional product search projection
+
+Set `ENABLED_MODULES=...,search` to enable the asynchronous Meilisearch
+projection. It is not a transactional source of truth: Catalog writes a
+minimal product-change event to PostgreSQL Outbox in the same transaction as
+the product mutation, then the Search worker fetches a current Catalog
+snapshot and indexes it. Configure `SEARCH_URL`, `SEARCH_MASTER_KEY` and
+`SEARCH_INDEX_PREFIX`; the application fails before listening if an enabled
+Search module cannot authenticate or configure its index. Locally, start it
+with `docker compose --profile search up` and keep its master key only in
+deployment secrets or `.env`, never in a client application.
+
+Storefront discovery is available only while that module is enabled:
+`GET /api/v1/catalog/{lang}/search` supports `q`, `page`, `limit`, `sort`,
+repeated/comma-separated `brand`, `price_min`, `price_max`, `in_stock`, and
+`attributes[{key}]` filters; its standard pagination metadata includes facet
+counts. `GET /api/v1/catalog/{lang}/suggestions?q=...` supplies autocomplete.
+Use `go run ./cmd/cli search-reindex --batch-size 200` after creating a new
+index or intentionally rebuilding the disposable projection. It reads only
+active Catalog products in bounded UUID-keyset batches (never `OFFSET`) and
+can be safely interrupted. Search accepts at most 256 query characters, 12
+attribute facet keys, 50 values per facet, and 100 facet values in total.
+Every Meilisearch indexing task has a 30-second lifecycle deadline, so an
+unhealthy provider cannot permanently occupy an Outbox worker.
+
+### Optional media assets
+
+Add `media,admin` to `ENABLED_MODULES` to enable secure media uploads. The
+admin endpoint `POST /api/v1/admin/media/upload` requires `media:write`, a UUID
+`Idempotency-Key`, and one `file` multipart part. Only magic-byte-validated
+JPEG, PNG and WebP files up to 15 MiB are accepted; the original filename is
+never used as an object key. Configure `MEDIA_PROVIDER` as `s3`, `minio`,
+`r2`, or `cloudinary`. S3-compatible providers require `MEDIA_S3_BUCKET`,
+`MEDIA_S3_REGION`, credentials and a public base URL; `minio` and `r2` also
+require `MEDIA_S3_ENDPOINT`. Cloudinary requires `MEDIA_CLOUDINARY_URL`.
+Start local MinIO with `docker compose --profile media up`; production may use
+AWS S3, Cloudflare R2, or Cloudinary. Uploaded assets begin in
+`quarantine`; a durable Outbox worker rejects images above 8192px per side or
+16,000,000 pixels before processing and creates WebP variants after commit.
+The media identity needs `s3:ListBucket` and object delete permission: a daily
+reconciler removes only unreferenced or failed quarantine objects older than
+24 hours.
+
+### Optional business reports
+
+Add `reports,admin` to `ENABLED_MODULES` to activate the CQRS analytics
+projection and its permission-protected dashboard routes.
+The first aggregate consumes paid-order events through its own durable Outbox
+delivery and stores daily sales by currency, channel and IANA timezone. Set
+`REPORTS_TIMEZONE` (default `UTC`; for example `Europe/Kyiv`) before running
+migrations. Reports are eventual-consistency read models and never become the
+financial source of truth.
+Use `POST /api/v1/admin/reports/rebuild` only with the separate
+`reports:rebuild` permission; it returns `202 Accepted` and rebuilds a bounded
+date range asynchronously. `GET /api/v1/admin/reports/health` reports active
+rebuild state and projection freshness.
+
+### Optional returns / RMA foundation
+
+Add `returns,orders,admin` to `ENABLED_MODULES`, enable a payment provider,
+and set `RETURN_WINDOW` (calendar days; default `14`). Customers create a
+request at `POST /api/v1/customers/me/returns`; `returns:write` administrators
+approve and receive it. Receiving atomically records RMA history plus durable
+Outbox commands. A separate consumer restocks only unopened items and invokes
+the provider-neutral refund port with the return UUID as idempotency key—never
+inside the RMA SQL transaction. The RMA becomes `refunded` only after the
+verified `orders.refunded.v1` event, not merely after an outbound gateway call.
+
+### Optional order workflow
+
+Add `orders,admin` to `ENABLED_MODULES` before running migrations to enable
+the data-driven operational workflow. The initial graph seeds
+`pending_payment`, `paid`, `processing`, `shipped`, `delivered`, `received`,
+`refunded`, and `cancelled`; only non-financial operational moves are exposed
+through `POST /api/v1/admin/orders/{id}/transition`. The request requires an
+`Idempotency-Key`, validates the configured edge and its requirements (for
+example, a tracking number for `processing -> shipped`), and appends immutable
+`order_status_history` plus an `admin.action.v1` Outbox audit event in the same
+transaction. Payment, cancellation, and refund flows retain their dedicated
+workflow methods so an editable transition graph cannot bypass inventory or
+payment-provider invariants.
+
+### Customer identity and optional profiles
+
+Password registration and login are always available at `POST /api/auth/register`
+and `POST /api/auth/login`. Registration accepts an email or phone number and
+a password; login accepts `login` (email or phone) and `password` (`email` is
+kept as a compatibility alias). Both return a short-lived JWT containing the
+string role.
+
+Google OAuth is opt-in: set all of `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI`; otherwise no Google SDK
+adapter is constructed. The public flow is `GET /api/auth/oauth/google/login`
+and the configured callback is `GET /api/auth/oauth/google/callback`.
+
+Store-specific customer data is opt-in as well. Add `user_profiles` to
+`ENABLED_MODULES` and define `PROFILE_POLICY_JSON`; then an authenticated
+customer can read and patch their policy-approved JSON document through
+`GET` and `PATCH /api/me/profile`. The profile module owns its separate
+`user_profiles` table, so per-store fields never alter the Core `users` table.
+Concurrent profile edits use optimistic locking: the client receives `409
+Conflict`, reloads the profile and retries its patch.
+
+### Optional wishlist
+
+Add `wishlist` to `ENABLED_MODULES` to enable `GET`, `POST`, and `DELETE`
+at `/api/wishlist`. Each item refers only to a `product_variant_id`; the
+module owns its `wishlist_items` table. Guests use the browser's existing
+opaque `cart_session` cookie, while authenticated users use their JWT
+identity. On successful registration, password login, or OAuth callback, the
+optional module atomically merges that guest list into the user's list and
+removes the source entries. With `wishlist` disabled, neither its routes nor
+its dependencies are registered.
+
+### Optional comparison
+
+Add `comparison` to `ENABLED_MODULES` to enable `GET`, `POST`, and `DELETE`
+at `/api/comparison`. The module uses the same JWT-or-opaque-`cart_session`
+ownership model as Wishlist, and merges guest entries after authentication.
+Comparison groups variants by their Catalog category, so only comparable items
+share one group; `COMPARISON_MAX_ITEMS` is a typed, fail-fast validated limit
+per category group (default `5`). During login merge, the newest unique items
+across the guest and user group are retained deterministically.
+
+### Optional reviews and ratings
+
+Add `reviews` to `ENABLED_MODULES` to enable moderated product reviews. A JWT
+customer creates one pending review per product with
+`POST /api/v1/catalog/products/{product_id}/reviews`; only approved reviews
+appear through `GET /api/v1/catalog/products/{product_id}/reviews`.
+
+Moderation is an audited admin action, not a route on this module:
+`PATCH /api/v1/admin/reviews/{review_id}/status` and
+`DELETE /api/v1/admin/reviews/{review_id}` go through the content admin facade,
+which writes the change and its audit entry in one transaction.
+
+The module owns its rating projection, while Catalog reads it through a port
+and exposes `rating` on product responses when the module is enabled.
+
+### Optional SEO and product badges
+
+Add `seo` to `ENABLED_MODULES` to manage localized product, category, and
+future static-page metadata through `/api/v1/admin/seo`. SEO is stored in the
+module-owned polymorphic `seo_metadata` table; no Core Catalog columns change.
+
+Add `badges` to enable `/api/v1/admin/badges`. Badge display names use normalized
+translations and can be assigned to products. Catalog enriches both single
+product and product-list responses through optional reader ports. A product
+list uses one bulk SEO query and one bulk badge query for the complete page,
+never one query per product.
+
+### Optional promotions
+
+Add `promos` to `ENABLED_MODULES` to apply an active cart promo code during
+checkout. The discount is calculated before tax and its rule is snapshotted on
+the order. A promo redemption is reserved atomically with the pending order;
+the payment webhook commits it only after payment succeeds, or releases it
+when payment fails or is cancelled.
+
+The checkout deadline is `CHECKOUT_RESERVATION_TTL`: the background worker
+expires an unpaid order atomically, releasing stock and any reserved promo.
+When a promotion covers the complete payable amount, checkout uses the local
+`free` payment flow and commits the order without calling a payment provider.
+If a verified `paid` webhook arrives after a local cancellation, the callback
+is acknowledged and a durable `payment_anomalies` record is opened for manual
+reconciliation rather than silently losing the captured payment.
+
+### Optional transactional notifications
+
+Add `notifications` to `ENABLED_MODULES` to consume the durable
+`orders.paid.v1` event. Checkout snapshots `customer_email` and the active
+locale into `order_contact_details`, so an order receipt remains addressed to
+the original buyer even after a profile change. Receipt job payloads are stored
+only as AES-256-GCM ciphertext; set `NOTIFICATION_ENCRYPTION_KEY` to a
+base64-encoded 32-byte key (`openssl rand -base64 32`). Templates are selected
+by the contact locale and fall back to `DEFAULT_LOCALE`. Set
+`NOTIFICATION_EMAIL_PROVIDER` to `mock`, `smtp`, or `ses`; SMTP uses the
+existing `SMTP_*` configuration and requires `SMTP_TLS_MODE=starttls` (or
+`implicit` for SMTPS/465), while SES is an explicit safe placeholder
+pending an AWS SDK credentials adapter.
+
+### Optional Redis cache and rate limiting
+
+Redis is opt-in: set `REDIS_ENABLED=true` and provide `REDIS_URL`, for example
+`redis://redis:6379/0` when using the optional Compose profile:
+
+```bash
+docker compose --profile redis up
+```
+
+Startup verifies Redis with `PING`. Redis accelerates Catalog category reads
+and provides a distributed fixed-window limit of five password-login attempts
+per minute per client IP. It never carries payment, inventory, or Outbox truth.
+With `REDIS_ENABLED=false`, Catalog caching is a no-op and login protection uses
+a safe per-process fallback for local development; production replicas should
+enable Redis for a shared policy.
+
+### Operations endpoint and telemetry
+
+The public API remains on `PORT`. Operational endpoints are isolated on
+`MANAGEMENT_ADDR` (default `127.0.0.1:9090`): `/livez` reports process liveness,
+`/readyz` verifies PostgreSQL and optional Redis, and `/metrics` exposes
+Prometheus metrics. Bind this listener to a private network or orchestration
+sidecar only; it is not part of the public API surface.
+
+Every HTTP request creates an OpenTelemetry span, preserves or generates an
+`X-Request-ID`, and records bounded-cardinality RED metrics. To export traces,
+set `OTEL_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT` to an OTLP/HTTP
+collector address such as `otel-collector:4318`. Structured logs emitted with
+`logger.WithContext(ctx)` automatically include `request_id`, `trace_id`, and
+`span_id`.
+
+The same W3C trace context is persisted as bounded metadata with each Outbox
+event and restored by its consumer, so asynchronous projections remain linked
+to the originating checkout or admin request. PostgreSQL and Redis spans never
+record SQL text, bind values, or cache command arguments. Terminal Outbox
+deliveries are archived in bounded batches after `OUTBOX_DONE_RETENTION`
+(default `720h`); immutable `domain_events` are retained for Audit and Reports.
+
+### Local observability stack
+
+The default Compose deployment keeps the management listener internal. Start
+Prometheus, Grafana, and Tempo with:
+
+```bash
+OTEL_ENABLED=true docker compose --profile observability up --build
+```
+
+Prometheus is available at `http://127.0.0.1:9091`, Grafana at
+`http://127.0.0.1:3001`, and Tempo at `http://127.0.0.1:3200`. Grafana
+automatically provisions Prometheus and Tempo datasources. Set
+`GRAFANA_ADMIN_PASSWORD` in `.env` before starting the profile; the Compose
+fallback is intentionally local-development-only.
+
+### Admin RBAC and audit trail
+
+Add `admin` to `ENABLED_MODULES` to apply the Admin module migration and build
+the data-driven authorization foundation. Roles are assigned permissions in
+PostgreSQL; authorization checks require a permission contract such as
+`promos:write`, never a JWT role name. Catalog and permitted order-cancellation
+mutations also pass through Admin Facades and append `admin.action.v1` in their
+local transaction. A dedicated Outbox consumer stores immutable records in
+`audit_logs`. Audit old/new payloads redact password-, token-, and secret-like
+fields before they reach either the Outbox or the JSONB audit trail. Run
+`go run ./cmd/cli grant-superadmin -email existing@example.com` after applying
+Admin migrations to grant the seeded `SuperAdmin` role to the first user.
+
+### Checkout contract
+
+`POST /api/v1/checkout/{lang}/payment` starts payment for the caller's active
+Cart. The request contains only buyer, delivery and redirect details; item
+lines, `customer_id`, and a warehouse identifier are deliberately not accepted
+from the browser. The server reads the Cart, resolves the authenticated buyer
+or anonymous cart session, and reserves stock at `DEFAULT_WAREHOUSE_ID`.
+The client must send a high-entropy `Idempotency-Key` HTTP header for every
+logical checkout attempt and reuse that key only when retrying the same request.
+If the first response is lost after payment creation, the retry replays the
+existing checkout and returns fresh provider session data without creating a
+second order or reservation.
+
+`POST /api/v1/checkout/{lang}/delivery-options` uses that same active Cart to
+return provider-neutral delivery options. It sends server-side item weights and
+the configured currency to the selected enabled carrier; it does not reserve
+stock or create an order.
+
+When delivery is selected, `POST /api/v1/checkout/{lang}/payment` must include the
+chosen `delivery_option_code`. Checkout re-quotes that code server-side and
+persists its amount in the immutable order snapshot; the payment amount is
+`items + tax + shipping`.
+
+### Docker
 
 ```bash
 cp .env.example .env
+docker compose up -d --build
 ```
-Переконайтеся, що в  .env  вказано актуальний  DB_URL  для підключення до бази даних.
 
+The starter Compose stack creates PostgreSQL, runs the one-shot migration
+container, then starts the API only after migration succeeds. It binds the API
+to `127.0.0.1:8080`; put a TLS reverse proxy in front of it for production.
 
-### 2. Запуск через Docker
-Рекомендований спосіб запуску — через Docker Compose:
+See the Docker Compose configuration and the migration command for the
+environment-specific service names and database settings.
+
+## Development
 
 ```bash
-docker-compose up --build
-```
-API буде доступне за адресою:
-```text
-http://localhost:8080
-```
-Swagger-документація:
-```
-http://localhost:8080/swagger/index.html
+go test ./internal/...
+go vet ./...
 ```
 
-## 📂 Структура проєкту
-Проєкт розбитий на незалежні бізнес-домени у стилі Modular Monolith.
-```
-ecommerce/
-│
-├── cmd/                # Точки входу в застосунок
-│   ├── api/            # Публічне API магазину
-│   ├── admin/          # API для адмін-панелі
-│   ├── worker/         # Фонові задачі
-│   └── migrate/        # Запуск міграцій БД
-│
-├── internal/           # Приватна бізнес-логіка та інфраструктура
-│   ├── product/        # Домен: каталог товарів
-│   ├── category/       # Домен: категорії товарів
-│   ├── cart/           # Домен: кошик користувача
-│   ├── order/          # Домен: замовлення
-│   ├── payment/        # Домен: платежі
-│   ├── shipment/       # Домен: доставка
-│   ├── user/           # Домен: авторизація та користувачі
-│   ├── customer/       # Домен: клієнти CRM
-│   ├── discount/       # Домен: знижки та промокоди
-│   ├── inventory/      # Домен: склад та залишки
-│   │
-│   ├── integration/    # Інтеграції з зовнішніми сервісами
-│   │   ├── liqpay/
-│   │   ├── novaposhta/
-│   │   ├── ukrposhta/
-│   │   ├── email/
-│   │   └── sms/
-│   │
-│   ├── http/           # HTTP транспорт
-│   │   └── middleware/
-│   │
-│   ├── jobs/           # Background jobs
-│   │
-│   ├── platform/       # Інфраструктурний код
-│   │   ├── config/
-│   │   ├── db/
-│   │   │   └── postgres.go
-│   │   ├── logger/
-│   │   ├── security/
-│   │   └── storage/
-│   │
-│   └── shared/         # Спільні утиліти
-│       ├── errors/
-│       ├── money/
-│       ├── pagination/
-│       └── uuid/
-│
-├── migrations/         # SQL міграції бази даних
-├── seed/               # Початкові дані
-├── tests/              # Інтеграційні та unit тести
-├── configs/            # Конфігураційні файли
-├── deployments/        # Docker / deployment
-├── scripts/            # Допоміжні скрипти
-├── docs/               # Swagger-документація API
-├── Dockerfile
-├── docker-compose.yml
-├── .env.example
-├── go.mod
-└── README.md
-```
+Some repository tests use Docker/Testcontainers. Run them in an environment
+where Docker is available.
 
-## 🏗 Архітектура
+### LiqPay development configuration
 
-Проєкт побудований за принципами **Clean Architecture** з фокусом на **модульність**. Це дозволяє легко масштабувати систему, тестувати бізнес-логіку та змінювати інфраструктурні компоненти без впливу на основну логіку застосунку.
+The first clean payment adapter is LiqPay. To enable it locally, set
+`PAYMENT_PROVIDERS=liqpay`, `PAYMENT_DEFAULT=liqpay`, its two keys, and
+`LIQPAY_CALLBACK_URL` (for example
+`https://api.example.com/api/webhooks/payments/liqpay`). The checkout endpoint
+is `POST /api/v1/checkout/{lang}/payment`; verified callbacks use the generic route
+`POST /api/webhooks/payments/liqpay`.
 
-Основна ідея полягає в тому, що **бізнес-логіка не залежить від фреймворків, бази даних або зовнішніх сервісів**.
+### Stripe development configuration
 
-### Основні шари архітектури
+Set `PAYMENT_PROVIDERS=stripe`, `PAYMENT_DEFAULT=stripe`,
+`STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET`. Stripe creates a Payment
+Intent and the checkout response returns its short-lived `client_secret`; the
+storefront completes that flow using Stripe.js. Verified callbacks use
+`POST /api/webhooks/payments/stripe`.
 
-#### 1. Доменний шар
+### Monobank acquiring configuration
 
-Папки: `internal/product`, `internal/order`, `internal/user` тощо.
+Set `PAYMENT_PROVIDERS=monobank`, `PAYMENT_DEFAULT=monobank`, `CURRENCY=UAH`,
+and `PRICE_SCALE=2`. Configure `MONOBANK_TOKEN`, a base64 PEM
+`MONOBANK_WEBHOOK_PUBLIC_KEY`, and `MONOBANK_WEBHOOK_URL` (for example
+`https://api.example.com/api/webhooks/payments/monobank`). The adapter creates
+an invoice at Monobank and returns its `pageUrl` as the buyer redirect. The
+webhook endpoint verifies the raw request body against its ECDSA `X-Sign`
+header before decoding it; verified callbacks use
+`POST /api/webhooks/payments/monobank`.
 
-Це ядро системи. Кожен модуль є самостійним і містить:
+### Redsys development configuration
 
-- моделі;
-- бізнес-правила;
-- сервіси;
-- інтерфейси репозиторіїв.
+Set `PAYMENT_PROVIDERS=redsys`, `PAYMENT_DEFAULT=redsys`, the merchant FUC,
+terminal, signing key, callback URL, and numeric ISO currency code (for
+example, `978` for EUR). Checkout returns a provider-hosted redirect URL and
+the signed `payment_form` fields that the storefront must POST unchanged.
+Verified callbacks use `POST /api/webhooks/payments/redsys`.
 
-Сервіси не знають нічого про HTTP або GORM — вони працюють тільки з інтерфейсами.
+### Nova Poshta delivery selectors
 
-#### 2. HTTP transport
+With `SHIPPING_PROVIDERS=novaposhta`, storefront clients can select a delivery
+destination through the versioned, provider-neutral API:
 
-Папка: `internal/http`.
+- `GET /api/v1/delivery/novaposhta/areas`
+- `GET /api/v1/delivery/novaposhta/cities?area_id={area_ref}`
+- `GET /api/v1/delivery/novaposhta/service-points?city_id={city_ref}&kind=branch&page=1&limit=20`
 
-Відповідає за HTTP API. Тут знаходяться:
+`kind` accepts `branch`, `postomat`, or `cargo`. The API limits service-point
+pages to 100 items and returns the Nova Poshta total when supplied by the
+provider. The selected opaque city and service-point IDs are passed back to
+Checkout; they are never constructed from a user-visible address string.
+Areas and cities are cached for 24 hours; service-point pages are cached for
+6 hours and concurrent cache misses are coalesced. Redis remains optional: a
+disabled or unavailable cache falls back to the provider without changing the
+selector contract. Shipment creation reconciles the stable order UUID in Nova
+Poshta before retrying an ambiguous request, and a job moves to `dead` after
+five unsuccessful attempts for manual review. Carrier tracking changes are
+applied atomically with the configured non-financial Order workflow transition.
 
-- handlers;
-- middleware;
-- router;
-- DTO.
+### DHL Express development configuration
 
-Handler:
+Set `SHIPPING_PROVIDERS=dhlexpress` and `SHIPPING_DEFAULT=dhlexpress`, then
+provide the `DHL_EXPRESS_*` account, sender-address, product-code and standard
+parcel-dimension values shown in `.env.example`. The MyDHL adapter uses DHL's
+test URL by default; set the live base URL only with production credentials.
+An active DHL Express customer account is required. This initial adapter
+accepts domestic shipments only: international labels remain blocked until the
+core has a customs-item module (commodity description, origin and HS data).
 
-- приймає HTTP-запит;
-- викликає service;
-- повертає JSON-відповідь.
-
-#### 3. Інфраструктурний шар
-
-Папка: `internal/platform` та `internal/integration`.
-
-Тут реалізуються технічні деталі системи:
-
-- підключення до PostgreSQL;
-- конфігурація середовища;
-- логування;
-- інтеграції із зовнішніми API.
-
-### Потік запиту
-
-```text
-HTTP Request
-↓
-Router
-↓
-Handler
-↓
-Service
-↓
-Repository
-↓
-Database (PostgreSQL)
-```
-
-## ⚙️ Конфігурація
-Конфігурація завантажується через environment variables.
-#### Основні змінні:
-
-```
-PORT=8080
-DB_URL=postgres://user:password@host:port/dbname
-```
-
-## 🗄 База даних
-На даний момент використовується PostgreSQL, розгорнутий через Supabase.
-У майбутньому база даних може бути перенесена на власний сервер без змін у бізнес-логіці.
-ORM: **GORM**.
-
-## 🧩 Міграції
-Папка для міграцій:
-```
-migrations/
-```
-
-## 📘 Swagger
-
-Для документації API використовується **Swagger**.
-
-Swagger дозволяє:
-
-- автоматично генерувати документацію;
-- тестувати API через UI;
-- підтримувати синхронізацію між кодом та документацією.
-
-Swagger endpoint:
-
-```text
-http://localhost:8080/swagger/index.html
-```
-
-
-## 🧪 Тестування
-
-Для тестування використовуються такі інструменти:
-
-### Testify
-
-Зручна бібліотека для assertion у тестах. Дозволяє писати читабельні перевірки на кшталт `assert.NoError(t, err)`.
-
-### Mockery
-
-Генерує mock-реалізації інтерфейсів, що дозволяє тестувати service layer і бізнес-логіку без реальної бази даних.
-
-### Testcontainers
-
-Використовується для інтеграційних тестів. Піднімає реальний PostgreSQL-контейнер на час тесту, перевіряє SQL-запити й потім видаляє контейнер.
-
-Приклад запуску тестів:
+To verify the clean-slate database path, including the enabled Inventory module,
+three-locale Catalog persistence, and atomic order/reservation workflow:
 
 ```bash
-go test ./... -v
+go test -tags=integration ./cmd/migrate ./internal/platform/postgres/orderworkflow
 ```
 
-## ⚙️ Воркери та масштабованість
+### Legacy reference
 
-Папка `internal/jobs/` та точка входу `cmd/worker/` передбачені для фонових процесів, які ще в розробці.
+Unported monolith files are excluded from dependency resolution and the default
+build. They are retained only as migration reference; use the
+`legacy-monolith-baseline` Git tag when the complete predecessor behaviour must
+be inspected or run.
 
-Воркери можуть відповідати за:
-
-- перевірку статусів оплат;
-- синхронізацію трекінг-кодів доставок;
-- відправку Email/SMS-сповіщень.
-
-Завдяки модульній архітектурі API та Worker можуть бути розгорнуті як окремі незалежні сервіси в Docker.
-
-## 📄 Ліцензія
-
-На даний момент ліцензія не визначена.
-
-Умови розповсюдження коду та використання платформи будуть додані пізніше у файл `LICENSE`.
+Before changing module boundaries, providers, migrations, or store
+configuration, read [ARCHITECTURE.md](ARCHITECTURE.md) and follow
+[ROADMAP.md](ROADMAP.md).

@@ -1,0 +1,3 @@
+CREATE TABLE abandoned_cart_campaigns (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), cart_id UUID NOT NULL, customer_id UUID, contact_email VARCHAR(320) NOT NULL, step INT NOT NULL DEFAULT 1 CHECK(step > 0), status VARCHAR(16) NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','scheduled','converted','skipped','dead')), due_at TIMESTAMPTZ NOT NULL, locked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX abandoned_cart_campaigns_due_idx ON abandoned_cart_campaigns(status,due_at);
+CREATE UNIQUE INDEX abandoned_cart_campaigns_cart_step_idx ON abandoned_cart_campaigns(cart_id,step);

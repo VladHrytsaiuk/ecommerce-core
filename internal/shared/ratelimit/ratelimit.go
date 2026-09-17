@@ -1,0 +1,76 @@
+// Package ratelimit defines a provider-neutral fixed-window limiter port.
+package ratelimit
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+)
+
+type Decision struct {
+	Allowed    bool
+	RetryAfter time.Duration
+}
+
+// errNotConfigured is returned by a decorator built without its dependencies,
+// so a miswiring refuses requests rather than silently removing the limit.
+var errNotConfigured = errors.New("rate limiter is not configured")
+
+type Service interface {
+	Allow(context.Context, string, int, time.Duration) (Decision, error)
+}
+
+type localWindow struct {
+	count     int
+	expiresAt time.Time
+}
+
+// cleanupInterval bounds how often expired windows are swept. Sweeping on
+// every call would make each request pay for the whole key space.
+const cleanupInterval = time.Minute
+
+// LocalService is the explicitly degraded, per-process fallback when Redis is
+// disabled. It is safe for concurrent HTTP requests but not distributed.
+type LocalService struct {
+	mu          sync.Mutex
+	windows     map[string]localWindow
+	now         func() time.Time
+	lastCleanup time.Time
+}
+
+func NewLocalService() *LocalService {
+	return &LocalService{windows: make(map[string]localWindow), now: time.Now}
+}
+
+func (s *LocalService) Allow(_ context.Context, key string, limit int, window time.Duration) (Decision, error) {
+	now := s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Keys are per-client (an HMAC of the address), so without this sweep the
+	// map grew for the process lifetime: every address that never returned
+	// left an entry behind. Callers rotating addresses could exhaust memory.
+	// An expired window carries no state, so dropping it never changes a
+	// decision and bounds the map by the arrival rate within one window.
+	if s.lastCleanup.IsZero() || now.Sub(s.lastCleanup) >= cleanupInterval {
+		for existing, entry := range s.windows {
+			if !now.Before(entry.expiresAt) {
+				delete(s.windows, existing)
+			}
+		}
+		s.lastCleanup = now
+	}
+
+	entry, ok := s.windows[key]
+	if !ok || !now.Before(entry.expiresAt) {
+		entry = localWindow{expiresAt: now.Add(window)}
+	}
+	entry.count++
+	s.windows[key] = entry
+	remaining := entry.expiresAt.Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+	return Decision{Allowed: entry.count <= limit, RetryAfter: remaining}, nil
+}
