@@ -209,6 +209,10 @@ type CodeAccounts interface {
 	// SetPassword replaces the account's password and marks its address
 	// verified: the code that allowed it was read at that address.
 	SetPassword(ctx context.Context, userID uuid.UUID, passwordHash string) error
+	// RemoveOAuthIdentities unlinks every provider account from this one. It is
+	// used when a code takes an account over: nothing on it was proved, so a
+	// provider link on it rests on an address the provider does not vouch for.
+	RemoveOAuthIdentities(ctx context.Context, userID uuid.UUID) error
 	// DetachEmail removes the address from the account, leaving the account to
 	// whoever proved its other contact. See AuthService.VerifySignInCode.
 	DetachEmail(ctx context.Context, userID uuid.UUID) error

@@ -365,10 +365,50 @@ func TestGoogleStillRefusesAnAccountWithNothingProved(t *testing.T) {
 	}
 }
 
+// An address Google does not vouch for — an Outlook or custom-domain address on
+// a Google account — signs in, but proves nothing: it never reaches an account
+// somebody else may hold.
+func TestAnAddressGoogleDoesNotVouchForMatchesNoExistingAccount(t *testing.T) {
+	existing := &domain.User{ID: uuid.New(), Email: stringPointer("buyer@store.example"), EmailVerified: true, Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	users := &userRepositoryFake{byLogin: map[string]*domain.User{"buyer@store.example": existing}, byID: map[uuid.UUID]*domain.User{existing.ID: existing}}
+	identities := &oauthIdentityRepositoryFake{}
+	accounts := &codeAccountsFake{byEmail: map[string]*domain.User{"buyer@store.example": existing}, users: users}
+
+	_, err := googleCallbackWith(t, users, identities, accounts, domain.VerifiedOAuthIdentity{Provider: "google", Subject: "subject-1", Email: stringPointer("buyer@store.example"), EmailVerified: false})
+	if !errors.Is(err, domain.ErrOAuthAccountLinkRequired) {
+		t.Fatalf("CompleteOAuth() = %v, want the existing account left alone", err)
+	}
+	if len(identities.items) != 0 || len(accounts.detached) != 0 || !existing.EmailVerified {
+		t.Fatal("an address Google does not vouch for reached an existing account")
+	}
+}
+
+func TestSuchAnAddressStillGetsAnAccountOfItsOwn(t *testing.T) {
+	users := &userRepositoryFake{byLogin: map[string]*domain.User{}, byID: map[uuid.UUID]*domain.User{}}
+	identities := &oauthIdentityRepositoryFake{}
+
+	session, err := googleCallbackWith(t, users, identities, &codeAccountsFake{byEmail: map[string]*domain.User{}, users: users}, domain.VerifiedOAuthIdentity{Provider: "google", Subject: "subject-1", Email: stringPointer("buyer@outlook.com"), EmailVerified: false})
+	if err != nil || session.UserID == uuid.Nil {
+		t.Fatalf("CompleteOAuth() = (%+v, %v), want a new account", session, err)
+	}
+	created := users.byLogin["buyer@outlook.com"]
+	if created == nil || created.EmailVerified {
+		t.Fatalf("created = %+v, want the address stored but not treated as proved", created)
+	}
+	if len(identities.items) != 1 || identities.items[0].UserID != created.ID {
+		t.Fatalf("identities = %+v, want the Google account linked to the new one", identities.items)
+	}
+}
+
 func googleCallbackWithAccounts(t *testing.T, users *userRepositoryFake, identities *oauthIdentityRepositoryFake, accounts *codeAccountsFake, email string) (domain.Session, error) {
 	t.Helper()
+	return googleCallbackWith(t, users, identities, accounts, domain.VerifiedOAuthIdentity{Provider: "google", Subject: "subject-1", Email: stringPointer(email), EmailVerified: true})
+}
+
+func googleCallbackWith(t *testing.T, users *userRepositoryFake, identities *oauthIdentityRepositoryFake, accounts *codeAccountsFake, identity domain.VerifiedOAuthIdentity) (domain.Session, error) {
+	t.Helper()
 	attempts := &oauthAttemptStoreFake{created: domain.OAuthAttempt{Provider: "google", State: "state", RedirectURI: "https://store.example.test/callback", Nonce: "nonce", CodeVerifier: "verifier", ExpiresAt: time.Now().Add(time.Minute)}}
-	provider := &oauthProviderFake{identity: domain.VerifiedOAuthIdentity{Provider: "google", Subject: "subject-1", Email: stringPointer(email), EmailVerified: true}}
+	provider := &oauthProviderFake{identity: identity}
 	maker, _ := token.NewJWTMaker("a-secure-secret-with-at-least-thirty-two-characters")
 	service := NewAuthService(users, identities, attempts, authTransactionFake{users: users, identities: identities}, NewOAuthProviderRegistry(provider), maker, time.Hour, time.Minute).WithAccounts(accounts)
 	return service.CompleteOAuth(context.Background(), domain.CompleteOAuthCommand{Provider: "google", RedirectURI: attempts.created.RedirectURI, Code: "provider-code", State: "state"})

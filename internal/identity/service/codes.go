@@ -196,8 +196,8 @@ func (s *AuthService) VerifySignInCode(ctx context.Context, command domain.Verif
 // on the rest of the account.
 //
 //   - Nothing else proved: the person who received the code takes the account
-//     over. Its password goes and its sign-ins end, so whoever registered it
-//     keeps no way in.
+//     over. Its password, its provider links and its sign-ins all go, so
+//     whoever registered it keeps no way in.
 //   - Another contact proved: that person owns the account, and this contact was
 //     put on it by someone else. It is detached, and the person who received the
 //     code gets an account of their own. Without this the two would share one
@@ -231,6 +231,13 @@ func (s *AuthService) accountFor(ctx context.Context, channel domain.CodeChannel
 		return s.codes.findOrCreate(ctx, channel, destination)
 	}
 	if err := s.codes.claim(ctx, channel, found.ID); err != nil {
+		return nil, err
+	}
+	// A provider link on an account that proved nothing rests on an address the
+	// provider does not vouch for — a Google account holding someone else's
+	// address, say. It goes with the password, or its holder would keep a way
+	// in to an account that is no longer theirs.
+	if err := s.codes.accounts.RemoveOAuthIdentities(ctx, found.ID); err != nil {
 		return nil, err
 	}
 	if err := s.endEverySignIn(ctx, found.ID, now); err != nil {

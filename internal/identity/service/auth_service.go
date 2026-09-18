@@ -216,7 +216,9 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 	if err != nil && !errors.Is(err, domain.ErrOAuthIdentityNotFound) {
 		return domain.Session{}, err
 	}
-	if verified.Email == nil || !verified.EmailVerified {
+	if verified.Email == nil {
+		// Without an address there is nothing to make an account from; the
+		// provider subject alone cannot be a contact.
 		return domain.Session{}, domain.ErrOAuthAccountLinkRequired
 	}
 	if existing, findErr := s.users.FindByLogin(ctx, *verified.Email); findErr == nil && existing != nil {
@@ -235,6 +237,9 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 
 	var user *domain.User
 	err = s.transaction.WithinTransaction(ctx, func(users domain.UserRepository, identities domain.OAuthIdentityRepository) error {
+		// EmailVerified is the provider's proof of current ownership, not its
+		// email_verified claim; an address it does not vouch for is stored
+		// unverified, and the customer confirms it with a code like any other.
 		created, createErr := users.Create(ctx, domain.NewUser{Email: normalizeContact(verified.Email), EmailVerified: verified.EmailVerified, Role: domain.RoleCustomer, Status: domain.UserStatusActive})
 		if createErr != nil {
 			if errors.Is(createErr, domain.ErrEmailAlreadyExists) {
@@ -268,9 +273,18 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 //     address is detached from it, as it is for a sign-in code;
 //   - it proved nothing, or it is not a customer's: linking stays a decision
 //     for whoever holds the account, and the callback answers 409.
+//
+// An address the provider does not vouch for — see ownsAddress in the Google
+// adapter — matches nothing: the callback answers 409 rather than touch an
+// account someone else may hold.
 func (s *AuthService) linkVerifiedAccount(ctx context.Context, existing *domain.User, verified domain.VerifiedOAuthIdentity, guestSessionID *uuid.UUID) (domain.Session, bool, error) {
 	if !canSignIn(existing) {
 		return domain.Session{}, true, domain.ErrInvalidCredentials
+	}
+	if !verified.EmailVerified {
+		// The provider does not vouch for this address, so it says nothing
+		// about the account that already has it.
+		return domain.Session{}, true, domain.ErrOAuthAccountLinkRequired
 	}
 	if !existing.EmailVerified {
 		if s.accounts == nil || existing.Role != domain.RoleCustomer || !existing.PhoneVerified {

@@ -328,3 +328,38 @@ func TestAStaffPasswordIsNotResetFromOutsideTheAccount(t *testing.T) {
 		t.Fatal("a staff password was replaced from outside the account")
 	}
 }
+
+func TestTakingOverAnAccountAlsoUnlinksItsProviderAccounts(t *testing.T) {
+	// The account was created from an address Google does not vouch for, so
+	// whoever holds that Google account must not keep a way in once the
+	// address's owner takes it over.
+	fixture := newCodeFixture(t)
+	email := "buyer@outlook.com"
+	fromGoogle := fixture.seedAccount(email, false, domain.UserStatusActive)
+	message := fixture.request(t, email)
+
+	session, err := fixture.verify(email, message.Code)
+	if err != nil || session.UserID != fromGoogle.ID {
+		t.Fatalf("VerifySignInCode() = (%+v, %v)", session, err)
+	}
+	if len(fixture.accounts.unlinked) != 1 || fixture.accounts.unlinked[0] != fromGoogle.ID {
+		t.Fatalf("unlinked = %v, want the provider accounts removed with the password", fixture.accounts.unlinked)
+	}
+}
+
+func TestAnAccountThatProvedSomethingKeepsItsProviderAccounts(t *testing.T) {
+	fixture := newCodeFixture(t)
+	email := "buyer@example.com"
+	owner := fixture.seedAccount(email, true, domain.UserStatusActive)
+	message := fixture.request(t, email)
+
+	if _, err := fixture.verify(email, message.Code); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.accounts.unlinked) != 0 {
+		t.Fatalf("unlinked = %v, want an account that proved its address left alone", fixture.accounts.unlinked)
+	}
+	if owner.PasswordHash != "old-hash" {
+		t.Fatal("a verified account lost its password")
+	}
+}

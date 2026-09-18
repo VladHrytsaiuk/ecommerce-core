@@ -198,16 +198,28 @@ most one code a minute, five an hour and ten a day, whatever they are for. Only
 HMACs of the address and the code are stored.
 
 Google signs in to an existing account with the same address only when both
-sides have verified it. Where the account proved another contact instead — a
+sides have proved it. On Google's side that means an address Google itself
+runs — a `gmail.com` address — or the Workspace domain the token names in `hd`.
+Google's `email_verified` claim on any other address, such as an Outlook or
+custom-domain address attached to a Google account, says it was confirmed once,
+not that the account still holds it, so this core does not treat it as proof:
+the customer signs in and gets an account, the address is stored unverified,
+and it never matches an account someone else may hold. Confirming it with a
+code then works as it does for a password account. Where the account proved another contact instead — a
 verified phone number, say — the address is detached from it and Google gets an
 account of its own, because the address was put there by someone else.
 Otherwise the callback answers 409 and nothing is linked.
 
 A contact an account never proved is not ownership: anyone may register another
-person's address or number with a password. A code sent to it therefore takes
-the account over (its password goes, its sign-ins end) when the account proved
-nothing else, and detaches the contact into a new account when it did. Two
+person's address or number with a password, and a provider may hold an address
+it does not vouch for. A code sent to it therefore takes the account over when
+the account proved nothing else — its password, its provider links and its
+sign-ins all go — and detaches the contact into a new account when it did. Two
 people never share one account.
+
+With `google` as the only method, a customer whose Google address is not one
+Google runs has an unverified address, so add `email_code`, or `password` with
+the `notifications` module, before requiring a verified address at checkout.
 
 ### Storefront origin and guest sessions
 

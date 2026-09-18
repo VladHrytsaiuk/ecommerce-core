@@ -70,6 +70,7 @@ type codeAccountsFake struct {
 	passwords map[uuid.UUID]string
 	byPhone   map[string]*domain.User
 	detached  []uuid.UUID
+	unlinked  []uuid.UUID
 	// users, when set, is kept in step with this fake, as one database is.
 	users *userRepositoryFake
 	// addressChanged makes VerifyEmail find the account's address different
@@ -139,6 +140,11 @@ func (f *codeAccountsFake) FindOrCreateByPhone(_ context.Context, phone string) 
 
 func (f *codeAccountsFake) ClaimPhone(_ context.Context, userID uuid.UUID) error {
 	f.claimed = append(f.claimed, userID)
+	return nil
+}
+
+func (f *codeAccountsFake) RemoveOAuthIdentities(_ context.Context, userID uuid.UUID) error {
+	f.unlinked = append(f.unlinked, userID)
 	return nil
 }
 

@@ -483,6 +483,34 @@ func TestCodeAccounts(t *testing.T) {
 		}
 	})
 
+	t.Run("unlinking provider accounts leaves the account and other accounts' links", func(t *testing.T) {
+		id, other := uuid.New(), uuid.New()
+		for _, user := range []uuid.UUID{id, other} {
+			if err := db.Exec(`INSERT INTO users (id, email, role, status) VALUES (?, ?, 'customer', 'active')`, user, "unlink-"+user.String()+"@example.test").Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Exec(`INSERT INTO user_oauth_identities (id, user_id, provider, subject, email_verified) VALUES (?, ?, 'google', ?, TRUE)`, uuid.New(), user, "subject-"+user.String()).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := accounts.RemoveOAuthIdentities(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if countRows(t, db, `SELECT COUNT(*) FROM user_oauth_identities WHERE user_id = ?`, id) != 0 {
+			t.Fatal("a provider account stayed linked")
+		}
+		if countRows(t, db, `SELECT COUNT(*) FROM user_oauth_identities WHERE user_id = ?`, other) != 1 {
+			t.Fatal("another account's provider link was removed")
+		}
+		if countRows(t, db, `SELECT COUNT(*) FROM users WHERE id = ?`, id) != 1 {
+			t.Fatal("the account itself was removed")
+		}
+		// An account with no links is not an error.
+		if err := accounts.RemoveOAuthIdentities(ctx, id); err != nil {
+			t.Fatalf("RemoveOAuthIdentities() again = %v", err)
+		}
+	})
+
 	t.Run("detaching a contact leaves the account its other one", func(t *testing.T) {
 		seed := func(t *testing.T) (uuid.UUID, string, string) {
 			t.Helper()

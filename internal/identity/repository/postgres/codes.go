@@ -356,6 +356,15 @@ WHERE id = ?`, passwordHash, userID)
 	})
 }
 
+func (a *CodeAccounts) RemoveOAuthIdentities(ctx context.Context, userID uuid.UUID) error {
+	if a == nil || a.db == nil || userID == uuid.Nil {
+		return fmt.Errorf("invalid provider unlink")
+	}
+	return transaction.Within(ctx, a.db, func(tx *gorm.DB) error {
+		return tx.Exec(`DELETE FROM user_oauth_identities WHERE user_id = ?`, userID).Error
+	})
+}
+
 // DetachEmail and DetachPhone leave the account with its other contact, which
 // the caller has checked is verified. users_identity_present keeps an account
 // from losing both.

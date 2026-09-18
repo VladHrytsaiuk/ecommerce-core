@@ -95,10 +95,37 @@ func (a *Adapter) ExchangeCode(ctx context.Context, request identityDomain.OAuth
 		email = strings.ToLower(strings.TrimSpace(email))
 		verified.Email = &email
 	}
-	if emailVerified, ok := payload.Claims["email_verified"].(bool); ok {
-		verified.EmailVerified = emailVerified
-	}
+	verifiedClaim, _ := payload.Claims["email_verified"].(bool)
+	hostedDomain, _ := payload.Claims["hd"].(string)
+	verified.EmailVerified = verified.Email != nil && ownsAddress(*verified.Email, verifiedClaim, hostedDomain)
 	return verified, nil
+}
+
+// ownsAddress reports whether Google vouches for the account still holding this
+// address, rather than only for it having been confirmed at some point.
+//
+// Google's own guidance is that email_verified alone does not prove current
+// ownership of an address Google does not run: a custom-domain or Outlook
+// address attached to a Google account can change hands while the Google
+// account keeps it. It does prove ownership for an address in a domain Google
+// runs — gmail.com — or in the Workspace domain the token names in hd, where
+// the domain's administrator controls the mailbox.
+//
+// Everything else is still a usable sign-in: the account is created from it and
+// the provider subject signs in from then on. It is only not treated as proof,
+// so it never matches an existing local account or marks one verified.
+func ownsAddress(email string, verifiedClaim bool, hostedDomain string) bool {
+	if !verifiedClaim {
+		return false
+	}
+	_, domain, ok := strings.Cut(strings.ToLower(email), "@")
+	if !ok || domain == "" {
+		return false
+	}
+	if domain == "gmail.com" || domain == "googlemail.com" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(hostedDomain), domain)
 }
 
 func (a *Adapter) oauthConfig(redirectURI string) oauth2.Config {
