@@ -327,3 +327,70 @@ func TestGoogleDoesNotLinkToAnAccountThatCannotSignIn(t *testing.T) {
 		t.Fatal("a Google account was linked to a disabled account")
 	}
 }
+
+func TestGoogleDoesNotJoinAnAccountThatProvedAnotherContact(t *testing.T) {
+	// Someone registered this address with their own verified number. Google
+	// says the address is the caller's, so the address leaves that account.
+	phone := "+380501234567"
+	existing := &domain.User{ID: uuid.New(), Email: stringPointer("buyer@example.com"), Phone: &phone, PhoneVerified: true, Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	users := &userRepositoryFake{byLogin: map[string]*domain.User{"buyer@example.com": existing}, byID: map[uuid.UUID]*domain.User{existing.ID: existing}}
+	identities := &oauthIdentityRepositoryFake{}
+	accounts := &codeAccountsFake{byEmail: map[string]*domain.User{"buyer@example.com": existing}, users: users}
+
+	session, err := googleCallbackWithAccounts(t, users, identities, accounts, "buyer@example.com")
+	if err != nil {
+		t.Fatalf("CompleteOAuth() = %v", err)
+	}
+	if session.UserID == existing.ID {
+		t.Fatal("Google signed in to an account that never proved the address")
+	}
+	if len(accounts.detached) != 1 || accounts.detached[0] != existing.ID {
+		t.Fatalf("detached = %v, want the address taken off that account", accounts.detached)
+	}
+	if len(identities.items) != 1 || identities.items[0].UserID == existing.ID {
+		t.Fatalf("identities = %+v, want the Google account on the new one", identities.items)
+	}
+}
+
+func TestGoogleStillRefusesAnAccountWithNothingProved(t *testing.T) {
+	existing := &domain.User{ID: uuid.New(), Email: stringPointer("buyer@example.com"), PasswordHash: "hash", Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	users := &userRepositoryFake{byLogin: map[string]*domain.User{"buyer@example.com": existing}, byID: map[uuid.UUID]*domain.User{existing.ID: existing}}
+	accounts := &codeAccountsFake{byEmail: map[string]*domain.User{"buyer@example.com": existing}}
+
+	if _, err := googleCallbackWithAccounts(t, users, &oauthIdentityRepositoryFake{}, accounts, "buyer@example.com"); !errors.Is(err, domain.ErrOAuthAccountLinkRequired) {
+		t.Fatalf("CompleteOAuth() = %v, want linking left to the account holder", err)
+	}
+	if len(accounts.detached) != 0 {
+		t.Fatal("an account that proved nothing had its address detached")
+	}
+}
+
+func googleCallbackWithAccounts(t *testing.T, users *userRepositoryFake, identities *oauthIdentityRepositoryFake, accounts *codeAccountsFake, email string) (domain.Session, error) {
+	t.Helper()
+	attempts := &oauthAttemptStoreFake{created: domain.OAuthAttempt{Provider: "google", State: "state", RedirectURI: "https://store.example.test/callback", Nonce: "nonce", CodeVerifier: "verifier", ExpiresAt: time.Now().Add(time.Minute)}}
+	provider := &oauthProviderFake{identity: domain.VerifiedOAuthIdentity{Provider: "google", Subject: "subject-1", Email: stringPointer(email), EmailVerified: true}}
+	maker, _ := token.NewJWTMaker("a-secure-secret-with-at-least-thirty-two-characters")
+	service := NewAuthService(users, identities, attempts, authTransactionFake{users: users, identities: identities}, NewOAuthProviderRegistry(provider), maker, time.Hour, time.Minute).WithAccounts(accounts)
+	return service.CompleteOAuth(context.Background(), domain.CompleteOAuthCommand{Provider: "google", RedirectURI: attempts.created.RedirectURI, Code: "provider-code", State: "state"})
+}
+
+func TestTheSignedInAccountDescribesItself(t *testing.T) {
+	user := activeCustomer(t)
+	user.EmailVerified = true
+	service := refreshService(t, usersWith(user), nil)
+
+	account, err := service.Account(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.UserID != user.ID || account.Role != domain.RoleCustomer || account.Email == nil || *account.Email != *user.Email || !account.EmailVerified || account.PhoneVerified || !account.HasPassword {
+		t.Fatalf("Account() = %+v", account)
+	}
+	if _, err := service.Account(context.Background(), uuid.New()); !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("Account(unknown) = %v, want ErrInvalidCredentials", err)
+	}
+	user.Status = domain.UserStatusDisabled
+	if _, err := service.Account(context.Background(), user.ID); !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("Account(disabled) = %v, want ErrInvalidCredentials", err)
+	}
+}

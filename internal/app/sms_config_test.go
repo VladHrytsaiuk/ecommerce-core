@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"testing"
+
+	"github.com/VladHrytsaiuk/ecommerce-core/internal/platform/config"
 )
 
 func phoneCodeConfig() *SMSConfig {
@@ -70,5 +72,44 @@ func TestTheSMSConfigIsReadFromTheEnvironmentSettings(t *testing.T) {
 	}
 	if _, err := newSMSCodeTexter(sms, codeTTL(cfg)); err != nil {
 		t.Fatalf("newSMSCodeTexter() = %v", err)
+	}
+}
+
+func TestCheckoutCannotRequireAVerificationTheStoreCannotDo(t *testing.T) {
+	base := func(t *testing.T, methods []string, modules []string) *config.Config {
+		t.Helper()
+		cfg := validConfig()
+		cfg.AuthMethods = methods
+		cfg.EnabledModules = modules
+		return cfg
+	}
+	withNotifications := withRequiredModules(string(ModuleNotifications))
+
+	cfg := base(t, []string{"password"}, withRequiredModules())
+	cfg.CheckoutRequireVerifiedEmail = true
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "CHECKOUT_REQUIRE_VERIFIED_EMAIL") {
+		t.Fatalf("NewStoreConfig(password without notifications) = %v, want refused", err)
+	}
+	cfg = base(t, []string{"password"}, withNotifications)
+	cfg.CheckoutRequireVerifiedEmail = true
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig(password with notifications) = %v", err)
+	}
+	cfg = base(t, []string{"email_code"}, withNotifications)
+	cfg.CheckoutRequireVerifiedEmail = true
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig(email_code) = %v", err)
+	}
+
+	cfg = base(t, []string{"password"}, withNotifications)
+	cfg.CheckoutRequireVerifiedPhone = true
+	if _, err := NewStoreConfig(cfg); err == nil || !strings.Contains(err.Error(), "CHECKOUT_REQUIRE_VERIFIED_PHONE") {
+		t.Fatalf("NewStoreConfig(verified phone without phone_code) = %v, want refused", err)
+	}
+	cfg = base(t, []string{"password", "phone_code"}, withNotifications)
+	cfg.CheckoutRequireVerifiedPhone = true
+	cfg.SMSProvider, cfg.SMSAllowedCountryCodes, cfg.SMSHourlyLimit, cfg.SMSCodeMessage = "mock", []string{"380"}, 50, "Code {code}"
+	if _, err := NewStoreConfig(cfg); err != nil {
+		t.Fatalf("NewStoreConfig(phone_code) = %v", err)
 	}
 }

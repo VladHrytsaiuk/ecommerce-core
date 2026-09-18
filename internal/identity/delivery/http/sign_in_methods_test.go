@@ -35,7 +35,7 @@ func TestADisabledSignInMethodHasNoRoute(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			router := gin.New()
-			RegisterRoutes(router.Group("/api"), service, nil, testCase.methods, "https://store.example.test/callback", nil, nil)
+			RegisterRoutes(router.Group("/api"), service, nil, testCase.methods, "https://store.example.test/callback", nil, RouteLimits{})
 
 			for _, path := range []string{"/api/auth/login", "/api/auth/register"} {
 				if routed := routeStatus(router, http.MethodPost, path) != http.StatusNotFound; routed != testCase.passwordRouted {

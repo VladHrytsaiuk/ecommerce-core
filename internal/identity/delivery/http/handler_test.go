@@ -20,7 +20,7 @@ func TestSessionRoutesDisableCaching(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	userID := uuid.New()
 	router := gin.New()
-	RegisterRoutes(router.Group("/api"), fakeAuth{session: identityDomain.Session{AccessToken: "jwt", UserID: userID, Role: identityDomain.RoleOwner, ExpiresAt: time.Now()}}, nil, SignInMethods{Password: true, OAuth: true}, "https://store.example.test/api/auth/oauth/google/callback", nil, nil)
+	RegisterRoutes(router.Group("/api"), fakeAuth{session: identityDomain.Session{AccessToken: "jwt", UserID: userID, Role: identityDomain.RoleOwner, ExpiresAt: time.Now()}}, nil, SignInMethods{Password: true, OAuth: true}, "https://store.example.test/api/auth/oauth/google/callback", nil, RouteLimits{})
 
 	for _, testCase := range []struct {
 		name, method, target, body string
@@ -53,7 +53,7 @@ func TestProfileRoutesRequireAuthentication(t *testing.T) {
 	router := gin.New()
 	RegisterRoutes(router.Group("/api"), nil, fakeProfile{}, SignInMethods{}, "", func(c *gin.Context) {
 		c.AbortWithStatus(http.StatusUnauthorized)
-	}, nil)
+	}, RouteLimits{})
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/me/profile", nil))
@@ -73,7 +73,7 @@ func TestProfileUpdateReturnsConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	RegisterRoutes(router.Group("/api"), nil, fakeProfile{updateErr: identityDomain.ErrProfileConflict}, SignInMethods{}, "", middleware.AuthMiddleware(maker), nil)
+	RegisterRoutes(router.Group("/api"), nil, fakeProfile{updateErr: identityDomain.ErrProfileConflict}, SignInMethods{}, "", middleware.AuthMiddleware(maker), RouteLimits{})
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPatch, "/api/me/profile", strings.NewReader(`{"first_name":"Grace"}`))
@@ -116,6 +116,14 @@ func (f fakeAuth) RevokeSession(context.Context, string) error {
 
 func (f fakeAuth) RequestSignInCode(context.Context, identityDomain.RequestSignInCodeCommand) (identityDomain.CodeRequest, error) {
 	return f.codeRequest, f.err
+}
+
+func (f fakeAuth) Account(_ context.Context, userID uuid.UUID) (identityDomain.Account, error) {
+	if f.err != nil {
+		return identityDomain.Account{}, f.err
+	}
+	email := "buyer@example.com"
+	return identityDomain.Account{UserID: userID, Role: identityDomain.RoleCustomer, Email: &email, EmailVerified: false, HasPassword: true}, nil
 }
 
 func (f fakeAuth) RequestEmailVerification(context.Context, uuid.UUID) (identityDomain.CodeRequest, error) {

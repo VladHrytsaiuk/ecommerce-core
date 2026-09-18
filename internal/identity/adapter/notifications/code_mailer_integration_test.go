@@ -210,7 +210,8 @@ func newCodeSignIn(t *testing.T) (*gorm.DB, *identityService.AuthService, *notif
 	}
 	auth := identityService.NewAuthService(identityPostgres.NewUserRepository(db), identityPostgres.NewOAuthIdentityRepository(db), identityPostgres.NewOAuthAttemptStore(db), identityPostgres.NewAuthTransaction(db), identityService.NewOAuthProviderRegistry(), maker, 15*time.Minute, 10*time.Minute).
 		WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), 7*24*time.Hour)
-	if _, err := auth.WithCodes(identityService.CodeConfig{Store: identityPostgres.NewCodeStore(db), Accounts: identityPostgres.NewCodeAccounts(db), Secret: testSecret, TTL: 10 * time.Minute, Senders: []identity.CodeSender{mailer}}); err != nil {
+	auth.WithAccounts(identityPostgres.NewCodeAccounts(db))
+	if _, err := auth.WithCodes(identityService.CodeConfig{Store: identityPostgres.NewCodeStore(db), Secret: testSecret, TTL: 10 * time.Minute, Senders: []identity.CodeSender{mailer}}); err != nil {
 		t.Fatal(err)
 	}
 	auth.WithCodeSignIn(identity.CodeChannelEmail, true)

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -30,10 +31,10 @@ func (f *emailCodeAuth) VerifySignInCode(_ context.Context, command identityDoma
 	return f.session, f.err
 }
 
-func newEmailCodeRouter(service identityDomain.AuthService, loginLimit gin.HandlerFunc) *gin.Engine {
+func newEmailCodeRouter(service identityDomain.AuthService, codeLimit gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	RegisterRoutes(router.Group("/api"), service, nil, SignInMethods{EmailCode: true}, "", nil, nil, loginLimit)
+	RegisterRoutes(router.Group("/api"), service, nil, SignInMethods{EmailCode: true}, "", nil, RouteLimits{Codes: codeLimit})
 	return router
 }
 
@@ -101,7 +102,7 @@ func TestEmailCodeRefusalsMapToTheirStatus(t *testing.T) {
 	}
 }
 
-func TestEmailCodeRoutesShareTheLoginLimit(t *testing.T) {
+func TestEmailCodeRoutesRunBehindTheCodeLimit(t *testing.T) {
 	limited := 0
 	limit := func(c *gin.Context) {
 		limited++
@@ -115,7 +116,7 @@ func TestEmailCodeRoutesShareTheLoginLimit(t *testing.T) {
 		{"/api/auth/email-code/verify", `{"email":"buyer@example.com","code":"123456"}`},
 	} {
 		if recorder := postJSON(router, request.path, request.body); recorder.Code != http.StatusTooManyRequests {
-			t.Fatalf("%s status = %d, want the limit applied", request.path, recorder.Code)
+			t.Fatalf("%s status = %d, want the code limit applied", request.path, recorder.Code)
 		}
 	}
 	if limited != 2 || len(service.requested)+len(service.verified) != 0 {
@@ -134,7 +135,7 @@ func TestPhoneCodeRoutesFollowTheirMethodAndReportDeliveryFailure(t *testing.T) 
 	} {
 		t.Run(name, func(t *testing.T) {
 			router := gin.New()
-			RegisterRoutes(router.Group("/api"), &emailCodeAuth{}, nil, testCase.methods, "", nil, nil)
+			RegisterRoutes(router.Group("/api"), &emailCodeAuth{}, nil, testCase.methods, "", nil, RouteLimits{})
 			for _, path := range []string{"/api/auth/phone-code", "/api/auth/phone-code/verify"} {
 				if routed := postJSON(router, path, `{}`).Code != http.StatusNotFound; routed != testCase.routed {
 					t.Fatalf("%s routed = %v, want %v", path, routed, testCase.routed)
@@ -156,7 +157,7 @@ func TestPhoneCodeRoutesFollowTheirMethodAndReportDeliveryFailure(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			service := &emailCodeAuth{fakeAuth: fakeAuth{err: testCase.err}}
 			router := gin.New()
-			RegisterRoutes(router.Group("/api"), service, nil, SignInMethods{PhoneCode: true}, "", nil, nil)
+			RegisterRoutes(router.Group("/api"), service, nil, SignInMethods{PhoneCode: true}, "", nil, RouteLimits{})
 			recorder := postJSON(router, testCase.path, testCase.body)
 			if recorder.Code != testCase.status || !strings.Contains(recorder.Body.String(), testCase.message) {
 				t.Fatalf("status = %d body = %s, want %d with %q", recorder.Code, recorder.Body.String(), testCase.status, testCase.message)
@@ -165,5 +166,58 @@ func TestPhoneCodeRoutesFollowTheirMethodAndReportDeliveryFailure(t *testing.T) 
 				t.Fatalf("requested = %+v, want the phone channel", service.requested)
 			}
 		})
+	}
+}
+
+func TestTheAccountRouteAnswersTheSignedInCustomer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	userID := uuid.New()
+	router := gin.New()
+	RegisterRoutes(router.Group("/api"), fakeAuth{}, nil, SignInMethods{Password: true}, "", signedInAs(userID), RouteLimits{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	request.Header.Set("Authorization", "Bearer token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	for _, want := range []string{`"user_id":"` + userID.String() + `"`, `"email":"buyer@example.com"`, `"email_verified":false`, `"has_password":true`, `"role":"customer"`} {
+		if !strings.Contains(recorder.Body.String(), want) {
+			t.Fatalf("body = %s, want %s", recorder.Body.String(), want)
+		}
+	}
+	if recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("the account response must not be cached")
+	}
+
+	unauthenticated := httptest.NewRecorder()
+	router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/auth/me", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("status without a session = %d, want 401", unauthenticated.Code)
+	}
+}
+
+func TestRegisteringRunsBehindTheCodeLimitAndSignInBehindTheLoginLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	codes, logins := 0, 0
+	router := gin.New()
+	RegisterRoutes(router.Group("/api"), &emailCodeAuth{}, nil, SignInMethods{Password: true, EmailCode: true}, "", nil, RouteLimits{
+		Codes: func(c *gin.Context) { codes++; c.Next() },
+		Login: func(c *gin.Context) { logins++; c.Next() },
+	})
+
+	// Registering sends a confirmation message, so it belongs with the code
+	// routes rather than with password guessing.
+	postJSON(router, "/api/auth/register", `{"email":"buyer@example.com","password":"correct-horse-battery"}`)
+	postJSON(router, "/api/auth/email-code", `{"email":"buyer@example.com"}`)
+	postJSON(router, "/api/auth/email-code/verify", `{"email":"buyer@example.com","code":"123456"}`)
+	if codes != 3 || logins != 0 {
+		t.Fatalf("code limit %d, login limit %d; want the three message routes on the code limit", codes, logins)
+	}
+	postJSON(router, "/api/auth/login", `{"login":"buyer@example.com","password":"correct-horse-battery"}`)
+	if logins != 1 {
+		t.Fatalf("login limit %d, want password sign-in behind it", logins)
 	}
 }

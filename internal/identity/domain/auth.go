@@ -32,6 +32,23 @@ type AuthService interface {
 	RequestPasswordReset(context.Context, RequestPasswordResetCommand) (CodeRequest, error)
 	// ResetPassword sets the new password with that code and signs in.
 	ResetPassword(context.Context, ResetPasswordCommand) (Session, error)
+	// Account is what a signed-in customer's own client needs to know about
+	// their account: which contacts it has, and which are verified.
+	Account(context.Context, uuid.UUID) (Account, error)
+}
+
+// Account is a signed-in account as its own client sees it. It carries no
+// password hash and nothing about any other account.
+type Account struct {
+	UserID        uuid.UUID
+	Role          Role
+	Email         *string
+	Phone         *string
+	EmailVerified bool
+	PhoneVerified bool
+	// HasPassword says whether this account can sign in with a password, which
+	// a client needs in order to offer setting one.
+	HasPassword bool
 }
 
 type ProfileService interface {

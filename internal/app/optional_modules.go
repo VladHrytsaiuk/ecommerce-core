@@ -432,6 +432,7 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 		storeConfig.OAuthAttemptTTL,
 	)
 	auth.WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), cfg.RefreshTokenDuration)
+	auth.WithAccounts(identityPostgres.NewCodeAccounts(db))
 	auth.WithPasswordSignIn(storeConfig.AuthMethods.Has(AuthMethodPassword))
 	senders := make([]identityDomain.CodeSender, 0, 2)
 	if notifications != nil {
@@ -454,8 +455,7 @@ func buildIdentity(cfg *config.Config, storeConfig StoreConfig, db *gorm.DB, tok
 	}
 	if len(senders) > 0 {
 		codes := identityService.CodeConfig{
-			Store: identityPostgres.NewCodeStore(db), Accounts: identityPostgres.NewCodeAccounts(db),
-			Secret: cfg.JWTSecret, TTL: codeTTL(cfg), Senders: senders,
+			Store: identityPostgres.NewCodeStore(db), Secret: cfg.JWTSecret, TTL: codeTTL(cfg), Senders: senders,
 		}
 		if storeConfig.SMS != nil {
 			codes.PhoneCountryCodes, codes.PhoneHourlyLimit = storeConfig.SMS.AllowedCountryCodes, storeConfig.SMS.HourlyLimit

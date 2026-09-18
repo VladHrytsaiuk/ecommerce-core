@@ -17,7 +17,7 @@ import (
 func newAuthRouter(service identityDomain.AuthService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	RegisterRoutes(router.Group("/api"), service, nil, SignInMethods{Password: true, OAuth: true}, "", nil, nil)
+	RegisterRoutes(router.Group("/api"), service, nil, SignInMethods{Password: true, OAuth: true}, "", nil, RouteLimits{})
 	return router
 }
 

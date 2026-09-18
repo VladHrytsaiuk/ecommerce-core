@@ -69,6 +69,9 @@ type codeAccountsFake struct {
 	claimed   []uuid.UUID
 	passwords map[uuid.UUID]string
 	byPhone   map[string]*domain.User
+	detached  []uuid.UUID
+	// users, when set, is kept in step with this fake, as one database is.
+	users *userRepositoryFake
 	// addressChanged makes VerifyEmail find the account's address different
 	// from the one the code was sent to.
 	addressChanged bool
@@ -139,6 +142,38 @@ func (f *codeAccountsFake) ClaimPhone(_ context.Context, userID uuid.UUID) error
 	return nil
 }
 
+func (f *codeAccountsFake) DetachEmail(_ context.Context, userID uuid.UUID) error {
+	f.detached = append(f.detached, userID)
+	for email, user := range f.byEmail {
+		if user.ID == userID {
+			user.Email, user.EmailVerified = nil, false
+			delete(f.byEmail, email)
+			f.forgetLogin(email)
+		}
+	}
+	return nil
+}
+
+// forgetLogin drops the contact from the user repository too, the way removing
+// it from the row does.
+func (f *codeAccountsFake) forgetLogin(contact string) {
+	if f.users != nil {
+		delete(f.users.byLogin, contact)
+	}
+}
+
+func (f *codeAccountsFake) DetachPhone(_ context.Context, userID uuid.UUID) error {
+	f.detached = append(f.detached, userID)
+	for phone, user := range f.byPhone {
+		if user.ID == userID {
+			user.Phone, user.PhoneVerified = nil, false
+			delete(f.byPhone, phone)
+			f.forgetLogin(phone)
+		}
+	}
+	return nil
+}
+
 func (f *codeAccountsFake) ClaimEmail(_ context.Context, userID uuid.UUID) error {
 	f.claimed = append(f.claimed, userID)
 	return nil
@@ -187,8 +222,10 @@ func newCodeFixture(t *testing.T) codeFixture {
 		refresh:  &refreshStoreFake{},
 	}
 	fixture.users = &userRepositoryFake{byLogin: map[string]*domain.User{}, byID: map[uuid.UUID]*domain.User{}}
+	fixture.accounts.users = fixture.users
 	fixture.service = refreshService(t, fixture.users, fixture.refresh)
-	if _, err := fixture.service.WithCodes(CodeConfig{Store: fixture.store, Accounts: fixture.accounts, Secret: codeSecret, TTL: 10 * time.Minute, Senders: []domain.CodeSender{fixture.sender}}); err != nil {
+	fixture.service.WithAccounts(fixture.accounts)
+	if _, err := fixture.service.WithCodes(CodeConfig{Store: fixture.store, Secret: codeSecret, TTL: 10 * time.Minute, Senders: []domain.CodeSender{fixture.sender}}); err != nil {
 		t.Fatal(err)
 	}
 	fixture.service.WithCodeSignIn(domain.CodeChannelEmail, true)
@@ -289,7 +326,7 @@ func TestACodeIsBoundToTheAddressItWasSentTo(t *testing.T) {
 	}
 	// Keys come from the secret: another store's secret yields other hashes.
 	service := refreshService(t, &userRepositoryFake{}, nil)
-	if _, err := service.WithCodes(CodeConfig{Store: &codeStoreFake{}, Accounts: &codeAccountsFake{}, Secret: codeSecret + "-other", TTL: 10 * time.Minute, Senders: []domain.CodeSender{&codeSenderFake{channel: domain.CodeChannelEmail}}}); err != nil {
+	if _, err := service.WithAccounts(&codeAccountsFake{}).WithCodes(CodeConfig{Store: &codeStoreFake{}, Secret: codeSecret + "-other", TTL: 10 * time.Minute, Senders: []domain.CodeSender{&codeSenderFake{channel: domain.CodeChannelEmail}}}); err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Equal(service.codes.destinationHash(domain.CodeChannelEmail, "buyer@example.com"), buyer) {
@@ -442,7 +479,7 @@ func TestSignInCodesRefuseAConfigurationThatCannotWork(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			service := refreshService(t, &userRepositoryFake{}, nil)
-			if _, err := service.WithCodes(CodeConfig{Store: store, Accounts: accounts, Secret: testCase.secret, TTL: testCase.ttl, Senders: testCase.senders}); err == nil {
+			if _, err := service.WithAccounts(accounts).WithCodes(CodeConfig{Store: store, Secret: testCase.secret, TTL: testCase.ttl, Senders: testCase.senders}); err == nil {
 				t.Fatal("WithCodes() accepted a configuration that cannot work")
 			}
 			if service.codes != nil {

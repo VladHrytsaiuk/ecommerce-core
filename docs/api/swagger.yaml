@@ -499,6 +499,28 @@ definitions:
     required:
     - token
     type: object
+  internal_identity_delivery_http.accountResponse:
+    properties:
+      email:
+        description: Email and Phone are the account's own contacts, absent where
+          it has none.
+        type: string
+      email_verified:
+        description: |-
+          EmailVerified and PhoneVerified say which contacts have been proved; a
+          store may require a verified one at checkout.
+        type: boolean
+      has_password:
+        type: boolean
+      phone:
+        type: string
+      phone_verified:
+        type: boolean
+      role:
+        type: string
+      user_id:
+        type: string
+    type: object
   internal_identity_delivery_http.codeResponse:
     properties:
       expires_at:
@@ -1194,6 +1216,35 @@ paths:
               type: string
             type: object
       summary: End a sign-in
+      tags:
+      - Auth
+  /api/auth/me:
+    get:
+      description: What the account can sign in with and what still needs confirming.
+        A client shows "confirm your address" from email_verified, and offers setting
+        a password from has_password.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_identity_delivery_http.accountResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - bearerAuth: []
+      summary: Read the signed-in account
       tags:
       - Auth
   /api/auth/oauth/{provider}/callback:

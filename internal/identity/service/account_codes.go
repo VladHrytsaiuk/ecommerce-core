@@ -82,7 +82,7 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, command domain.R
 		if err != nil {
 			return false, err
 		}
-		return canSignIn(user), nil
+		return canSignIn(user) && user.Role == domain.RoleCustomer, nil
 	})
 }
 
@@ -111,7 +111,11 @@ func (s *AuthService) ResetPassword(ctx context.Context, command domain.ResetPas
 	var user *domain.User
 	err = s.codes.consume(ctx, now, domain.CodeChannelEmail, domain.CodePurposeResetPassword, email, command.Code, func(txCtx context.Context) error {
 		found, err := s.codes.accounts.FindByEmail(txCtx, email)
-		if errors.Is(err, domain.ErrUserNotFound) || (err == nil && !canSignIn(found)) {
+		// A staff account is not reset from outside it: a mistyped staff
+		// address would otherwise hand out its password. Staff sign in with the
+		// password they were given, and the store's owner resets one from the
+		// command line.
+		if errors.Is(err, domain.ErrUserNotFound) || (err == nil && (!canSignIn(found) || found.Role != domain.RoleCustomer)) {
 			return domain.ErrInvalidCode
 		}
 		if err != nil {

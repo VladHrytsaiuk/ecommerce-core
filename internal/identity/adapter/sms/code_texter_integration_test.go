@@ -47,8 +47,9 @@ func TestATextedCodeSignsTheCustomerIn(t *testing.T) {
 	}
 	auth := identityService.NewAuthService(identityPostgres.NewUserRepository(db), identityPostgres.NewOAuthIdentityRepository(db), identityPostgres.NewOAuthAttemptStore(db), identityPostgres.NewAuthTransaction(db), identityService.NewOAuthProviderRegistry(), maker, 15*time.Minute, 10*time.Minute).
 		WithRefreshTokens(identityPostgres.NewRefreshTokenStore(db), 7*24*time.Hour)
+	auth.WithAccounts(identityPostgres.NewCodeAccounts(db))
 	if _, err := auth.WithCodes(identityService.CodeConfig{
-		Store: identityPostgres.NewCodeStore(db), Accounts: identityPostgres.NewCodeAccounts(db), Secret: testSecret, TTL: 5 * time.Minute,
+		Store: identityPostgres.NewCodeStore(db), Secret: testSecret, TTL: 5 * time.Minute,
 		Senders: []identity.CodeSender{texter}, PhoneCountryCodes: []string{"380"}, PhoneHourlyLimit: 10,
 	}); err != nil {
 		t.Fatal(err)

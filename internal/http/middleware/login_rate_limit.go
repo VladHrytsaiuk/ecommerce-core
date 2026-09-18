@@ -19,6 +19,20 @@ const (
 	loginRateLimitWindow = time.Minute
 )
 
+// CodeRateLimit and CodeRateLimitWindow bound the routes that make the store
+// send a message or check a code. They are wider than the login limit on
+// purpose: those routes are already limited per address and per number in the
+// database, while one mobile network address can be thousands of customers.
+const (
+	codeRateLimit       = 20
+	codeRateLimitWindow = time.Minute
+)
+
+// CodeRateLimitMiddleware limits the one-time code routes by client IP.
+func CodeRateLimitMiddleware(limiter ratelimit.Service, keySecret string) gin.HandlerFunc {
+	return RateLimitByIP(limiter, "identity:codes", codeRateLimit, codeRateLimitWindow, keySecret, nil)
+}
+
 // LoginRateLimitMiddleware limits password login attempts by client IP. The
 // Redis key stores an HMAC of the address, rather than the raw IP address.
 func LoginRateLimitMiddleware(limiter ratelimit.Service, keySecret string) gin.HandlerFunc {

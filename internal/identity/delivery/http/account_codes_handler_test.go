@@ -52,7 +52,7 @@ func signedInAs(userID uuid.UUID) gin.HandlerFunc {
 func newAccountCodesRouter(service identityDomain.AuthService, methods SignInMethods, userID uuid.UUID) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	RegisterRoutes(router.Group("/api"), service, nil, methods, "", signedInAs(userID), nil)
+	RegisterRoutes(router.Group("/api"), service, nil, methods, "", signedInAs(userID), RouteLimits{})
 	return router
 }
 

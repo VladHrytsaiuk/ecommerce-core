@@ -356,6 +356,38 @@ WHERE id = ?`, passwordHash, userID)
 	})
 }
 
+// DetachEmail and DetachPhone leave the account with its other contact, which
+// the caller has checked is verified. users_identity_present keeps an account
+// from losing both.
+func (a *CodeAccounts) DetachEmail(ctx context.Context, userID uuid.UUID) error {
+	return a.detach(ctx, userID, "email")
+}
+
+func (a *CodeAccounts) DetachPhone(ctx context.Context, userID uuid.UUID) error {
+	return a.detach(ctx, userID, "phone")
+}
+
+func (a *CodeAccounts) detach(ctx context.Context, userID uuid.UUID, column string) error {
+	if a == nil || a.db == nil || userID == uuid.Nil {
+		return fmt.Errorf("invalid contact detachment")
+	}
+	// column is this file's own literal, never a caller's string.
+	statement := fmt.Sprintf(`
+UPDATE users
+SET %[1]s = NULL, %[1]s_verified = FALSE, updated_at = CURRENT_TIMESTAMP
+WHERE id = ?`, column)
+	return transaction.Within(ctx, a.db, func(tx *gorm.DB) error {
+		result := tx.Exec(statement, userID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return domain.ErrUserNotFound
+		}
+		return nil
+	})
+}
+
 func findByEmail(tx *gorm.DB, email string) (*domain.User, error) {
 	var record userRecord
 	if err := tx.Where("lower(email) = ?", email).Take(&record).Error; err != nil {

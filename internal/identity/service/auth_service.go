@@ -38,7 +38,9 @@ type AuthService struct {
 	// WithPasswordSignIn keeps the behaviour it always had.
 	passwordSignInDisabled bool
 	// codes is nil unless WithCodes made one-time codes available.
-	codes *oneTimeCodes
+	// accounts reads and changes account contacts; WithAccounts attaches it.
+	accounts domain.CodeAccounts
+	codes    *oneTimeCodes
 	// codeSignIn holds the channels sign-in by code is enabled on.
 	codeSignIn map[domain.CodeChannel]bool
 }
@@ -218,7 +220,15 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 		return domain.Session{}, domain.ErrOAuthAccountLinkRequired
 	}
 	if existing, findErr := s.users.FindByLogin(ctx, *verified.Email); findErr == nil && existing != nil {
-		return s.linkVerifiedAccount(ctx, existing, verified, command.GuestSessionID)
+		session, linked, linkErr := s.linkVerifiedAccount(ctx, existing, verified, command.GuestSessionID)
+		if linked {
+			return session, linkErr
+		}
+		if linkErr != nil {
+			return domain.Session{}, linkErr
+		}
+		// The address was detached from an account that never proved it; the
+		// account below is created for the person Google says owns it.
 	} else if findErr != nil && !errors.Is(findErr, domain.ErrUserNotFound) {
 		return domain.Session{}, findErr
 	}
@@ -246,20 +256,30 @@ func (s *AuthService) CompleteOAuth(ctx context.Context, command domain.Complete
 }
 
 // linkVerifiedAccount signs in to an existing account with the provider's
-// identity, linking the two.
+// identity, linking the two. linked is false when the caller should carry on
+// and create an account instead.
 //
-// Only when both sides have verified the address: the provider says the
-// account holder owns it, and the local account proved it with a code or an
-// earlier provider sign-in. If the local address was never verified, the
-// account may have been registered by someone who does not own it, and linking
-// would hand the owner's provider sign-in to that account; that stays a
-// linking decision for the account holder.
-func (s *AuthService) linkVerifiedAccount(ctx context.Context, existing *domain.User, verified domain.VerifiedOAuthIdentity, guestSessionID *uuid.UUID) (domain.Session, error) {
-	if !existing.EmailVerified {
-		return domain.Session{}, domain.ErrOAuthAccountLinkRequired
-	}
+// It links only when both sides have verified the address: the provider says
+// the person signing in owns it, and the local account proved it with a code or
+// an earlier provider sign-in. An account that never proved the address may
+// have been registered by someone who does not own it, so:
+//
+//   - it proved another contact instead: that person owns the account, and the
+//     address is detached from it, as it is for a sign-in code;
+//   - it proved nothing, or it is not a customer's: linking stays a decision
+//     for whoever holds the account, and the callback answers 409.
+func (s *AuthService) linkVerifiedAccount(ctx context.Context, existing *domain.User, verified domain.VerifiedOAuthIdentity, guestSessionID *uuid.UUID) (domain.Session, bool, error) {
 	if !canSignIn(existing) {
-		return domain.Session{}, domain.ErrInvalidCredentials
+		return domain.Session{}, true, domain.ErrInvalidCredentials
+	}
+	if !existing.EmailVerified {
+		if s.accounts == nil || existing.Role != domain.RoleCustomer || !existing.PhoneVerified {
+			return domain.Session{}, true, domain.ErrOAuthAccountLinkRequired
+		}
+		if err := s.accounts.DetachEmail(ctx, existing.ID); err != nil {
+			return domain.Session{}, true, err
+		}
+		return domain.Session{}, false, nil
 	}
 	err := s.transaction.WithinTransaction(ctx, func(_ domain.UserRepository, identities domain.OAuthIdentityRepository) error {
 		_, err := identities.Create(ctx, domain.OAuthIdentity{ID: uuid.New(), UserID: existing.ID, Provider: verified.Provider, Subject: verified.Subject, ProviderEmail: normalizeContact(verified.Email), EmailVerified: verified.EmailVerified})
@@ -270,14 +290,35 @@ func (s *AuthService) linkVerifiedAccount(ctx context.Context, existing *domain.
 		// That is the same outcome, if it linked to this account.
 		identity, findErr := s.identities.FindByProviderSubject(ctx, verified.Provider, verified.Subject)
 		if findErr != nil || identity == nil || identity.UserID != existing.ID {
-			return domain.Session{}, domain.ErrOAuthAccountLinkRequired
+			return domain.Session{}, true, domain.ErrOAuthAccountLinkRequired
 		}
 		err = nil
 	}
 	if err != nil {
-		return domain.Session{}, err
+		return domain.Session{}, true, err
 	}
-	return s.finishLogin(ctx, existing, guestSessionID)
+	session, err := s.finishLogin(ctx, existing, guestSessionID)
+	return session, true, err
+}
+
+// Account describes the signed-in account to its own client: what it can sign
+// in with, and what still needs confirming.
+func (s *AuthService) Account(ctx context.Context, userID uuid.UUID) (domain.Account, error) {
+	if s.users == nil || userID == uuid.Nil {
+		return domain.Account{}, domain.ErrInvalidCredentials
+	}
+	user, err := s.users.FindByID(ctx, userID)
+	if errors.Is(err, domain.ErrUserNotFound) || (err == nil && !canSignIn(user)) {
+		return domain.Account{}, domain.ErrInvalidCredentials
+	}
+	if err != nil {
+		return domain.Account{}, err
+	}
+	return domain.Account{
+		UserID: user.ID, Role: user.Role, Email: user.Email, Phone: user.Phone,
+		EmailVerified: user.EmailVerified, PhoneVerified: user.PhoneVerified,
+		HasPassword: user.PasswordHash != "",
+	}, nil
 }
 
 func (s *AuthService) finishLogin(ctx context.Context, user *domain.User, guestSessionID *uuid.UUID) (domain.Session, error) {

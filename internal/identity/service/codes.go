@@ -62,8 +62,7 @@ type oneTimeCodes struct {
 
 // CodeConfig makes one-time codes available.
 type CodeConfig struct {
-	Store    domain.CodeStore
-	Accounts domain.CodeAccounts
+	Store domain.CodeStore
 	// Secret is the server secret the hashing keys are derived from; it is
 	// never used directly.
 	Secret string
@@ -84,8 +83,8 @@ type CodeConfig struct {
 // given. On email that enables verification and password reset; sign-in by
 // code is enabled per channel, by WithCodeSignIn.
 func (s *AuthService) WithCodes(config CodeConfig) (*AuthService, error) {
-	if config.Store == nil || config.Accounts == nil || len(config.Senders) == 0 {
-		return nil, fmt.Errorf("one-time codes require a store, an account resolver and at least one sender")
+	if config.Store == nil || s.accounts == nil || len(config.Senders) == 0 {
+		return nil, fmt.Errorf("one-time codes require a store, the account contacts port and at least one sender")
 	}
 	if strings.TrimSpace(config.Secret) == "" {
 		return nil, fmt.Errorf("one-time codes require a server secret")
@@ -93,7 +92,7 @@ func (s *AuthService) WithCodes(config CodeConfig) (*AuthService, error) {
 	if config.TTL < MinCodeTTL || config.TTL > MaxCodeTTL {
 		return nil, fmt.Errorf("one-time code lifetime must be between %s and %s", MinCodeTTL, MaxCodeTTL)
 	}
-	codes := &oneTimeCodes{store: config.Store, accounts: config.Accounts, ttl: config.TTL, senders: make(map[domain.CodeChannel]domain.CodeSender, len(config.Senders))}
+	codes := &oneTimeCodes{store: config.Store, accounts: s.accounts, ttl: config.TTL, senders: make(map[domain.CodeChannel]domain.CodeSender, len(config.Senders))}
 	for _, sender := range config.Senders {
 		if sender == nil {
 			return nil, fmt.Errorf("one-time code sender is nil")
@@ -125,6 +124,14 @@ func (s *AuthService) WithCodes(config CodeConfig) (*AuthService, error) {
 	}
 	s.codes = codes
 	return s, nil
+}
+
+// WithAccounts attaches the port that reads and changes account contacts. Codes
+// use it, and so does an OAuth callback deciding whether an account with the
+// provider's address belongs to the person signing in.
+func (s *AuthService) WithAccounts(accounts domain.CodeAccounts) *AuthService {
+	s.accounts = accounts
+	return s
 }
 
 // WithCodeSignIn enables or disables signing in with a code on one channel. It
@@ -171,31 +178,66 @@ func (s *AuthService) VerifySignInCode(ctx context.Context, command domain.Verif
 	now := s.now().UTC()
 	var user *domain.User
 	err := s.codes.consume(ctx, now, command.Channel, domain.CodePurposeSignIn, destination, command.Code, func(txCtx context.Context) error {
-		found, err := s.codes.findOrCreate(txCtx, command.Channel, destination)
-		if err != nil {
-			return err
-		}
-		if !canSignIn(found) {
-			// Refused inside the transaction, so the code is not spent on an
-			// account that cannot sign in.
-			return domain.ErrInvalidCredentials
-		}
-		if !verifiedOn(found, command.Channel) {
-			if err := s.codes.claim(txCtx, command.Channel, found.ID); err != nil {
-				return err
-			}
-			if err := s.endEverySignIn(txCtx, found.ID, now); err != nil {
-				return err
-			}
-			found.PasswordHash = ""
-		}
+		found, err := s.accountFor(txCtx, command.Channel, destination, now)
 		user = found
-		return nil
+		return err
 	})
 	if err != nil {
 		return domain.Session{}, err
 	}
 	return s.finishLogin(ctx, user, command.GuestSessionID)
+}
+
+// accountFor returns the account a proved contact signs in to, creating one
+// where the contact is new.
+//
+// A contact the account never proved is not ownership: anyone can register
+// another person's address or number with a password. What happens then depends
+// on the rest of the account.
+//
+//   - Nothing else proved: the person who received the code takes the account
+//     over. Its password goes and its sign-ins end, so whoever registered it
+//     keeps no way in.
+//   - Another contact proved: that person owns the account, and this contact was
+//     put on it by someone else. It is detached, and the person who received the
+//     code gets an account of their own. Without this the two would share one
+//     account, each signing in with their own contact and seeing the other's
+//     orders.
+//   - The account is not a customer's: a code neither takes it over nor proves
+//     its contact, so a mistyped staff address cannot hand out a staff account.
+//     Staff sign in with a password, or with a code once the address has been
+//     confirmed from inside the account.
+func (s *AuthService) accountFor(ctx context.Context, channel domain.CodeChannel, destination string, now time.Time) (*domain.User, error) {
+	found, err := s.codes.findOrCreate(ctx, channel, destination)
+	if err != nil {
+		return nil, err
+	}
+	if !canSignIn(found) {
+		// Refused inside the transaction, so the code is not spent on an account
+		// that cannot sign in.
+		return nil, domain.ErrInvalidCredentials
+	}
+	if verifiedOn(found, channel) {
+		return found, nil
+	}
+	if found.Role != domain.RoleCustomer {
+		return nil, domain.ErrInvalidCredentials
+	}
+	if verifiedOn(found, otherChannel(channel)) {
+		if err := s.codes.detach(ctx, channel, found.ID); err != nil {
+			return nil, err
+		}
+		// The contact is free now, so this creates the account for it.
+		return s.codes.findOrCreate(ctx, channel, destination)
+	}
+	if err := s.codes.claim(ctx, channel, found.ID); err != nil {
+		return nil, err
+	}
+	if err := s.endEverySignIn(ctx, found.ID, now); err != nil {
+		return nil, err
+	}
+	found.PasswordHash = ""
+	return found, nil
 }
 
 func (s *AuthService) codeSignInAvailable(channel domain.CodeChannel) bool {
@@ -338,6 +380,13 @@ func (c *oneTimeCodes) claim(ctx context.Context, channel domain.CodeChannel, us
 	return c.accounts.ClaimEmail(ctx, userID)
 }
 
+func (c *oneTimeCodes) detach(ctx context.Context, channel domain.CodeChannel, userID uuid.UUID) error {
+	if channel == domain.CodeChannelPhone {
+		return c.accounts.DetachPhone(ctx, userID)
+	}
+	return c.accounts.DetachEmail(ctx, userID)
+}
+
 // normalizeDestination returns the address in its stored form, or false when
 // it is not one codes may be sent to: not valid for the channel, or a phone
 // number outside the countries the store texts.
@@ -363,6 +412,14 @@ func (c *oneTimeCodes) normalizeDestination(channel domain.CodeChannel, raw stri
 
 // verifiedOn reports whether the account has proved the address it has on the
 // channel.
+// otherChannel is the channel a contact is not on.
+func otherChannel(channel domain.CodeChannel) domain.CodeChannel {
+	if channel == domain.CodeChannelPhone {
+		return domain.CodeChannelEmail
+	}
+	return domain.CodeChannelPhone
+}
+
 func verifiedOn(user *domain.User, channel domain.CodeChannel) bool {
 	if channel == domain.CodeChannelPhone {
 		return user.PhoneVerified

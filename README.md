@@ -130,7 +130,11 @@ For a locally managed PostgreSQL instance, the equivalent is
 `go run ./cmd/cli create-owner -email ... -password ...`.
 
 Then obtain a JWT through `POST /api/auth/login` and use it as
-`Authorization: Bearer <access_token>` for `/api/v1/admin/...` routes.
+`Authorization: Bearer <access_token>` for `/api/v1/admin/...` routes. Keep
+`password` in `AUTH_METHODS` for that: a one-time code neither takes over a
+staff account nor confirms its address, so a mistyped staff address cannot hand
+the account to whoever reads that mailbox. Staff confirm their address from
+inside the account, after which codes sign them in like anyone else.
 
 Every sign-in — registration, password login and OAuth — also returns a
 `refresh_token` and `refresh_expires_at`. Access tokens are short-lived and
@@ -150,7 +154,9 @@ settings are present — the behaviour before the setting existed. A method that
 is not listed has no route, and the service refuses it as well. Startup rejects
 `google` without its credentials, Google credentials that no listed method uses,
 `email_code` without the `notifications` module, and `phone_code` without
-`SMS_PROVIDER`.
+`SMS_PROVIDER`. `CHECKOUT_REQUIRE_VERIFIED_EMAIL` and
+`CHECKOUT_REQUIRE_VERIFIED_PHONE` are refused where no enabled method could
+prove the contact, because a checkout nobody can reach takes no orders.
 
 With `email_code` there is one field and no password: `POST /api/auth/email-code`
 emails a six-digit code, and `POST /api/auth/email-code/verify` exchanges it for
@@ -181,14 +187,27 @@ A text is sent after its code is stored, never inside the transaction; if the
 provider refuses it the request is 503 and the code still counts towards the
 limits.
 
+The routes that send a message or check a code — registering, the code routes,
+verification and reset — run behind their own per-IP limit, wider than the
+password login limit, because they are already bounded per address in the
+database and one mobile network address can be thousands of customers.
+
 Every code works for `ONE_TIME_CODE_TTL` (10 minutes by default), allows five
 attempts and is accepted only for what it was sent for. An address is sent at
 most one code a minute, five an hour and ten a day, whatever they are for. Only
 HMACs of the address and the code are stored.
 
 Google signs in to an existing account with the same address only when both
-sides have verified it; otherwise the callback answers 409 and nothing is
-linked.
+sides have verified it. Where the account proved another contact instead — a
+verified phone number, say — the address is detached from it and Google gets an
+account of its own, because the address was put there by someone else.
+Otherwise the callback answers 409 and nothing is linked.
+
+A contact an account never proved is not ownership: anyone may register another
+person's address or number with a password. A code sent to it therefore takes
+the account over (its password goes, its sign-ins end) when the account proved
+nothing else, and detaches the contact into a new account when it did. Two
+people never share one account.
 
 ### Storefront origin and guest sessions
 
@@ -326,11 +345,14 @@ payment-provider invariants.
 
 ### Customer identity and optional profiles
 
-Password registration and login are always available at `POST /api/auth/register`
-and `POST /api/auth/login`. Registration accepts an email or phone number and
-a password; login accepts `login` (email or phone) and `password` (`email` is
-kept as a compatibility alias). Both return a short-lived JWT containing the
-string role.
+Password registration and login are at `POST /api/auth/register` and
+`POST /api/auth/login`, and are offered while `AUTH_METHODS` includes
+`password` (see below). Registration accepts an email or phone number and a
+password; login accepts `login` (email or phone) and `password` (`email` is
+kept as a compatibility alias). A phone number is international, with its
+country code: `+380501234567`. Both return a short-lived JWT containing the
+string role. `GET /api/auth/me` answers what the signed-in account has —
+its contacts, which of them are verified, and whether it has a password.
 
 Google OAuth is opt-in: set all of `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI`; otherwise no Google SDK

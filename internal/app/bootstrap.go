@@ -173,6 +173,7 @@ type HTTPDependencies struct {
 	LocaleMiddleware      gin.HandlerFunc
 	OptionalAuth          gin.HandlerFunc
 	LoginRateLimit        gin.HandlerFunc
+	CodeRateLimit         gin.HandlerFunc
 	APIRateLimit          gin.HandlerFunc
 	RequestBodyLimit      gin.HandlerFunc
 	MediaRequestBodyLimit gin.HandlerFunc

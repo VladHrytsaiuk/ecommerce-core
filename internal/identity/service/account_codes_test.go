@@ -305,3 +305,26 @@ func TestAConfirmationIsRefusedIfTheAddressChangedAfterTheCodeWasSent(t *testing
 		t.Fatalf("ConfirmEmail() = %v, want the code refused for an address the account no longer has", err)
 	}
 }
+
+func TestAStaffPasswordIsNotResetFromOutsideTheAccount(t *testing.T) {
+	fixture := newCodeFixture(t)
+	email := "manager@example.com"
+	manager := fixture.seedAccount(email, true, domain.UserStatusActive)
+	manager.Role = domain.RoleManager
+
+	if _, err := fixture.service.RequestPasswordReset(context.Background(), domain.RequestPasswordResetCommand{Email: email}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.sender.sent) != 0 {
+		t.Fatal("a reset code was sent to a staff account")
+	}
+	// Even holding a code, the reset is refused.
+	stored := fixture.store.issued[0]
+	fixture.store.codes[codeKey(stored.Purpose, stored.DestinationHash)] = fixture.service.codes.codeHash(stored.DestinationHash, domain.CodePurposeResetPassword, "123456")
+	if _, err := fixture.service.ResetPassword(context.Background(), domain.ResetPasswordCommand{Email: email, Code: "123456", Password: "new-password-123"}); !errors.Is(err, domain.ErrInvalidCode) {
+		t.Fatalf("ResetPassword(staff) = %v, want refused", err)
+	}
+	if len(fixture.accounts.passwords) != 0 {
+		t.Fatal("a staff password was replaced from outside the account")
+	}
+}

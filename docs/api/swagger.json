@@ -430,6 +430,49 @@
                 }
             }
         },
+        "/api/auth/me": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ],
+                "description": "What the account can sign in with and what still needs confirming. A client shows \"confirm your address\" from email_verified, and offers setting a password from has_password.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Read the signed-in account",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_identity_delivery_http.accountResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/auth/oauth/{provider}/callback": {
             "get": {
                 "description": "Called by the provider. A guest cart in the request cookie is carried into the authenticated session.",
@@ -6353,6 +6396,34 @@
                 "token": {
                     "type": "string",
                     "maxLength": 512
+                }
+            }
+        },
+        "internal_identity_delivery_http.accountResponse": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "description": "Email and Phone are the account's own contacts, absent where it has none.",
+                    "type": "string"
+                },
+                "email_verified": {
+                    "description": "EmailVerified and PhoneVerified say which contacts have been proved; a\nstore may require a verified one at checkout.",
+                    "type": "boolean"
+                },
+                "has_password": {
+                    "type": "boolean"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "phone_verified": {
+                    "type": "boolean"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },

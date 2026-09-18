@@ -52,6 +52,7 @@ func buildHTTPDependencies(cfg *config.Config, storeConfig StoreConfig, tokenMak
 		LocaleMiddleware: middleware.NewLocaleMiddleware(middleware.LocaleOptions{DefaultLocale: storeConfig.DefaultLocale, FallbackLocale: storeConfig.FallbackLocale, SupportedLocales: storeConfig.SupportedLocales}),
 		OptionalAuth:     middleware.OptionalAuthMiddleware(tokenMaker),
 		LoginRateLimit:   middleware.LoginRateLimitMiddleware(loginLimiter, cfg.JWTSecret),
+		CodeRateLimit:    middleware.CodeRateLimitMiddleware(loginLimiter, cfg.JWTSecret),
 		APIRateLimit:     middleware.RateLimitByIP(browsingLimiter, "api:v1", cfg.APIRateLimitPerMin, time.Minute, cfg.JWTSecret, errorRenderer),
 		RequestBodyLimit: middleware.MaxRequestBodyBytes(1<<20, errorRenderer),
 		// Includes multipart framing while ReadImagePart independently enforces

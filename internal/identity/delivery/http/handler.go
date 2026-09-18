@@ -242,6 +242,49 @@ func (h *AuthHandler) VerifyEmailCode(c *gin.Context) {
 	writeSession(c, stdhttp.StatusOK, session)
 }
 
+type accountResponse struct {
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
+	// Email and Phone are the account's own contacts, absent where it has none.
+	Email *string `json:"email,omitempty"`
+	Phone *string `json:"phone,omitempty"`
+	// EmailVerified and PhoneVerified say which contacts have been proved; a
+	// store may require a verified one at checkout.
+	EmailVerified bool `json:"email_verified"`
+	PhoneVerified bool `json:"phone_verified"`
+	HasPassword   bool `json:"has_password"`
+}
+
+// Account godoc
+// @Summary Read the signed-in account
+// @Description What the account can sign in with and what still needs confirming. A client shows "confirm your address" from email_verified, and offers setting a password from has_password.
+// @Tags Auth
+// @Produce json
+// @Success 200 {object} accountResponse
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security bearerAuth
+// @Router /api/auth/me [get]
+func (h *AuthHandler) Account(c *gin.Context) {
+	userID, ok := middleware.AuthenticatedUserID(c)
+	if !ok {
+		c.AbortWithStatusJSON(stdhttp.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+	account, err := h.service.Account(c.Request.Context(), userID)
+	if err != nil {
+		handleAuthError(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(stdhttp.StatusOK, accountResponse{
+		UserID: account.UserID.String(), Role: string(account.Role),
+		Email: account.Email, Phone: account.Phone,
+		EmailVerified: account.EmailVerified, PhoneVerified: account.PhoneVerified,
+		HasPassword: account.HasPassword,
+	})
+}
+
 type phoneCodeRequest struct {
 	Phone string `json:"phone" binding:"required"`
 }
@@ -570,25 +613,39 @@ type SignInMethods struct {
 	PasswordCodes bool
 }
 
-func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService, profileService identityDomain.ProfileService, methods SignInMethods, oauthRedirectURI string, authMiddleware, sensitiveLimit gin.HandlerFunc, loginLimit ...gin.HandlerFunc) {
+// RouteLimits are the rate limits the identity routes run behind. Sensitive
+// covers the whole /auth group; Login guards password guessing; Codes guards
+// the routes that make the store send a message, which have their own
+// per-address limits in the database and so need a wider one here — a mobile
+// network puts thousands of customers behind one address.
+type RouteLimits struct {
+	Sensitive gin.HandlerFunc
+	Login     gin.HandlerFunc
+	Codes     gin.HandlerFunc
+}
+
+func RegisterRoutes(api *gin.RouterGroup, authService identityDomain.AuthService, profileService identityDomain.ProfileService, methods SignInMethods, oauthRedirectURI string, authMiddleware gin.HandlerFunc, limits RouteLimits) {
 	if authService != nil {
 		auth := api.Group("/auth")
-		if sensitiveLimit != nil {
-			auth.Use(sensitiveLimit)
+		if limits.Sensitive != nil {
+			auth.Use(limits.Sensitive)
 		}
 		handler := NewAuthHandler(authService, oauthRedirectURI)
-		// Signing in, and asking for a code to sign in with, share the per-IP
-		// login limit: the one guards against guessing, the other against using
-		// the store to send mail to strangers.
-		guarded := func(handler gin.HandlerFunc) []gin.HandlerFunc {
-			if len(loginLimit) > 0 && loginLimit[0] != nil {
-				return []gin.HandlerFunc{loginLimit[0], handler}
+		behind := func(limit gin.HandlerFunc, handler gin.HandlerFunc) []gin.HandlerFunc {
+			if limit != nil {
+				return []gin.HandlerFunc{limit, handler}
 			}
 			return []gin.HandlerFunc{handler}
 		}
+		guarded := func(handler gin.HandlerFunc) []gin.HandlerFunc { return behind(limits.Codes, handler) }
+		if authMiddleware != nil {
+			auth.GET("/me", authMiddleware, handler.Account)
+		}
 		if methods.Password {
-			auth.POST("/register", handler.Register)
-			auth.POST("/login", guarded(handler.Login)...)
+			// Registering sends a confirmation message, so it is limited like
+			// the other routes that do.
+			auth.POST("/register", guarded(handler.Register)...)
+			auth.POST("/login", behind(limits.Login, handler.Login)...)
 		}
 		if methods.Password && methods.PasswordCodes {
 			auth.POST("/password-reset", guarded(handler.RequestPasswordReset)...)

@@ -483,6 +483,51 @@ func TestCodeAccounts(t *testing.T) {
 		}
 	})
 
+	t.Run("detaching a contact leaves the account its other one", func(t *testing.T) {
+		seed := func(t *testing.T) (uuid.UUID, string, string) {
+			t.Helper()
+			id := uuid.New()
+			email := "detach-" + uuid.NewString() + "@example.test"
+			phone := "+38050" + fmt.Sprintf("%09d", time.Now().UnixNano()%1000000000)
+			if err := db.Exec(`INSERT INTO users (id, email, phone, email_verified, phone_verified, role, status) VALUES (?, ?, ?, TRUE, TRUE, 'customer', 'active')`, id, email, phone).Error; err != nil {
+				t.Fatal(err)
+			}
+			return id, email, phone
+		}
+
+		id, email, phone := seed(t)
+		if err := accounts.DetachEmail(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if countRows(t, db, `SELECT COUNT(*) FROM users WHERE id = ? AND email IS NULL AND NOT email_verified AND phone = ? AND phone_verified`, id, phone) != 1 {
+			t.Fatal("detaching the address did not leave the account its verified number")
+		}
+		// The address is free now, so it can become an account of its own.
+		if _, err := accounts.FindOrCreateByEmail(ctx, email); err != nil {
+			t.Fatalf("FindOrCreateByEmail() after the detachment = %v", err)
+		}
+		// The account cannot lose its last contact: users_identity_present
+		// refuses, and it keeps the number.
+		if err := accounts.DetachPhone(ctx, id); err == nil {
+			t.Fatal("an account was left with no contact at all")
+		}
+		if countRows(t, db, `SELECT COUNT(*) FROM users WHERE id = ? AND phone = ? AND phone_verified`, id, phone) != 1 {
+			t.Fatal("the refused detachment changed the account")
+		}
+
+		other, otherEmail, _ := seed(t)
+		if err := accounts.DetachPhone(ctx, other); err != nil {
+			t.Fatal(err)
+		}
+		if countRows(t, db, `SELECT COUNT(*) FROM users WHERE id = ? AND phone IS NULL AND NOT phone_verified AND email = ? AND email_verified`, other, otherEmail) != 1 {
+			t.Fatal("detaching the number did not leave the account its verified address")
+		}
+
+		if err := accounts.DetachEmail(ctx, uuid.New()); !errors.Is(err, domain.ErrUserNotFound) {
+			t.Fatalf("DetachEmail(no account) = %v, want ErrUserNotFound", err)
+		}
+	})
+
 	t.Run("claiming an address verifies it and removes the password", func(t *testing.T) {
 		id := uuid.New()
 		if err := db.Exec(`INSERT INTO users (id, email, password_hash, role, status) VALUES (?, ?, 'squatter', 'customer', 'active')`, id, "claim-"+id.String()+"@example.test").Error; err != nil {

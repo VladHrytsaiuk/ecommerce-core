@@ -333,6 +333,14 @@ func (c StoreConfig) Validate() error {
 			return err
 		}
 	}
+	// A checkout nobody can reach is a store that takes no orders. Verifying an
+	// address needs a way to prove one, and only phone_code proves a number.
+	if c.CheckoutRequireVerifiedEmail && !c.canVerifyEmail() {
+		return fmt.Errorf("CHECKOUT_REQUIRE_VERIFIED_EMAIL requires a sign-in method that proves an address: email_code, google, or password with the notifications module")
+	}
+	if c.CheckoutRequireVerifiedPhone && !c.AuthMethods.Has(AuthMethodPhoneCode) {
+		return fmt.Errorf("CHECKOUT_REQUIRE_VERIFIED_PHONE requires AUTH_METHODS to include phone_code, which is what proves a phone number")
+	}
 	if c.CheckoutReservationTTL <= 0 || c.CheckoutReservationTTL > 24*time.Hour {
 		return fmt.Errorf("CHECKOUT_RESERVATION_TTL must be between 1ns and 24h")
 	}
@@ -450,6 +458,17 @@ func hasDuplicates(values []string) bool {
 
 func isValidLocale(locale string) bool {
 	return len(locale) <= 10 && localeCodePattern.MatchString(locale)
+}
+
+// canVerifyEmail reports whether some enabled method ends with a customer whose
+// address this store has proved.
+func (c StoreConfig) canVerifyEmail() bool {
+	if c.AuthMethods.Has(AuthMethodEmailCode) || c.AuthMethods.Has(AuthMethodGoogle) {
+		return true
+	}
+	// Password accounts are confirmed by the code registration emails, which
+	// needs the module that sends it.
+	return c.AuthMethods.Has(AuthMethodPassword) && c.EmailCodesAvailable()
 }
 
 // Modules exposes ENABLED_MODULES as a typed set. Callers compare against the

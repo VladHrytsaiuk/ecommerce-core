@@ -20,7 +20,7 @@ func newPhoneFixture(t *testing.T) phoneFixture {
 	t.Helper()
 	fixture := phoneFixture{codeFixture: newCodeFixture(t), texter: &codeSenderFake{channel: domain.CodeChannelPhone}}
 	if _, err := fixture.service.WithCodes(CodeConfig{
-		Store: fixture.store, Accounts: fixture.accounts, Secret: codeSecret, TTL: 10 * time.Minute,
+		Store: fixture.store, Secret: codeSecret, TTL: 10 * time.Minute,
 		Senders:           []domain.CodeSender{fixture.sender, fixture.texter},
 		PhoneCountryCodes: []string{"380", "+48"}, PhoneHourlyLimit: 50,
 	}); err != nil {
@@ -182,7 +182,7 @@ func TestPhoneCodesRefuseAConfigurationThatInvitesFraud(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			service := refreshService(t, &userRepositoryFake{}, nil)
-			_, err := service.WithCodes(CodeConfig{Store: &codeStoreFake{}, Accounts: &codeAccountsFake{}, Secret: codeSecret, TTL: 10 * time.Minute, Senders: []domain.CodeSender{texter}, PhoneCountryCodes: testCase.countryCodes, PhoneHourlyLimit: testCase.hourlyLimit})
+			_, err := service.WithAccounts(&codeAccountsFake{}).WithCodes(CodeConfig{Store: &codeStoreFake{}, Secret: codeSecret, TTL: 10 * time.Minute, Senders: []domain.CodeSender{texter}, PhoneCountryCodes: testCase.countryCodes, PhoneHourlyLimit: testCase.hourlyLimit})
 			if err == nil {
 				t.Fatal("WithCodes() accepted phone codes that could be sent anywhere, without bound")
 			}
@@ -209,33 +209,91 @@ func TestRegistrationAndPasswordSignInAgreeOnAPhoneNumber(t *testing.T) {
 	}
 }
 
-// Which verification a code checks is its own channel's: a verified email does
-// not vouch for an unproved phone number, nor the other way round.
-func TestAClaimLooksAtTheChannelTheCodeWasSentOn(t *testing.T) {
+// Which verification a code checks is its own channel's, and an account that
+// proved the other contact belongs to whoever proved it.
+func TestAnAccountBelongsToWhoeverProvedAContact(t *testing.T) {
 	fixture := newPhoneFixture(t)
 	phone, email := "+380501234567", "buyer@example.com"
-	emailOnly := &domain.User{ID: uuid.New(), Phone: &phone, Email: &email, EmailVerified: true, PasswordHash: "hash", Role: domain.RoleCustomer, Status: domain.UserStatusActive}
-	fixture.accounts.byPhone = map[string]*domain.User{phone: emailOnly}
+	// Someone registered with their own address and this number, and confirmed
+	// the address. The number is not theirs.
+	squatted := &domain.User{ID: uuid.New(), Phone: &phone, Email: &email, EmailVerified: true, PasswordHash: "hash", Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	fixture.accounts.byPhone = map[string]*domain.User{phone: squatted}
+	fixture.accounts.byEmail[email] = squatted
 	if _, err := fixture.requestPhone(phone); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := fixture.verifyPhone(phone, fixture.texter.sent[0].Code); err != nil {
-		t.Fatal(err)
-	}
-	if len(fixture.accounts.claimed) != 1 {
-		t.Fatal("an unverified number was not claimed because the account's email was verified")
 	}
 
+	session, err := fixture.verifyPhone(phone, fixture.texter.sent[0].Code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.UserID == squatted.ID {
+		t.Fatal("the number's owner was signed in to the account that proved another contact; both would share it")
+	}
+	if len(fixture.accounts.detached) != 1 || fixture.accounts.detached[0] != squatted.ID {
+		t.Fatalf("detached = %v, want the number taken off that account", fixture.accounts.detached)
+	}
+	if len(fixture.accounts.claimed) != 0 {
+		t.Fatal("an account that proved its address was claimed")
+	}
+	if fixture.accounts.byPhone[phone] == nil || fixture.accounts.byPhone[phone].ID != session.UserID {
+		t.Fatal("the number did not become an account of its own")
+	}
+
+	// The other way round: a verified number, an address someone else put on
+	// the account.
 	fixture = newPhoneFixture(t)
-	phoneOnly := &domain.User{ID: uuid.New(), Phone: &phone, PhoneVerified: true, PasswordHash: "hash", Role: domain.RoleCustomer, Status: domain.UserStatusActive}
-	fixture.accounts.byPhone = map[string]*domain.User{phone: phoneOnly}
-	if _, err := fixture.requestPhone(phone); err != nil {
+	phoneOwner := &domain.User{ID: uuid.New(), Phone: &phone, Email: &email, PhoneVerified: true, PasswordHash: "hash", Role: domain.RoleCustomer, Status: domain.UserStatusActive}
+	fixture.accounts.byPhone = map[string]*domain.User{phone: phoneOwner}
+	fixture.accounts.byEmail[email] = phoneOwner
+	emailCode := fixture.request(t, email)
+
+	emailSession, err := fixture.verify(email, emailCode.Code)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.verifyPhone(phone, fixture.texter.sent[0].Code); err != nil {
-		t.Fatal(err)
+	if emailSession.UserID == phoneOwner.ID || len(fixture.accounts.detached) != 1 {
+		t.Fatalf("session %s, detached %v; want the address detached and its own account", emailSession.UserID, fixture.accounts.detached)
 	}
-	if len(fixture.accounts.claimed) != 0 || len(fixture.refresh.revokedUsers) != 0 {
-		t.Fatal("a verified number was claimed because the account has no verified email")
+	if !phoneOwner.PhoneVerified || phoneOwner.PasswordHash != "hash" {
+		t.Fatal("the account that proved its number lost something")
+	}
+}
+
+func TestACodeNeitherTakesOverNorProvesAStaffAccount(t *testing.T) {
+	// A mistyped staff address would otherwise hand the account to whoever
+	// reads that mailbox.
+	for _, role := range []domain.Role{domain.RoleManager, domain.RoleAdmin, domain.RoleOwner} {
+		t.Run(string(role), func(t *testing.T) {
+			fixture := newPhoneFixture(t)
+			email := "staff@example.com"
+			staff := &domain.User{ID: uuid.New(), Email: &email, PasswordHash: "hash", Role: role, Status: domain.UserStatusActive}
+			fixture.accounts.byEmail[email] = staff
+			fixture.users.byLogin[email], fixture.users.byID[staff.ID] = staff, staff
+			message := fixture.request(t, email)
+
+			if _, err := fixture.verify(email, message.Code); !errors.Is(err, domain.ErrInvalidCredentials) {
+				t.Fatalf("VerifySignInCode() = %v, want refused", err)
+			}
+			if len(fixture.accounts.claimed) != 0 || len(fixture.accounts.detached) != 0 || staff.PasswordHash != "hash" {
+				t.Fatal("a staff account was claimed or changed by a code")
+			}
+
+			// A reset is refused too, and nothing is sent.
+			if _, err := fixture.service.RequestPasswordReset(context.Background(), domain.RequestPasswordResetCommand{Email: email}); err != nil {
+				t.Fatal(err)
+			}
+			if len(fixture.sender.sent) != 1 {
+				t.Fatalf("sent %d messages, want only the sign-in code; a staff account is not sent a reset", len(fixture.sender.sent))
+			}
+
+			// Once the address is confirmed from inside the account, a code
+			// signs the staff member in as it does anyone else.
+			staff.EmailVerified = true
+			second := fixture.request(t, email)
+			if _, err := fixture.verify(email, second.Code); err != nil {
+				t.Fatalf("VerifySignInCode() with a confirmed address = %v", err)
+			}
+		})
 	}
 }

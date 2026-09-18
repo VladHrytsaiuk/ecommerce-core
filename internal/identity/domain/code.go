@@ -186,7 +186,7 @@ type CodeSender interface {
 	SendCode(ctx context.Context, message CodeMessage) error
 }
 
-// CodeAccounts reads and changes the accounts a code proves an address for. It
+// CodeAccounts reads and changes the accounts a code proves a contact for. It
 // joins the transaction carried in ctx.
 type CodeAccounts interface {
 	// FindByEmail returns the account with this address, or ErrUserNotFound.
@@ -209,4 +209,9 @@ type CodeAccounts interface {
 	// SetPassword replaces the account's password and marks its address
 	// verified: the code that allowed it was read at that address.
 	SetPassword(ctx context.Context, userID uuid.UUID, passwordHash string) error
+	// DetachEmail removes the address from the account, leaving the account to
+	// whoever proved its other contact. See AuthService.VerifySignInCode.
+	DetachEmail(ctx context.Context, userID uuid.UUID) error
+	// DetachPhone is DetachEmail for the account's phone number.
+	DetachPhone(ctx context.Context, userID uuid.UUID) error
 }
